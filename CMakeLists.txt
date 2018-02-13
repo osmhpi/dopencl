@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 2.6)
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_MODULE_PATH})
+include(solar-cmake/TargetArch)
 
 project(dOpenCL)
+
+target_architecture(CMAKE_TARGET_ARCHITECTURES)
+message(STATUS "Target architectures: ${CMAKE_TARGET_ARCHITECTURES}")
 
 # The following code snippet for enabling C++11 support for GCC has been taken from:
 # http://stackoverflow.com/questions/12715005/add-c0x-support-in-cmake
@@ -9,9 +14,17 @@ project(dOpenCL)
 if(CMAKE_COMPILER_IS_GNUCXX)
 	execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GNUCXX_VERSION)
 	if(GNUCXX_VERSION VERSION_EQUAL 4.6)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+		if(CMAKE_TARGET_ARCHITECTURES STREQUAL ppc64)
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -mno-altivec")
+		else()
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+		endif()
 	elseif(GNUCXX_VERSION VERSION_GREATER 4.6)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+		if(CMAKE_TARGET_ARCHITECTURES STREQUAL ppc64)
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -mno-altivec")
+		else()
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+		endif()
 	else()
 		message(SEND_ERROR "Compiler does not support C++11")
 	endif()

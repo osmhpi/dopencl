@@ -1,0 +1,3 @@
+[submodule "solar-cmake"]
+	path = solar-cmake
+	url = https://github.com/axr/solar-cmake.git
