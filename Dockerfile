@@ -1,8 +1,7 @@
 FROM ubuntu:bionic
 
 # Install dependencies
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
     && apt-get install --yes --no-install-recommends \
         build-essential \
         git \
@@ -11,7 +10,6 @@ RUN apt-get update \
         opencl-headers \
         ocl-icd-opencl-dev \
         ca-certificates
-ENV DEBIAN_FRONTEND=
 
 # dOpenCL
 RUN git clone https://github.com/osmhpi/dopencl /tmp/dopencl --recursive \
