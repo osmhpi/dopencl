@@ -72,9 +72,9 @@ public:
     virtual void setCallback(
             const std::function<void (cl_int)>& notify) = 0;
 
-	virtual unsigned long submit() const = 0;
-	virtual unsigned long start() const = 0;
-	virtual unsigned long end() const = 0;
+	virtual cl_ulong submit() const = 0;
+	virtual cl_ulong start() const = 0;
+	virtual cl_ulong end() const = 0;
 
     virtual bool isComplete() const = 0;
 
