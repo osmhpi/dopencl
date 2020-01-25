@@ -1,0 +1,32 @@
+FROM ubuntu:bionic
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+        # Needs certificates for HTTPS clone
+        git ca-certificates \
+        # Build utilities
+        cmake make g++ \
+        # Required by dopencl/icdpp, dopencl/dclasio
+        libboost-dev \
+        # Required by dopencl/daemon
+        libboost-program-options-dev \
+        # Required by dopencl/dclasio
+        libboost-system-dev \
+        # NB: Both C and C++ headers + libOpenCL required
+        opencl-headers ocl-icd-opencl-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy source files in
+COPY . /tmp/dopencl
+
+# Build
+RUN mkdir /tmp/dopencl/build \
+ && cd /tmp/dopencl/build \
+ && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/dopencl .. \
+ && make -j$(nproc) \
+ && make install \
+ && mkdir /opt/dopencl/include \
+ && cp -r /tmp/dopencl/dclasio/include/* /opt/dopencl/include \
+ && rm -Rf /tmp/dopencl/build
