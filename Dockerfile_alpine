@@ -2,8 +2,6 @@ FROM alpine:3.11
 
 # Install dependencies
 RUN apk add --update \
-        # Needs certificates for HTTPS clone
-        git ca-certificates \
         # Build utilities
         cmake make g++ \
         boost-dev \

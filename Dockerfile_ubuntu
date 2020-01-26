@@ -3,8 +3,6 @@ FROM ubuntu:bionic
 # Install dependencies
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
-        # Needs certificates for HTTPS clone
-        git ca-certificates \
         # Build utilities
         cmake make g++ \
         # Required by dopencl/icdpp, dopencl/dclasio
