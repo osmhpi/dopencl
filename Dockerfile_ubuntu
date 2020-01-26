@@ -1,4 +1,4 @@
-FROM ubuntu:bionic
+FROM ubuntu:bionic AS builder
 
 # Install dependencies
 RUN apt-get update \
@@ -27,4 +27,17 @@ RUN mkdir /tmp/dopencl/build \
  && make install \
  && mkdir /opt/dopencl/include \
  && cp -r /tmp/dopencl/dclasio/include/* /opt/dopencl/include \
- && rm -Rf /tmp/dopencl/build
+ && install -D -m755 /tmp/dopencl/dopenclenv.sh /etc/profile.d/dopenclenv.sh
+
+FROM ubuntu:bionic
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+        libboost-program-options-dev libboost-system-dev ocl-icd-opencl-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Final install
+COPY --from=builder /opt/dopencl /opt/dopencl
+COPY --from=builder /etc/profile.d/dopenclenv.sh /etc/profile.d/dopenclenv.sh

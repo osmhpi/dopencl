@@ -1,4 +1,4 @@
-FROM alpine:3.11
+FROM alpine:3.11 as builder
 
 # Install dependencies
 RUN apk add --update \
@@ -27,4 +27,17 @@ RUN mkdir /tmp/dopencl/build \
  && make install \
  && mkdir /opt/dopencl/include \
  && cp -r /tmp/dopencl/dclasio/include/* /opt/dopencl/include \
- && rm -Rf /tmp/dopencl/build
+ && install -D -m755 /tmp/dopencl/dopenclenv.sh /etc/profile.d/dopenclenv.sh
+
+FROM alpine:3.11
+
+# Install dependencies
+RUN apk add --update \
+        boost-program_options boost-system opencl-icd-loader \
+ && rm -rf /var/cache/apk/*
+
+
+
+# Final install
+COPY --from=builder /opt/dopencl /opt/dopencl
+COPY --from=builder /etc/profile.d/dopenclenv.sh /etc/profile.d/dopenclenv.sh

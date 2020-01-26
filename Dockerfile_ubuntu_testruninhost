@@ -1,0 +1,21 @@
+FROM dopencl_ubuntu
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+    wget ca-certificates iproute2 gcc opencl-headers ocl-icd-opencl-dev \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Build sample program
+RUN wget https://raw.githubusercontent.com/olcf/vector_addition_tutorials/bb2f09293ca7bfad52905fc8a5df02451f21f687/OpenCL/vecAdd.c \
+ && echo "e576dacd49cab1d428a1ed0c43f0f4b2bc72d3393062eb5df01b76b48cdb74ee  vecAdd.c" | sha256sum -c
+RUN gcc vecAdd.c -lOpenCL -lm -ovecAdd
+
+# Run sample program on the host ('dcld 0.0.0.0' must be running there)
+RUN echo '#!/bin/sh\n\
+. /etc/profile.d/dopenclenv.sh\n\
+ip route|awk "/default/ { print \$3 }" > dcl.nodes\n\
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./vecAdd' > launchscript.sh \
+ && chmod +x launchscript.sh
+CMD ["/launchscript.sh"]

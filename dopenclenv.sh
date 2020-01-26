@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 # See https://unix.stackexchange.com/a/162893 for the trick used here to avoid extra colons
 export PATH="${PATH:+${PATH}:}/opt/dopencl/bin"
