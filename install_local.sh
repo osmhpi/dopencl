@@ -4,7 +4,7 @@ set -euo pipefail
 # Build
 mkdir -p build
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/dopencl ..
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/dopencl -DCMAKE_CXX_FLAGS=-Wno-ignored-attributes ..
 make -j$(nproc)
 
 # Remove old install
