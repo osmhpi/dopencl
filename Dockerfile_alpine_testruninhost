@@ -2,20 +2,22 @@ FROM dopencl_alpine
 
 # Install dependencies
 RUN apk add --update \
-    wget ca-certificates gcc musl-dev opencl-headers opencl-icd-loader-dev \
+    gcc musl-dev opencl-headers opencl-icd-loader-dev openssl-dev \
  && rm -rf /var/cache/apk/*
 
 
 
 # Build sample program
-RUN wget https://raw.githubusercontent.com/olcf/vector_addition_tutorials/bb2f09293ca7bfad52905fc8a5df02451f21f687/OpenCL/vecAdd.c \
- && echo "e576dacd49cab1d428a1ed0c43f0f4b2bc72d3393062eb5df01b76b48cdb74ee  vecAdd.c" | sha256sum -c
-RUN gcc vecAdd.c -lOpenCL -lm -ovecAdd
+COPY test_ca.c test_ca.c
+RUN gcc -fopenmp -O3 -march=native -Wall -Wextra -DLEGACY_OPENCL_1_2 test_ca.c -o test_ca -lOpenCL -lcrypto
 
-# Run sample program on the host ('dcld 0.0.0.0' must be running there)
+# The list of dOpenCL worker nodes must be given as an environment variable (comma separated hosts)
+ENV DCL_NODES 192.168.1.234,192.168.1.243
+
+# Run sample program on the given dOpenCL worker nodes
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
-ip route|awk "/default/ { print \$3 }" > dcl.nodes\n\
-LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./vecAdd\n' > launchscript.sh \
+echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 10240 500\n' > launchscript.sh \
  && chmod +x launchscript.sh
 CMD ["/launchscript.sh"]
