@@ -1,5 +1,18 @@
 FROM dopencl_ubuntu
 
+# OpenCL runtime for nvidia-docker. Based on the nvidia/opencl DockerHub image
+# See https://gitlab.com/nvidia/container-images/opencl/blob/ubuntu18.04/runtime/Dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ocl-icd-libopencl1 clinfo \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/OpenCL/vendors \
+ && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+
+# nvidia-container-runtime
+ENV NVIDIA_VISIBLE_DEVICES all
+ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
+
 # Run worker program on the container (will require OpenCL inside, e.g. with nvidia-docker)
 EXPOSE 25025 25125
 
