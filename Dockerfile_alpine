@@ -33,7 +33,7 @@ FROM alpine:3.11
 
 # Install dependencies
 RUN apk add --update \
-        boost-program_options boost-system opencl-icd-loader \
+        libstdc++ boost-program_options boost-system opencl-icd-loader \
  && rm -rf /var/cache/apk/*
 
 
