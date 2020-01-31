@@ -13,9 +13,9 @@ RUN wget https://raw.githubusercontent.com/olcf/vector_addition_tutorials/bb2f09
 RUN gcc vecAdd.c -lOpenCL -lm -ovecAdd
 
 # Run sample program on the host ('dcld 0.0.0.0' must be running there)
-RUN echo '#!/bin/sh\n\
+RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
 ip route|awk "/default/ { print \$3 }" > dcl.nodes\n\
-LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./vecAdd' > launchscript.sh \
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./vecAdd\n' > launchscript.sh \
  && chmod +x launchscript.sh
 CMD ["/launchscript.sh"]
