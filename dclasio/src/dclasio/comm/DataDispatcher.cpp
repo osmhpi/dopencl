@@ -63,6 +63,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <boost/system/error_code.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <functional>
 #include <list>
@@ -229,7 +230,7 @@ void DataDispatcher::handle_approval(
     } else {
 #if USE_DATA_STREAM_RESPONSE
         // signal reject: return process ID 0
-        *buf << dcl::process_id(0);
+        *buf << dcl::process_id();
         boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
 #endif
         dcl::util::Logger << dcl::util::Error

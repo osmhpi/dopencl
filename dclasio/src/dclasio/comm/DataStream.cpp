@@ -55,6 +55,7 @@
 #include <boost/asio/write.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <array>
 #include <cassert>

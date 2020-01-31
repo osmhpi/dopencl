@@ -90,7 +90,7 @@ ProcessImpl::ProcessImpl(
         comm::MessageDispatcher& messageDispatcher,
         comm::DataDispatcher& dataDispatcher,
         const endpoint_type& endpoint) :
-        _pid(0) /* unknown process ID */,
+        _pid() /* unknown process ID */,
         _messageDispatcher(messageDispatcher),
         _messageQueue(*_messageDispatcher.create_message_queue(endpoint)),
         _dataDispatcher(dataDispatcher),

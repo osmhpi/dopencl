@@ -212,7 +212,7 @@ private:
         // connect message queue to remote process
         _pid = _messageQueue.connect(localProcessType, pid);
         // TODO Connection asynchronously
-        if (_pid != 0) {
+        if (!_pid.is_nil()) {
             // FIXME Start reading messages automatically
             _messageDispatcher.start_read_message(_messageQueue);
             _connectionStatus = ConnectionStatus::MESSAGE_QUEUE_CONNECTED;
@@ -241,7 +241,7 @@ private:
             std::lock_guard<std::recursive_mutex> lock(_connectionStatusMutex);
             assert(_dataStream && "No data stream");
             if (_dataStream) {
-                if (_dataStream->connect(pid) != 0) {
+                if (!_dataStream->connect(pid).is_nil()) {
                     _connectionStatus = ConnectionStatus::CONNECTED;
                     _connectionStatusChanged.notify_all();
                 } else {

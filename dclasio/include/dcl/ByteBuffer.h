@@ -63,6 +63,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <boost/uuid/uuid.hpp>
 
 namespace {
 
@@ -80,6 +81,7 @@ template<> struct serialization<cl_long>   { static const size_t size = sizeof(c
 template<> struct serialization<cl_ulong>  { static const size_t size = sizeof(cl_ulong);  }; // 64 bit
 template<> struct serialization<float>     { static const size_t size = sizeof(float);     }; // 32 bit
 template<> struct serialization<double>    { static const size_t size = sizeof(double);    }; // 64 bit
+template<> struct serialization<boost::uuids::uuid> { static const size_t size = sizeof(boost::uuids::uuid);  }; // 128 bit
 
 } // anonymous namespace
 

@@ -62,6 +62,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <boost/system/error_code.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <array>
 #include <memory>
@@ -233,7 +234,7 @@ void MessageDispatcher::handle_approval(
         start_read_message(*msgq);
     } else {
         // signal reject: return process ID 0
-        *buf << dcl::process_id(0);
+        *buf << dcl::process_id();
         boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
         dcl::util::Logger << dcl::util::Error
                 << "Rejected message queue from process (pid=" << pid << ')'

@@ -47,11 +47,27 @@
 #define DCLTYPES_H_
 
 #include <cstdint>
+#include <boost/uuid/uuid.hpp>
+#include <boost/functional/hash.hpp>
+
+namespace std
+{
+
+template<>
+struct hash<boost::uuids::uuid>
+{
+    size_t operator () (const boost::uuids::uuid& uid) const
+    {
+        return boost::hash<boost::uuids::uuid>()(uid);
+    }
+};
+
+}
 
 namespace dcl {
 
 typedef uint32_t object_id; //!< a application object identifier
-typedef uint32_t process_id; //!< a unique process identifier
+typedef boost::uuids::uuid process_id; //!< a unique process identifier
 
 enum class kernel_arg_type {
 	BINARY, MEMORY, SAMPLER

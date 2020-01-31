@@ -55,6 +55,7 @@
 #include <boost/asio/write.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 // TODO Replace htonl, ntohl by own, portable implementation
 #include <netinet/in.h>
@@ -87,7 +88,7 @@ message_queue::message_queue(
 message_queue::message_queue(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
-        _socket(socket), _remote_endpoint(remote_endpoint), _pid(0) {
+        _socket(socket), _remote_endpoint(remote_endpoint), _pid() {
     assert(!socket->is_open()); // socket must not be connect
 }
 

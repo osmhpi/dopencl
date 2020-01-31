@@ -111,9 +111,7 @@ public:
             std::string&        hostName,
             port_type&          port);
 
-    static dcl::process_id create_process_id(
-            const std::string& hostName,
-            port_type port);
+    static dcl::process_id create_process_id();
 
 
     CommunicationManagerImpl();

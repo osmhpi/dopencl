@@ -62,7 +62,8 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
-#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
 
 #include <cassert>
 #include <functional>
@@ -102,32 +103,18 @@ void CommunicationManagerImpl::resolve_url(
 	}
 }
 
-dcl::process_id CommunicationManagerImpl::create_process_id(
-        const std::string& hostName,
-        port_type port) {
-    // FIXME Create unique process ID without host and port
-    // A simple case where this causes problems is when 2+ dcld processes are
-    // bound to 0.0.0.0 (any IP address). Then both processes get the same process
-    // ID, and failures ocurr when trying to use those servers
-    dcl::process_id pid = 0;
-
-    for (std::string::size_type i = 0; i < hostName.size(); ++i) {
-        pid += (unsigned char) hostName[i];
-        pid <<= 4;
-    }
-    pid += port;
-
-    return pid;
+dcl::process_id CommunicationManagerImpl::create_process_id() {
+    return boost::uuids::random_generator()();
 }
 
 CommunicationManagerImpl::CommunicationManagerImpl() :
-        _pid(create_process_id("", DEFAULT_PORT)),
+        _pid(create_process_id()),
         _messageDispatcher(_pid), _dataDispatcher(_pid) {
 }
 
 CommunicationManagerImpl::CommunicationManagerImpl(
         const std::string& host, port_type port) :
-        _pid(create_process_id(host, port)), _messageDispatcher(_pid), _dataDispatcher(_pid) {
+        _pid(create_process_id()), _messageDispatcher(_pid), _dataDispatcher(_pid) {
     bind(host, port);
 }
 
