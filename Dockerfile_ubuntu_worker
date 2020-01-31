@@ -16,20 +16,14 @@ ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
 # Run worker program on the container (will require OpenCL inside, e.g. with nvidia-docker)
 EXPOSE 25025 25125
 
-# FIXME: Here it would be more practical to simply run dcld 0.0.0.0, but this doesn't work
-# because dOpenCL assigns the workers process IDs based on the hostname
-# (see CommunicationManagerImpl::create_process_id), so two workers
-# both bound to 0.0.0.0 will colide. So use the container IP instead.
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
-BIND_IP=$(hostname -i)\n\
-dcld "$BIND_IP"\n' > launchscript.sh \
+dcld 0.0.0.0\n' > launchscript.sh \
  && chmod +x launchscript.sh
 
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
-BIND_IP=$(hostname -i)\n\
-gdb -ex=run --args dcld "$BIND_IP"\n' > launchscript_debug.sh \
+gdb -ex=run --args dcld 0.0.0.0\n' > launchscript_debug.sh \
  && chmod +x launchscript_debug.sh
 
 CMD ["/launchscript.sh"]
