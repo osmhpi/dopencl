@@ -106,6 +106,9 @@ dcl::process_id CommunicationManagerImpl::create_process_id(
         const std::string& hostName,
         port_type port) {
     // FIXME Create unique process ID without host and port
+    // A simple case where this causes problems is when 2+ dcld processes are
+    // bound to 0.0.0.0 (any IP address). Then both processes get the same process
+    // ID, and failures ocurr when trying to use those servers
     dcl::process_id pid = 0;
 
     for (std::string::size_type i = 0; i < hostName.size(); ++i) {
