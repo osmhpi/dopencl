@@ -83,7 +83,7 @@ ProcessImpl::ProcessImpl(
         _messageDispatcher(messageDispatcher), _messageQueue(msgq),
         _dataDispatcher(dataDispatcher), _dataStream(nullptr),
         _connectionStatus(ConnectionStatus::MESSAGE_QUEUE_CONNECTED) {
-    assert(_pid != 0 && "Invalid process ID");
+    assert(!_pid.is_nil() && "Invalid process ID");
 }
 
 ProcessImpl::ProcessImpl(

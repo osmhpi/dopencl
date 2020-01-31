@@ -121,7 +121,7 @@ void HostCommunicationManagerImpl::createComputeNodes(
     std::unique_lock<std::recursive_mutex> lock(_connectionsMutex);
     for (auto computeNode : createdComputeNodes) {
         if (computeNode->isConnected()) {
-            assert(computeNode->get_id() != 0);
+            assert(!computeNode->get_id().is_nil());
             _computeNodes.emplace(computeNode->get_id(), std::unique_ptr<ComputeNodeImpl>(computeNode));
             computeNodes.push_back(computeNode);
         } else {
