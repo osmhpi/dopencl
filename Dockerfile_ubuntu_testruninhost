@@ -3,13 +3,13 @@ FROM dopencl_ubuntu
 # Install dependencies
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
-    gcc opencl-headers ocl-icd-opencl-dev libssl-dev \
+    gcc opencl-headers ocl-icd-opencl-dev libssl-dev gdb \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
 # Build sample program
 COPY test_ca.c test_ca.c
-RUN gcc -fopenmp -O3 -march=native -Wall -Wextra -DLEGACY_OPENCL_1_2 test_ca.c -o test_ca -lOpenCL -lcrypto
+RUN gcc -fopenmp -g -Wall -Wextra -DLEGACY_OPENCL_1_2 test_ca.c -o test_ca -lOpenCL -lcrypto
 
 # The list of dOpenCL worker nodes must be given as an environment variable (comma separated hosts)
 ENV DCL_NODES 192.168.1.234,192.168.1.243
@@ -18,6 +18,13 @@ ENV DCL_NODES 192.168.1.234,192.168.1.243
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
 echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
-LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 10240 500\n' > launchscript.sh \
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 100 10\n' > launchscript.sh \
  && chmod +x launchscript.sh
+
+RUN printf '#!/bin/sh\n\
+. /etc/profile.d/dopenclenv.sh\n\
+echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 100 10\n' > launchscript_debug.sh \
+ && chmod +x launchscript_debug.sh
+
 CMD ["/launchscript.sh"]
