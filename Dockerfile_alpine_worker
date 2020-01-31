@@ -1,0 +1,10 @@
+FROM dopencl_alpine
+
+# Run worker program on the container (will require OpenCL inside, e.g. with nvidia-docker)
+EXPOSE 25025 25125
+
+RUN printf '#!/bin/sh\n\
+. /etc/profile.d/dopenclenv.sh\n\
+dcld 0.0.0.0\n' > launchscript.sh \
+ && chmod +x launchscript.sh
+CMD ["/launchscript.sh"]
