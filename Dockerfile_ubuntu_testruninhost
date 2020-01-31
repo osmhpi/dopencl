@@ -24,7 +24,7 @@ LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 100 10\n' > launchscript.sh 
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
 echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
-gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 100 10\n' > launchscript_debug.sh \
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so env DCL_LOG_LEVEL=VERBOSE ./test_ca 100 10\n' > launchscript_debug.sh \
  && chmod +x launchscript_debug.sh
 
 CMD ["/launchscript.sh"]

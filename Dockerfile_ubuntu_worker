@@ -23,7 +23,7 @@ dcld 0.0.0.0\n' > launchscript.sh \
 
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
-gdb -ex=run --args dcld 0.0.0.0\n' > launchscript_debug.sh \
+gdb -ex=run --args env DCL_LOG_LEVEL=VERBOSE dcld 0.0.0.0\n' > launchscript_debug.sh \
  && chmod +x launchscript_debug.sh
 
 CMD ["/launchscript.sh"]
