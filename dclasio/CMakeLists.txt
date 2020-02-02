@@ -31,6 +31,10 @@ add_library(dcl ${DCL_SOURCES} ${DCLASIO_SOURCES})
 target_link_libraries(dcl
 	${Boost_LIBRARIES})
 
+# TODOXXX Allow to enable/disable IO Link Compression by compile flag
+add_definitions(-DIO_LINK_COMPRESSION)
+target_link_libraries(dcl sw842)
+
 # enable OpenCL 1.1 compatibility
 set_property(TARGET dcl
 	PROPERTY COMPILE_DEFINITIONS

@@ -64,6 +64,13 @@
 #include <mutex>
 #include <utility>
 
+#ifdef IO_LINK_COMPRESSION
+extern "C"
+{
+#include <sw842.h>
+}
+#endif
+
 namespace dclasio {
 
 namespace comm {
@@ -171,10 +178,34 @@ void DataStream::start_read(
 
     auto& read = readq->front();
     read->onStart();
+#ifndef IO_LINK_COMPRESSION
     boost::asio::async_read(
             *_socket, boost::asio::buffer(read->ptr(), read->size()),
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
+#else
+    // TODOXXX: Use async IO and compression
+    // TODOXXX: Chunk the input
+    // TODOXXX: Use faster (GPU, HW) compression
+    size_t compressed_size;
+    boost::asio::read(*_socket, boost::asio::buffer(&compressed_size, sizeof(size_t)));
+
+    if (compressed_size == read->size()) // Data is sent uncompressed (compression not worth it)
+    {
+        size_t bytes_transferred = boost::asio::read(*_socket, boost::asio::buffer(read->ptr(), read->size()));
+        handle_read(readq, boost::system::error_code(), bytes_transferred);
+    }
+    else
+    {
+        std::vector<uint8_t> compressed_buffer(compressed_size);
+        boost::asio::read(*_socket, boost::asio::buffer(compressed_buffer.data(), compressed_size));
+        std::vector<uint8_t> uncompressed_padded((read->size() + 7u) & ~7u, 0);
+        size_t uncompressed_size = (read->size() + 7u) & ~7u;
+        int ret = sw842_decompress(compressed_buffer.data(), compressed_size, uncompressed_padded.data(), &uncompressed_size);
+        std::copy(uncompressed_padded.data(), uncompressed_padded.data() + read->size(), (uint8_t *)read->ptr());
+        handle_read(readq, boost::system::error_code(), read->size());
+    }
+#endif
 }
 
 void DataStream::handle_read(
@@ -219,10 +250,34 @@ void DataStream::start_write(
             [this, writeq{std::move(writeq)}](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(std::move(writeq), ec, bytes_transferred); });
      */
+#ifndef IO_LINK_COMPRESSION
     boost::asio::async_write(
             *_socket, boost::asio::buffer(write->ptr(), write->size()),
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(writeq, ec, bytes_transferred); });
+#else
+    // TODOXXX: Use async IO and compression
+    // TODOXXX: Chunk the input
+    // TODOXXX: Use faster (GPU, HW) compression
+    std::vector<uint8_t> uncompressed_padded((write->size() + 7u) & ~7u, 0);
+    std::copy((const uint8_t *)write->ptr(), (const uint8_t *)write->ptr() + write->size(), uncompressed_padded.begin());
+
+    std::vector<uint8_t> compress_buffer(write->size() - 1);
+    size_t compressed_size = compress_buffer.size();
+
+    int ret = sw842_compress(uncompressed_padded.data(), uncompressed_padded.size(), compress_buffer.data(), &compressed_size);
+
+    const void *send_buffer = ret == 0 ? compress_buffer.data() : write->ptr();
+    size_t send_buffer_size = ret == 0 ? compressed_size : write->size();
+
+    std::array<boost::asio::const_buffer, 2> header_and_data = {
+            boost::asio::buffer(&send_buffer_size, sizeof(size_t)),
+            boost::asio::buffer(send_buffer, send_buffer_size) };
+    boost::asio::async_write(
+            *_socket, header_and_data,
+            [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
+                    handle_write(writeq, ec, bytes_transferred); });
+#endif
 }
 
 void DataStream::handle_write(
