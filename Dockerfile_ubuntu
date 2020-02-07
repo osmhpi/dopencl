@@ -13,7 +13,6 @@ RUN apt-get update \
         libboost-system-dev \
         # NB: Both C and C++ headers + libOpenCL required
         opencl-headers ocl-icd-opencl-dev \
- && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
 # Copy source files in
@@ -33,7 +32,6 @@ FROM ubuntu:bionic
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
         libboost-program-options-dev libboost-system-dev ocl-icd-opencl-dev \
- && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
 # Final install
