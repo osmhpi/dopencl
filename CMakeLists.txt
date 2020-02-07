@@ -31,6 +31,7 @@ if(CMAKE_COMPILER_IS_GNUCXX)
 endif(CMAKE_COMPILER_IS_GNUCXX)
 
 option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
+option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)
 
 #
 # dOpenCL version information
@@ -43,6 +44,9 @@ set(DCL_VERSION_MINOR 4)
 set(DCL_VERSION_PATCH 0)
 set(DCL_VERSION ${DCL_VERSION_MAJOR}.${DCL_VERSION_MINOR}.${DCL_VERSION_PATCH})
 
+if (ENABLE_IO_LINK_COMPRESSION)
+	add_subdirectory (lib842)
+endif(ENABLE_IO_LINK_COMPRESSION)
 add_subdirectory (dclasio)
 add_subdirectory (daemon)
 add_subdirectory (icdpp)

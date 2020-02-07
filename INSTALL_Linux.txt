@@ -44,14 +44,17 @@ Building dOpenCL from source
       The dOpenCL CMake configuration (CMakeLists.txt in dOpenCL home) allows
       for the following settings:
 
-	FORCE_FLUSH=OFF       flush command queues after enqueing a command
+        FORCE_FLUSH=OFF
+            flush command queues after enqueing a command
             This option can be set to increase concurrency of command execution
             in OpenCL implementations that do not execute command before a
             command queue is flushed (e.g., AMD APP SDK)
-        BUILD_SHARED_LIBS=ON 
+        BUILD_SHARED_LIBS=ON
             build dOpenCL communication library as shared object (recommended)
             Note that the dOpenCL installable client driver (libdOpenCL.so) is
             always built as a shared object.
+        ENABLE_IO_LINK_COMPRESSION=ON
+            enable experimental I/O link compression using the 842 algorithm
 
       Besides, the CMake build type (CMAKE_BUILD_TYPE) has to be specified.
       We recommend using the ncurses CMake GUI 'ccmake'.
