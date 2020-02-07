@@ -25,8 +25,6 @@ RUN mkdir /tmp/dopencl/build \
  && cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/opt/dopencl -DCMAKE_CXX_FLAGS=-Wno-ignored-attributes .. \
  && make -j$(nproc) \
  && make install \
- && mkdir /opt/dopencl/include \
- && cp -r /tmp/dopencl/dclasio/include/* /opt/dopencl/include \
  && install -D -m755 /tmp/dopencl/dopenclenv.sh /etc/profile.d/dopenclenv.sh
 
 FROM ubuntu:bionic

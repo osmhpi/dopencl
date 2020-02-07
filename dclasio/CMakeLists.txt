@@ -11,7 +11,7 @@ find_package(Boost 1.35.0 COMPONENTS system REQUIRED)
 find_package(Doxygen)
 
 # create lists of source files and headers
-file(GLOB CL_WWU_HEADERS ${PROJECT_SOURCE_DIR}/include/CL *.h)
+file(GLOB_RECURSE CL_WWU_HEADERS ${PROJECT_SOURCE_DIR}/include/CL *.h)
 file(GLOB_RECURSE DCL_SOURCES ${PROJECT_SOURCE_DIR}/src/dcl *.cpp)
 file(GLOB_RECURSE DCL_HEADERS ${PROJECT_SOURCE_DIR}/include/dcl *.h)
 file(GLOB_RECURSE DCLASIO_SOURCES ${PROJECT_SOURCE_DIR}/src/dclasio *.cpp)
@@ -52,7 +52,6 @@ else(BUILD_SHARED_LIBS)
 		COMPILE_FLAGS -fPIC)
 endif(BUILD_SHARED_LIBS)
 
-
 #
 # Documentation target
 #
@@ -76,9 +75,8 @@ install(TARGETS dcl
 	RUNTIME DESTINATION lib
 	ARCHIVE DESTINATION lib
 	LIBRARY DESTINATION lib)
-	
-# TODO Install OpenCL API extension headers
-#install(FILES ${CL_WWU_HEADERS} DESTINATION include/CL)
-# TODO Install dOpenCL API headers
-#install(FILES ${DCL_HEADERS} DESTINATION include/dcl)
+
+INSTALL( DIRECTORY ${PROJECT_SOURCE_DIR}/include/CL DESTINATION include )
+INSTALL( DIRECTORY ${PROJECT_SOURCE_DIR}/include/dcl DESTINATION include )
+
 # TODO Install dOpenCL API documentation

@@ -12,7 +12,5 @@ sudo rm -Rf /opt/dopencl /etc/profile.d/dopenclenv.sh /usr/share/fish/vendor_con
 
 # Add new install
 sudo make install
-sudo mkdir /opt/dopencl/include
-sudo cp -r ../dclasio/include/* /opt/dopencl/include
 sudo install -D -m755 ../dopenclenv.sh /etc/profile.d/dopenclenv.sh
 sudo install -D -m755 ../dopenclenv.fish /usr/share/fish/vendor_conf.d/dopenclenv.fish
