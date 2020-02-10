@@ -29,7 +29,7 @@ typedef struct device_opencl
 } device_opencl;
 
 #define NUM_DEVICES 2
-#define BUF_SIZE 16
+#define BUF_SIZE (1048576*30)
 
 int main(void)
 {
