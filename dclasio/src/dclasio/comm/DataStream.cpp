@@ -262,17 +262,18 @@ void DataStream::start_write(
     std::vector<uint8_t> uncompressed_padded((write->size() + 7u) & ~7u, 0);
     std::copy((const uint8_t *)write->ptr(), (const uint8_t *)write->ptr() + write->size(), uncompressed_padded.begin());
 
-    std::vector<uint8_t> compress_buffer(write->size() - 1);
-    size_t compressed_size = compress_buffer.size();
+    std::vector<uint8_t> *compress_buffer = new std::vector<uint8_t>(write->size() - 1);
+    size_t compressed_size = compress_buffer->size();
 
-    int ret = sw842_compress(uncompressed_padded.data(), uncompressed_padded.size(), compress_buffer.data(), &compressed_size);
+    int ret = sw842_compress(uncompressed_padded.data(), uncompressed_padded.size(), compress_buffer->data(), &compressed_size);
 
-    const void *send_buffer = ret == 0 ? compress_buffer.data() : write->ptr();
-    size_t send_buffer_size = ret == 0 ? compressed_size : write->size();
+    const void *send_buffer = ret == 0 ? compress_buffer->data() : write->ptr();
+    size_t *send_buffer_size = new size_t;
+    *send_buffer_size = ret == 0 ? compressed_size : write->size();
 
     std::array<boost::asio::const_buffer, 2> header_and_data = {
-            boost::asio::buffer(&send_buffer_size, sizeof(size_t)),
-            boost::asio::buffer(send_buffer, send_buffer_size) };
+            boost::asio::buffer(send_buffer_size, sizeof(size_t)),
+            boost::asio::buffer(send_buffer, *send_buffer_size) };
     boost::asio::async_write(
             *_socket, header_and_data,
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
