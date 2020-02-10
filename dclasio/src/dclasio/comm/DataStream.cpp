@@ -66,13 +66,18 @@
 
 #ifdef IO_LINK_COMPRESSION
 #define CHUNK_SIZE 16384
-#include <iostream>
 #include <thread>
 #include <queue>
-extern "C"
-{
-    #include <sw842.h>
-}
+
+#ifndef USE_HW_IO_LINK_COMPRESSION
+#include <sw842.h>
+#define lib842_compress sw842_compress
+#define lib842_decompress sw842_decompress
+#else
+#include <hw842.h>
+#define lib842_compress hw842_compress
+#define lib842_decompress hw842_decompress
+#endif
 #endif
 
 namespace dclasio {
@@ -246,7 +251,7 @@ void DataStream::start_read(
 
             // Decompression
             size_t uncompressed_size = CHUNK_SIZE;
-            int ret = sw842_decompress((uint8_t *)chunk.ptr, chunk.size,
+            int ret = lib842_decompress((uint8_t *)chunk.ptr, chunk.size,
                     (uint8_t *)read->ptr() + remaining_offset, &uncompressed_size);
             assert(ret == 0);
             assert(uncompressed_size == CHUNK_SIZE);
@@ -335,7 +340,7 @@ void DataStream::start_write(
             std::vector <uint8_t> *compress_buffer = new std::vector<uint8_t>(2 * CHUNK_SIZE);
             size_t compressed_size = compress_buffer->size();
 
-            int ret = sw842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer->data(),
+            int ret = lib842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer->data(),
                                      &compressed_size);
             assert(ret == 0);
 
