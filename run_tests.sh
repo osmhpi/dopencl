@@ -22,8 +22,8 @@ sleep 1 # TODO: Find a better way to wait for dcld startup
 printf "127.0.0.1:30000\n127.0.0.1:30001" > dcl.nodes
 find ../test/ -maxdepth 1 -type f -executable -exec env LD_PRELOAD=../icdpp/libdOpenCL.so {} \;
 
-echo "**test_explicit_copy_cl** TODOXXX: This tests fails!"
+echo "**test_explicit_copy_cl**"
 env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_explicit_copy_cl
 
-echo "**test_implicit_copy_cl** TODOXXX: This tests fails!"
+echo "**test_implicit_copy_cl**"
 env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_implicit_copy_cl

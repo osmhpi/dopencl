@@ -70,12 +70,16 @@ int main(void)
     // --------------
     // BUFFER FILLING
     // --------------
+    cl_event event; // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
+                    // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
+                    // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
+
     // NB: Avoiding clEnqueueFillBuffer since it's not supported by dOpenCL
     char *initial_buf = malloc(BUF_SIZE);
     CHECK(initial_buf == NULL, "Failed to allocate memory for the initial buffer");
     memset(initial_buf, 'A', BUF_SIZE);
     CHECK_OPENCL(clEnqueueWriteBuffer(devices[0].queue, devices[0].buf, CL_TRUE, 0,
-                                      BUF_SIZE, initial_buf, 0, NULL, NULL),
+                                      BUF_SIZE, initial_buf, 0, NULL, &event),
                  "Could not write the initial OpenCL buffer");
     free(initial_buf);
 
@@ -83,7 +87,7 @@ int main(void)
     // CROSS-GPU DATA EXCHANGE
     // -----------------------
     CHECK_OPENCL(clEnqueueCopyBuffer(devices[1].queue, devices[0].buf, devices[1].buf,
-                                     0, 0, BUF_SIZE, 0, NULL, NULL),
+                                     0, 0, BUF_SIZE, 1, &event, NULL),
                  "Could not copy the OpenCL buffer");
 
     // --------------------
@@ -112,6 +116,7 @@ int main(void)
         clReleaseMemObject(dev->buf);
         clReleaseCommandQueue(dev->queue);
     }
+    clReleaseEvent(event);
     clReleaseContext(context);
 
     return EXIT_SUCCESS;

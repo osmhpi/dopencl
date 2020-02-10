@@ -95,12 +95,17 @@ int main(void)
     // --------------
     // BUFFER FILLING
     // --------------
+    // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
+    // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
+    // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
+    cl_event events[NUM_DEVICES+1];
+
     // NB: Avoiding clEnqueueFillBuffer since it's not supported by dOpenCL
     char *initial_buf = malloc(BUF_SIZE);
     CHECK(initial_buf == NULL, "Failed to allocate memory for the initial buffer");
     memset(initial_buf, 'A', BUF_SIZE);
     CHECK_OPENCL(clEnqueueWriteBuffer(devices[0].queue, buf, CL_TRUE, 0,
-                                      BUF_SIZE, initial_buf, 0, NULL, NULL),
+                                      BUF_SIZE, initial_buf, 0, NULL, &events[0]),
                  "Could not write the initial OpenCL buffer");
     free(initial_buf);
 
@@ -117,9 +122,11 @@ int main(void)
         // Execute the kernel over the entire range of the data set
         size_t block_size =  32;
         size_t global_size = (BUF_SIZE + block_size - 1) / block_size * block_size;
+        clFinish(dev->queue);
         CHECK_OPENCL(clEnqueueNDRangeKernel(dev->queue, kernel, 1, NULL,
-                                            &global_size, &block_size, 0, NULL, NULL),
+                                            &global_size, &block_size, 1, &events[i], &events[i+1]),
                      "Could not enqueue the kernel execution");
+        clFinish(dev->queue);
     }
 
     // ---------------------
@@ -127,10 +134,10 @@ int main(void)
     // ---------------------
     printf("**AFTER KERNELS**\n");
     char buf_start[8], buf_end[8];
-    CHECK_OPENCL(clEnqueueReadBuffer(devices[0].queue, buf, CL_TRUE, 0,
+    CHECK_OPENCL(clEnqueueReadBuffer(devices[NUM_DEVICES-1].queue, buf, CL_TRUE, 0,
                                      sizeof(buf_start), buf_start, 0, NULL, NULL),
                  "Could not read the start of the OpenCL buffer");
-    CHECK_OPENCL(clEnqueueReadBuffer(devices[0].queue, buf, CL_TRUE, BUF_SIZE - sizeof(buf_end),
+    CHECK_OPENCL(clEnqueueReadBuffer(devices[NUM_DEVICES-1].queue, buf, CL_TRUE, BUF_SIZE - sizeof(buf_end),
                                      sizeof(buf_end), buf_end, 0, NULL, NULL),
                  "Could not read the start of the OpenCL buffer");
     printf("Buffer: %.*s...%.*s\n", (int)sizeof(buf_start), buf_start,
@@ -146,6 +153,9 @@ int main(void)
     for (cl_uint i = 0; i < NUM_DEVICES; i++) {
         device_opencl *dev = &devices[i];
         clReleaseCommandQueue(dev->queue);
+    }
+    for (cl_uint i = 0; i < NUM_DEVICES+1; i++) {
+        clReleaseEvent(events[i]);
     }
     clReleaseMemObject(buf);
     clReleaseKernel(kernel);
