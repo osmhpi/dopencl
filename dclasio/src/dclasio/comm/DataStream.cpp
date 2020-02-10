@@ -260,6 +260,8 @@ void DataStream::start_read(
                 boost::asio::buffer((uint8_t *)read->ptr() + remaining_offset, remaining_size));
         handle_read(readq, boost::system::error_code(), read->size());
     });
+
+    // TODOXXX: Release all resources allocated there! (Memory leaks galore)
 #endif
 }
 
