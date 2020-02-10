@@ -65,9 +65,13 @@
 #include <utility>
 
 #ifdef IO_LINK_COMPRESSION
+#define CHUNK_SIZE 16384
+#include <iostream>
+#include <thread>
+#include <queue>
 extern "C"
 {
-#include <sw842.h>
+    #include <sw842.h>
 }
 #endif
 
@@ -159,6 +163,12 @@ std::shared_ptr<DataSending> DataStream::write(
     return write;
 }
 
+struct read_chunk
+{
+    void *ptr;
+    size_t size;
+};
+
 void DataStream::start_read(
         readq_type *readq) {
     /* TODO Pass readq by rvalue reference rather than by pointer
@@ -184,27 +194,72 @@ void DataStream::start_read(
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
 #else
-    // TODOXXX: Use async IO and compression
-    // TODOXXX: Chunk the input
-    // TODOXXX: Use faster (GPU, HW) compression
-    size_t compressed_size;
-    boost::asio::read(*_socket, boost::asio::buffer(&compressed_size, sizeof(size_t)));
+    auto queue = new std::queue<read_chunk>();
+    auto queue_mtx = new std::mutex();
+    auto queue_available = new std::condition_variable();
 
-    if (compressed_size == read->size()) // Data is sent uncompressed (compression not worth it)
-    {
-        size_t bytes_transferred = boost::asio::read(*_socket, boost::asio::buffer(read->ptr(), read->size()));
-        handle_read(readq, boost::system::error_code(), bytes_transferred);
-    }
-    else
-    {
-        std::vector<uint8_t> compressed_buffer(compressed_size);
-        boost::asio::read(*_socket, boost::asio::buffer(compressed_buffer.data(), compressed_size));
-        std::vector<uint8_t> uncompressed_padded((read->size() + 7u) & ~7u, 0);
-        size_t uncompressed_size = (read->size() + 7u) & ~7u;
-        int ret = sw842_decompress(compressed_buffer.data(), compressed_size, uncompressed_padded.data(), &uncompressed_size);
-        std::copy(uncompressed_padded.data(), uncompressed_padded.data() + read->size(), (uint8_t *)read->ptr());
+    // TODOXXX: Use faster (GPU, HW) compression
+    // TODOXXX: Does it make sense to spawn multiple compression (producer) threads?
+    //          I guess not due to the GPU/HW methods already being parallel themselves
+    // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
+
+    std::thread *io_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
+        size_t remaining_offset = 0, remaining_size = read->size();
+
+        while (remaining_size >= CHUNK_SIZE) {
+            size_t compressed_size;
+            boost::asio::read(*_socket, boost::asio::buffer(&compressed_size, sizeof(size_t)));
+
+            std::vector<uint8_t> *compress_buffer = new std::vector<uint8_t>(compressed_size);
+            boost::asio::read(*_socket, boost::asio::buffer(compress_buffer->data(), compressed_size));
+
+            // Push into the chunk queue
+            read_chunk chunk;
+            chunk.ptr = compress_buffer->data();
+            chunk.size = compressed_size;
+
+            {
+                std::unique_lock<std::mutex> lock(*queue_mtx);
+                queue->push(chunk);
+                lock.unlock();
+                queue_available->notify_one();
+            }
+
+            remaining_offset += CHUNK_SIZE;
+            remaining_size -= CHUNK_SIZE;
+        }
+    });
+
+    std::thread *compression_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
+        size_t remaining_offset = 0, remaining_size = read->size();
+
+        while (remaining_size >= CHUNK_SIZE) {
+            // (Blocking) pop from the chunk queue
+            read_chunk chunk;
+            {
+                std::unique_lock<std::mutex> lock(*queue_mtx);
+                while (queue->empty())
+                    queue_available->wait(lock);
+                chunk = queue->front();
+                queue->pop();
+            }
+
+            // Decompression
+            size_t uncompressed_size = CHUNK_SIZE;
+            int ret = sw842_decompress((uint8_t *)chunk.ptr, chunk.size,
+                    (uint8_t *)read->ptr() + remaining_offset, &uncompressed_size);
+            assert(ret == 0);
+            assert(uncompressed_size == CHUNK_SIZE);
+
+            remaining_offset += CHUNK_SIZE;
+            remaining_size -= CHUNK_SIZE;
+        }
+
+        // Always read the last incomplete chunk of the input uncompressed
+        boost::asio::read(*_socket,
+                boost::asio::buffer((uint8_t *)read->ptr() + remaining_offset, remaining_size));
         handle_read(readq, boost::system::error_code(), read->size());
-    }
+    });
 #endif
 }
 
@@ -223,6 +278,12 @@ void DataStream::handle_read(
 
     start_read(readq); // process remaining reads
 }
+
+struct write_chunk
+{
+    void *ptr;
+    size_t size;
+};
 
 void DataStream::start_write(
         writeq_type *writeq) {
@@ -256,28 +317,73 @@ void DataStream::start_write(
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(writeq, ec, bytes_transferred); });
 #else
-    // TODOXXX: Use async IO and compression
-    // TODOXXX: Chunk the input
+    auto queue = new std::queue<write_chunk>();
+    auto queue_mtx = new std::mutex();
+    auto queue_available = new std::condition_variable();
+
     // TODOXXX: Use faster (GPU, HW) compression
-    std::vector<uint8_t> uncompressed_padded((write->size() + 7u) & ~7u, 0);
-    std::copy((const uint8_t *)write->ptr(), (const uint8_t *)write->ptr() + write->size(), uncompressed_padded.begin());
+    // TODOXXX: Does it make sense to spawn multiple compression (producer) threads?
+    //          I guess not due to the GPU/HW methods already being parallel themselves
+    // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
 
-    std::vector<uint8_t> *compress_buffer = new std::vector<uint8_t>(write->size() - 1);
-    size_t compressed_size = compress_buffer->size();
+    std::thread *compression_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
+        size_t remaining_offset = 0, remaining_size = write->size();
+        while (remaining_size >= CHUNK_SIZE) {
+            // Compress chunk
+            std::vector <uint8_t> *compress_buffer = new std::vector<uint8_t>(2 * CHUNK_SIZE);
+            size_t compressed_size = compress_buffer->size();
 
-    int ret = sw842_compress(uncompressed_padded.data(), uncompressed_padded.size(), compress_buffer->data(), &compressed_size);
+            int ret = sw842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer->data(),
+                                     &compressed_size);
+            assert(ret == 0);
 
-    const void *send_buffer = ret == 0 ? compress_buffer->data() : write->ptr();
-    size_t *send_buffer_size = new size_t;
-    *send_buffer_size = ret == 0 ? compressed_size : write->size();
+            // Push into the chunk queue
+            write_chunk chunk;
+            chunk.ptr = compress_buffer->data();
+            chunk.size = compressed_size;
 
-    std::array<boost::asio::const_buffer, 2> header_and_data = {
-            boost::asio::buffer(send_buffer_size, sizeof(size_t)),
-            boost::asio::buffer(send_buffer, *send_buffer_size) };
-    boost::asio::async_write(
-            *_socket, header_and_data,
-            [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
-                    handle_write(writeq, ec, bytes_transferred); });
+            {
+                std::unique_lock<std::mutex> lock(*queue_mtx);
+                queue->push(chunk);
+                lock.unlock();
+                queue_available->notify_one();
+            }
+
+            remaining_offset += CHUNK_SIZE;
+            remaining_size -= CHUNK_SIZE;
+        }
+    });
+
+    std::thread *io_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
+        size_t remaining_offset = 0, remaining_size = write->size();
+        while (remaining_size >= CHUNK_SIZE) {
+            // (Blocking) pop from the chunk queue
+            write_chunk chunk;
+            {
+                std::unique_lock<std::mutex> lock(*queue_mtx);
+                while (queue->empty())
+                    queue_available->wait(lock);
+                chunk = queue->front();
+                queue->pop();
+            }
+
+            // (Synchronous) chunk I/O
+            std::array<boost::asio::const_buffer, 2> header_and_data = {
+                    boost::asio::buffer(&chunk.size, sizeof(size_t)),
+                    boost::asio::buffer(chunk.ptr, chunk.size)};
+            boost::asio::write(*_socket, header_and_data);
+
+            remaining_offset += CHUNK_SIZE;
+            remaining_size -= CHUNK_SIZE;
+        }
+
+        // Always write the last incomplete chunk of the input uncompressed
+        boost::asio::write(*_socket,
+                boost::asio::buffer((uint8_t *)write->ptr() + remaining_offset, remaining_size));
+        handle_write(std::move(writeq), boost::system::error_code(), write->size());
+    });
+
+    // TODOXXX: Release all resources allocated there! (Memory leaks galore)
 #endif
 }
 
