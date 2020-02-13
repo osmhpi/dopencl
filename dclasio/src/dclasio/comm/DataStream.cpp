@@ -168,12 +168,6 @@ std::shared_ptr<DataSending> DataStream::write(
     return write;
 }
 
-struct read_chunk
-{
-    void *ptr;
-    size_t size;
-};
-
 void DataStream::start_read(
         readq_type *readq) {
     /* TODO Pass readq by rvalue reference rather than by pointer
@@ -199,7 +193,7 @@ void DataStream::start_read(
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
 #else
-    auto queue = new std::queue<read_chunk>();
+    auto queue = new std::queue<std::vector<uint8_t>>();
     auto queue_mtx = new std::mutex();
     auto queue_available = new std::condition_variable();
 
@@ -208,50 +202,42 @@ void DataStream::start_read(
     //          I guess not due to the GPU/HW methods already being parallel themselves
     // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
 
-    std::thread *io_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
+    auto io_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
         size_t remaining_offset = 0, remaining_size = read->size();
 
         while (remaining_size >= CHUNK_SIZE) {
             size_t compressed_size;
             boost::asio::read(*_socket, boost::asio::buffer(&compressed_size, sizeof(size_t)));
 
-            std::vector<uint8_t> *compress_buffer = new std::vector<uint8_t>(compressed_size);
-            boost::asio::read(*_socket, boost::asio::buffer(compress_buffer->data(), compressed_size));
+            std::vector<uint8_t> compress_buffer(compressed_size);
+            boost::asio::read(*_socket, boost::asio::buffer(compress_buffer.data(), compressed_size));
 
             // Push into the chunk queue
-            read_chunk chunk;
-            chunk.ptr = compress_buffer->data();
-            chunk.size = compressed_size;
-
-            {
-                std::unique_lock<std::mutex> lock(*queue_mtx);
-                queue->push(chunk);
-                lock.unlock();
-                queue_available->notify_one();
-            }
+            std::unique_lock<std::mutex> lock(*queue_mtx);
+            queue->push(std::move(compress_buffer));
+            lock.unlock();
+            queue_available->notify_one();
 
             remaining_offset += CHUNK_SIZE;
             remaining_size -= CHUNK_SIZE;
         }
     });
 
-    std::thread *compression_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
+    auto compression_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
         size_t remaining_offset = 0, remaining_size = read->size();
 
         while (remaining_size >= CHUNK_SIZE) {
             // (Blocking) pop from the chunk queue
-            read_chunk chunk;
-            {
-                std::unique_lock<std::mutex> lock(*queue_mtx);
-                while (queue->empty())
-                    queue_available->wait(lock);
-                chunk = queue->front();
-                queue->pop();
-            }
+            std::unique_lock<std::mutex> lock(*queue_mtx);
+            while (queue->empty())
+                queue_available->wait(lock);
+            auto chunk = std::move(queue->front());
+            queue->pop();
+            lock.unlock();
 
             // Decompression
             size_t uncompressed_size = CHUNK_SIZE;
-            int ret = lib842_decompress((uint8_t *)chunk.ptr, chunk.size,
+            int ret = lib842_decompress((uint8_t *)chunk.data(), chunk.size(),
                     (uint8_t *)read->ptr() + remaining_offset, &uncompressed_size);
             assert(ret == 0);
             assert(uncompressed_size == CHUNK_SIZE);
@@ -286,10 +272,36 @@ void DataStream::handle_read(
     start_read(readq); // process remaining reads
 }
 
-struct write_chunk
-{
-    void *ptr;
+struct write_chunk {
+    uint8_t *ptr;
     size_t size;
+    bool is_owner;
+
+    write_chunk(uint8_t *ptr, size_t size, bool is_owner)
+        : ptr(ptr), size(size), is_owner(is_owner) {
+    }
+
+    ~write_chunk() {
+        if (is_owner) {
+            delete[] ptr;
+        }
+    }
+
+    write_chunk(const write_chunk& other) = delete;
+    write_chunk& operator=(const write_chunk& other) = delete;
+
+    write_chunk(write_chunk&& other) noexcept // move constructor
+        : ptr(other.ptr), size(other.size), is_owner(other.is_owner) {
+        other.ptr = nullptr; // Avoid delete
+    }
+
+    write_chunk& operator=(write_chunk&& other) noexcept {
+        ptr = other.ptr;
+        size = other.size;
+        is_owner = other.is_owner;
+        other.ptr = nullptr; // Avoid delete
+        return *this;
+    }
 };
 
 void DataStream::start_write(
@@ -333,46 +345,40 @@ void DataStream::start_write(
     //          I guess not due to the GPU/HW methods already being parallel themselves
     // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
 
-    std::thread *compression_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
+    auto compression_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
         size_t remaining_offset = 0, remaining_size = write->size();
         while (remaining_size >= CHUNK_SIZE) {
             // Compress chunk
-            std::vector <uint8_t> *compress_buffer = new std::vector<uint8_t>(2 * CHUNK_SIZE);
-            size_t compressed_size = compress_buffer->size();
+            auto compress_buffer = new uint8_t[2 * CHUNK_SIZE];
+            size_t compressed_size = 2 * CHUNK_SIZE;
 
-            int ret = lib842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer->data(),
+            int ret = lib842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer,
                                      &compressed_size);
             assert(ret == 0);
 
             // Push into the chunk queue
-            write_chunk chunk;
-            chunk.ptr = compress_buffer->data();
-            chunk.size = compressed_size;
+            write_chunk chunk(compress_buffer, compressed_size, true);
 
-            {
-                std::unique_lock<std::mutex> lock(*queue_mtx);
-                queue->push(chunk);
-                lock.unlock();
-                queue_available->notify_one();
-            }
+            std::unique_lock<std::mutex> lock(*queue_mtx);
+            queue->push(std::move(chunk));
+            lock.unlock();
+            queue_available->notify_one();
 
             remaining_offset += CHUNK_SIZE;
             remaining_size -= CHUNK_SIZE;
         }
     });
 
-    std::thread *io_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
+    auto io_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
         size_t remaining_offset = 0, remaining_size = write->size();
         while (remaining_size >= CHUNK_SIZE) {
             // (Blocking) pop from the chunk queue
-            write_chunk chunk;
-            {
-                std::unique_lock<std::mutex> lock(*queue_mtx);
-                while (queue->empty())
-                    queue_available->wait(lock);
-                chunk = queue->front();
-                queue->pop();
-            }
+            std::unique_lock<std::mutex> lock(*queue_mtx);
+            while (queue->empty())
+                queue_available->wait(lock);
+            auto chunk = std::move(queue->front());
+            queue->pop();
+            lock.unlock();
 
             // (Synchronous) chunk I/O
             std::array<boost::asio::const_buffer, 2> header_and_data = {

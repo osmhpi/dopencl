@@ -100,7 +100,7 @@ private:
     }
 };
 
-void validate_data_is_successfully_transferred(const std::vector<uint8_t> &send_buffer) {
+void validate_data_is_successfully_transferred(const std::vector<std::vector<uint8_t>> &send_buffers) {
     // Set up two DataStreams connected to each other
     test_connection_listener listener1;
     test_connection_listener listener2;
@@ -132,24 +132,31 @@ void validate_data_is_successfully_transferred(const std::vector<uint8_t> &send_
     auto connected_ds2 = listener2.wait_for_datastream_connected();
 
     // Send the data through one of the datastreams
-    connected_ds1->write(send_buffer.size(), send_buffer.data());
+    for (const auto &send_buffer : send_buffers)
+        connected_ds1->write(send_buffer.size(), send_buffer.data());
 
     // Read the data through the other end
+    std::vector<std::vector<uint8_t>> recv_buffers(send_buffers.size());
+    for (size_t i = 0; i < send_buffers.size(); i++) {
+        recv_buffers[i].resize(send_buffers[i].size(), 0xFF);
+    }
+
     std::mutex mutex_data_available;
     std::condition_variable cv_data_available;
-    bool data_available = false;
+    size_t num_available = 0;
 
-    std::vector<uint8_t> recv_buffer(send_buffer.size(), 0xFF);
-    auto recv_handle = ds2->read(recv_buffer.size(), recv_buffer.data());
+    for (auto &recv_buffer : recv_buffers) {
+        auto recv_handle = ds2->read(recv_buffer.size(), recv_buffer.data());
 
-    recv_handle->setCallback([&mutex_data_available, &cv_data_available, &data_available](cl_int notify) {
-        std::unique_lock<std::mutex> lock(mutex_data_available);
-        data_available = true;
-        cv_data_available.notify_one();
-    });
+        recv_handle->setCallback([&mutex_data_available, &cv_data_available, &num_available](cl_int notify) {
+            std::unique_lock <std::mutex> lock(mutex_data_available);
+            num_available++;
+            cv_data_available.notify_one();
+        });
+    }
 
     std::unique_lock<std::mutex> lock(mutex_data_available);
-    while (!data_available) {
+    while (num_available < send_buffers.size()) {
         cv_data_available.wait(lock);
     }
 
@@ -159,37 +166,51 @@ void validate_data_is_successfully_transferred(const std::vector<uint8_t> &send_
     dd2.stop();
     dd2.stop();
 
-    BOOST_CHECK_EQUAL_COLLECTIONS(recv_buffer.begin(), recv_buffer.end(),
-                                  send_buffer.begin(), send_buffer.end());
+    for (size_t i = 0; i < send_buffers.size(); i++) {
+        BOOST_CHECK_EQUAL_COLLECTIONS(recv_buffers[i].begin(), recv_buffers[i].end(),
+                                      send_buffers[i].begin(), send_buffers[i].end());
+    }
 }
 
 BOOST_AUTO_TEST_CASE( DataTransfer_Small )
 {
     static const std::vector<uint8_t> send_buffer = { 0x13, 0x37, 0xB3, 0x3F, 0x13, 0x37, 0xB3, 0x3F };
-    validate_data_is_successfully_transferred(send_buffer);
+    validate_data_is_successfully_transferred({send_buffer});
 }
 
 BOOST_AUTO_TEST_CASE( DataTransfer_Big_Compressible )
 {
     std::vector<uint8_t> send_buffer(32 * 1024 * 1024);
-    for (size_t i = 0; i < 32 * 1024 * 1024; i++) {
-        send_buffer[i] = (uint8_t)(i / (1024 * 1024));
+    for (size_t i = 0; i < send_buffer.size(); i++) {
+        send_buffer[i] = (uint8_t)(i / 1024);
     }
 
-    validate_data_is_successfully_transferred(send_buffer);
+    validate_data_is_successfully_transferred({send_buffer});
 }
 
-BOOST_AUTO_TEST_CASE( DataTransfer_Big_Uncompressible )
-{
+static void random_fill(std::vector<uint8_t> &vec) {
     unsigned xorshift_seed = 123456;
-    std::vector<uint8_t> send_buffer(32 * 1024 * 1024);
-    for (size_t i = 0; i < 32 * 1024 * 1024; i++) {
-        send_buffer[i] = (uint8_t)xorshift_seed;
-        
+    for (size_t i = 0; i < vec.size(); i++) {
+        vec[i] = (uint8_t)xorshift_seed;
+
         xorshift_seed ^= xorshift_seed << 13;
         xorshift_seed ^= xorshift_seed >> 17;
         xorshift_seed ^= xorshift_seed << 5;
     }
+}
 
-    validate_data_is_successfully_transferred(send_buffer);
+BOOST_AUTO_TEST_CASE( DataTransfer_Big_Uncompressible )
+{
+    std::vector<uint8_t> send_buffer(32 * 1024 * 1024);
+    random_fill(send_buffer);
+
+    validate_data_is_successfully_transferred({send_buffer});
+}
+
+BOOST_AUTO_TEST_CASE( DataTransfer_Multi_Uncompressible )
+{
+    std::vector<std::vector<uint8_t>> send_buffers(30, std::vector<uint8_t>(1024 * 100));
+    for (auto &send_buffer : send_buffers)
+        random_fill(send_buffer);
+    validate_data_is_successfully_transferred(send_buffers);
 }
