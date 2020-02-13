@@ -7,7 +7,7 @@ set(DOPENCL_LIBRARY_DIR "${dOpenCLlib_BINARY_DIR}" CACHE PATH "Path to dOpenCL l
 set(DOPENCL_ICD_DIR "${dOpenCLicd_BINARY_DIR}" CACHE PATH "Path to dOpenCL ICD")
 
 # search for Boost.Threads
-find_package(Boost 1.41.0 COMPONENTS unit_test_framework REQUIRED)
+find_package(Boost 1.41.0 COMPONENTS thread unit_test_framework REQUIRED)
 
 include_directories(${DOPENCL_INCLUDE_DIR}
                     ${Boost_INCLUDE_DIRS})
@@ -40,8 +40,9 @@ add_executable(Memory
 		${PROJECT_SOURCE_DIR}/src/MemoryConsistency.cpp)
 add_executable(Platform ${PROJECT_SOURCE_DIR}/src/Platform.cpp)
 add_executable(Program ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Program.cpp)
+add_executable(DataTransfer ${PROJECT_SOURCE_DIR}/src/DataTransfer.cpp)
 
-foreach(test CommandQueue Context Device Event Memory Platform Program)
+foreach(test CommandQueue Context Device Event Memory Platform Program DataTransfer)
 	add_test(${test} ${test})
 	
 	target_link_libraries(${test}
