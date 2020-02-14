@@ -193,46 +193,22 @@ void DataStream::start_read(
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
 #else
-    auto queue = new std::queue<std::vector<uint8_t>>();
-    auto queue_mtx = new std::mutex();
-    auto queue_available = new std::condition_variable();
 
-    // TODOXXX: Use faster (GPU, HW) compression
-    // TODOXXX: Does it make sense to spawn multiple compression (producer) threads?
-    //          I guess not due to the GPU/HW methods already being parallel themselves
-    // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
+    rq_remaining_offset = 0;
+    rq_remaining_size = read->size();
 
-    auto io_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
-        size_t remaining_offset = 0, remaining_size = read->size();
+    read_next_compressed_chunk();
 
-        while (remaining_size >= CHUNK_SIZE) {
-            size_t compressed_size;
-            boost::asio::read(*_socket, boost::asio::buffer(&compressed_size, sizeof(size_t)));
-
-            std::vector<uint8_t> compress_buffer(compressed_size);
-            boost::asio::read(*_socket, boost::asio::buffer(compress_buffer.data(), compressed_size));
-
-            // Push into the chunk queue
-            std::unique_lock<std::mutex> lock(*queue_mtx);
-            queue->push(std::move(compress_buffer));
-            lock.unlock();
-            queue_available->notify_one();
-
-            remaining_offset += CHUNK_SIZE;
-            remaining_size -= CHUNK_SIZE;
-        }
-    });
-
-    auto compression_thread = new std::thread([this, readq, read, queue, queue_mtx, queue_available] {
+    auto compression_thread = new std::thread([this, readq, read] { // TODOXXX memleak!
         size_t remaining_offset = 0, remaining_size = read->size();
 
         while (remaining_size >= CHUNK_SIZE) {
             // (Blocking) pop from the chunk queue
-            std::unique_lock<std::mutex> lock(*queue_mtx);
-            while (queue->empty())
-                queue_available->wait(lock);
-            auto chunk = std::move(queue->front());
-            queue->pop();
+            std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
+            while (read_decompress_queue.empty())
+                read_decompress_queue_available.wait(lock);
+            auto chunk = std::move(read_decompress_queue.front());
+            read_decompress_queue.pop();
             lock.unlock();
 
             // Decompression
@@ -247,14 +223,41 @@ void DataStream::start_read(
         }
 
         // Always read the last incomplete chunk of the input uncompressed
+        // TODOXXX use asyncio instead and overlap with compresion, don't wait until the end!
         boost::asio::read(*_socket,
                 boost::asio::buffer((uint8_t *)read->ptr() + remaining_offset, remaining_size));
         handle_read(readq, boost::system::error_code(), read->size());
     });
-
-    // TODOXXX: Release all resources allocated there! (Memory leaks galore)
 #endif
 }
+
+#ifdef IO_LINK_COMPRESSION
+void DataStream::read_next_compressed_chunk() {
+    if (rq_remaining_size >= CHUNK_SIZE) {
+        boost::asio::async_read(*_socket, boost::asio::buffer(&rq_compressed_size, sizeof(size_t)),
+                [this]
+                        (const boost::system::error_code& ec, size_t bytes_transferred){
+            rq_compress_buffer.resize(rq_compressed_size);
+            boost::asio::async_read(*_socket, boost::asio::buffer(rq_compress_buffer.data(), rq_compressed_size),
+                                    [this]
+                                            (const boost::system::error_code& ec, size_t bytes_transferred) {
+                                        // Push into the chunk queue
+                                        std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
+                                        read_decompress_queue.push(std::move(rq_compress_buffer));
+                                        lock.unlock();
+                                        read_decompress_queue_available.notify_one();
+
+                                        rq_remaining_offset += CHUNK_SIZE;
+                                        rq_remaining_size -= CHUNK_SIZE;
+
+                                        read_next_compressed_chunk();
+                                    });
+
+
+        });
+    }
+}
+#endif
 
 void DataStream::handle_read(
         readq_type *readq,
@@ -271,38 +274,6 @@ void DataStream::handle_read(
 
     start_read(readq); // process remaining reads
 }
-
-struct write_chunk {
-    uint8_t *ptr;
-    size_t size;
-    bool is_owner;
-
-    write_chunk(uint8_t *ptr, size_t size, bool is_owner)
-        : ptr(ptr), size(size), is_owner(is_owner) {
-    }
-
-    ~write_chunk() {
-        if (is_owner) {
-            delete[] ptr;
-        }
-    }
-
-    write_chunk(const write_chunk& other) = delete;
-    write_chunk& operator=(const write_chunk& other) = delete;
-
-    write_chunk(write_chunk&& other) noexcept // move constructor
-        : ptr(other.ptr), size(other.size), is_owner(other.is_owner) {
-        other.ptr = nullptr; // Avoid delete
-    }
-
-    write_chunk& operator=(write_chunk&& other) noexcept {
-        ptr = other.ptr;
-        size = other.size;
-        is_owner = other.is_owner;
-        other.ptr = nullptr; // Avoid delete
-        return *this;
-    }
-};
 
 void DataStream::start_write(
         writeq_type *writeq) {
@@ -336,16 +307,7 @@ void DataStream::start_write(
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(writeq, ec, bytes_transferred); });
 #else
-    auto queue = new std::queue<write_chunk>();
-    auto queue_mtx = new std::mutex();
-    auto queue_available = new std::condition_variable();
-
-    // TODOXXX: Use faster (GPU, HW) compression
-    // TODOXXX: Does it make sense to spawn multiple compression (producer) threads?
-    //          I guess not due to the GPU/HW methods already being parallel themselves
-    // TODOXXX: Does it make sense to use asynchronous I/O here (can this thread be avoided?)
-
-    auto compression_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
+    auto compression_thread = new std::thread([this, writeq, write] { // TODOXXX memory leak
         size_t remaining_offset = 0, remaining_size = write->size();
         while (remaining_size >= CHUNK_SIZE) {
             // Compress chunk
@@ -353,52 +315,64 @@ void DataStream::start_write(
             size_t compressed_size = 2 * CHUNK_SIZE;
 
             int ret = lib842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer,
-                                     &compressed_size);
+                                      &compressed_size);
             assert(ret == 0);
 
             // Push into the chunk queue
             write_chunk chunk(compress_buffer, compressed_size, true);
 
-            std::unique_lock<std::mutex> lock(*queue_mtx);
-            queue->push(std::move(chunk));
+            std::unique_lock<std::mutex> lock(write_queue_mutex);
+            write_queue.push(std::move(chunk));
             lock.unlock();
-            queue_available->notify_one();
+            write_queue_available.notify_one();
 
             remaining_offset += CHUNK_SIZE;
             remaining_size -= CHUNK_SIZE;
         }
     });
 
-    auto io_thread = new std::thread([this, writeq, write, queue, queue_mtx, queue_available] {
-        size_t remaining_offset = 0, remaining_size = write->size();
-        while (remaining_size >= CHUNK_SIZE) {
-            // (Blocking) pop from the chunk queue
-            std::unique_lock<std::mutex> lock(*queue_mtx);
-            while (queue->empty())
-                queue_available->wait(lock);
-            auto chunk = std::move(queue->front());
-            queue->pop();
-            lock.unlock();
+    wq_remaining_offset = 0;
+    wq_remaining_size = write->size();
 
-            // (Synchronous) chunk I/O
-            std::array<boost::asio::const_buffer, 2> header_and_data = {
-                    boost::asio::buffer(&chunk.size, sizeof(size_t)),
-                    boost::asio::buffer(chunk.ptr, chunk.size)};
-            boost::asio::write(*_socket, header_and_data);
-
-            remaining_offset += CHUNK_SIZE;
-            remaining_size -= CHUNK_SIZE;
-        }
-
-        // Always write the last incomplete chunk of the input uncompressed
-        boost::asio::write(*_socket,
-                boost::asio::buffer((uint8_t *)write->ptr() + remaining_offset, remaining_size));
-        handle_write(std::move(writeq), boost::system::error_code(), write->size());
-    });
-
-    // TODOXXX: Release all resources allocated there! (Memory leaks galore)
+    write_next_compressed_chunk(writeq, write);
 #endif
 }
+
+#ifdef IO_LINK_COMPRESSION
+void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write) {
+    if (wq_remaining_size >= CHUNK_SIZE) {
+        // (Blocking) pop from the chunk queue
+        std::unique_lock<std::mutex> lock(write_queue_mutex);
+        while (write_queue.empty())
+            write_queue_available.wait(lock); // TODOXXX use a non-blocking wait!
+        const auto &chunk = write_queue.front();
+        lock.unlock();
+
+        // (Synchronous) chunk I/O
+        std::array<boost::asio::const_buffer, 2> header_and_data = {
+                boost::asio::buffer(&chunk.size, sizeof(size_t)),
+                boost::asio::buffer(chunk.ptr, chunk.size)};
+        boost::asio::async_write(*_socket, header_and_data,
+         [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+             std::unique_lock<std::mutex> lock(write_queue_mutex);
+             write_queue.pop();
+             lock.unlock();
+
+             wq_remaining_offset += CHUNK_SIZE;
+             wq_remaining_size -= CHUNK_SIZE;
+
+             write_next_compressed_chunk(writeq, write);
+         });
+    } else {
+        // Always write the last incomplete chunk of the input uncompressed
+        boost::asio::async_write(*_socket,
+         boost::asio::buffer((uint8_t *) write->ptr() + wq_remaining_offset, wq_remaining_size),
+         [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+             handle_write(std::move(writeq), boost::system::error_code(), write->size());
+         });
+    }
+}
+#endif
 
 void DataStream::handle_write(
         writeq_type *writeq,

@@ -141,6 +141,10 @@ private:
     void start_read(
             readq_type *readq = new readq_type());
 
+#ifdef IO_LINK_COMPRESSION
+    void read_next_compressed_chunk();
+#endif
+
     void handle_read(
             readq_type *readq,
             const boost::system::error_code& ec,
@@ -154,6 +158,10 @@ private:
      */
     void start_write(
             writeq_type *writeq = new writeq_type());
+
+#ifdef IO_LINK_COMPRESSION
+    void write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
+#endif
 
     void handle_write(
             writeq_type *writeq,
@@ -170,6 +178,53 @@ private:
     std::mutex _readq_mtx; //!< protects read queue and flag
     writeq_type _writeq; //!< pending data sendings
     std::mutex _writeq_mtx; //!< protects write queue and flag
+
+#ifdef IO_LINK_COMPRESSION
+    std::queue<std::vector<uint8_t>> read_decompress_queue;
+    std::mutex read_decompress_queue_mutex;
+    std::condition_variable read_decompress_queue_available;
+
+    size_t rq_remaining_offset, rq_remaining_size;
+    size_t rq_compressed_size;
+    std::vector<uint8_t> rq_compress_buffer;
+
+    struct write_chunk {
+        uint8_t *ptr;
+        size_t size;
+        bool is_owner;
+
+        write_chunk(uint8_t *ptr, size_t size, bool is_owner)
+                : ptr(ptr), size(size), is_owner(is_owner) {
+        }
+
+        ~write_chunk() {
+            if (is_owner) {
+                delete[] ptr;
+            }
+        }
+
+        write_chunk(const write_chunk& other) = delete;
+        write_chunk& operator=(const write_chunk& other) = delete;
+
+        write_chunk(write_chunk&& other) noexcept // move constructor
+                : ptr(other.ptr), size(other.size), is_owner(other.is_owner) {
+            other.ptr = nullptr; // Avoid delete
+        }
+
+        write_chunk& operator=(write_chunk&& other) noexcept {
+            ptr = other.ptr;
+            size = other.size;
+            is_owner = other.is_owner;
+            other.ptr = nullptr; // Avoid delete
+            return *this;
+        }
+    };
+
+    std::queue<write_chunk> write_queue;
+    std::mutex write_queue_mutex;
+    std::condition_variable write_queue_available;
+    size_t wq_remaining_offset, wq_remaining_size;
+#endif
 };
 
 } // namespace comm
