@@ -142,7 +142,7 @@ private:
             readq_type *readq = new readq_type());
 
 #ifdef IO_LINK_COMPRESSION
-    void read_next_compressed_chunk();
+    void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
 #endif
 
     void handle_read(
@@ -180,6 +180,7 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
+    bool read_done, decompress_done;
     std::queue<std::vector<uint8_t>> read_decompress_queue;
     std::mutex read_decompress_queue_mutex;
     std::condition_variable read_decompress_queue_available;
@@ -220,6 +221,7 @@ private:
         }
     };
 
+    bool write_channel_used;
     std::queue<write_chunk> write_queue;
     std::mutex write_queue_mutex;
     std::condition_variable write_queue_available;
