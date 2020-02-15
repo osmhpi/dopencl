@@ -197,14 +197,11 @@ void DataStream::start_read(
     read_done = false;
     decompress_done = false;
     rq_remaining_offset = 0;
-    rq_remaining_size = read->size();
 
     read_next_compressed_chunk(readq, read);
 
     auto compression_thread = new std::thread([this, readq, read] { // TODOXXX memleak!
-        size_t remaining_offset = 0, remaining_size = read->size();
-
-        while (remaining_size >= CHUNK_SIZE) {
+        for (size_t offset = 0; ((read->size() - offset) >= CHUNK_SIZE); offset += CHUNK_SIZE) {
             // (Blocking) pop from the chunk queue
             std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
             while (read_decompress_queue.empty())
@@ -216,21 +213,14 @@ void DataStream::start_read(
             // Decompression
             size_t uncompressed_size = CHUNK_SIZE;
             int ret = lib842_decompress((uint8_t *)chunk.data(), chunk.size(),
-                    (uint8_t *)read->ptr() + remaining_offset, &uncompressed_size);
+                                        (uint8_t *)read->ptr() + offset, &uncompressed_size);
             assert(ret == 0);
             assert(uncompressed_size == CHUNK_SIZE);
-
-            remaining_offset += CHUNK_SIZE;
-            remaining_size -= CHUNK_SIZE;
         }
 
         std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
         decompress_done = true;
-        bool done = (read_done && decompress_done);
-        if (done) {
-            read_done = false;
-            decompress_done = false;
-        }
+        bool done = read_done;
         lock.unlock();
 
         if (done) {
@@ -242,7 +232,7 @@ void DataStream::start_read(
 
 #ifdef IO_LINK_COMPRESSION
 void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read) {
-    if (rq_remaining_size >= CHUNK_SIZE) {
+    if (read->size() - rq_remaining_offset >= CHUNK_SIZE) {
         boost::asio::async_read(*_socket, boost::asio::buffer(&rq_compressed_size, sizeof(size_t)),
                 [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred){
             rq_compress_buffer.resize(rq_compressed_size);
@@ -255,27 +245,21 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                 read_decompress_queue_available.notify_one();
 
                 rq_remaining_offset += CHUNK_SIZE;
-                rq_remaining_size -= CHUNK_SIZE;
 
                 read_next_compressed_chunk(readq, read);
             });
         });
     } else {
         // Always read the last incomplete chunk of the input uncompressed
-        // TODOXXX use asyncio instead and overlap with compresion, don't wait until the end!
         boost::asio::async_read(*_socket,
-                          boost::asio::buffer((uint8_t *)read->ptr() + rq_remaining_offset, rq_remaining_size),
+                          boost::asio::buffer((uint8_t *)read->ptr() + rq_remaining_offset, read->size() - rq_remaining_offset),
                                 [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
             std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
-            rq_remaining_offset = readq->size();
-            rq_remaining_size = 0;
             read_done = true;
-            bool done = (read_done && decompress_done);
-            if (done) {
-                read_done = false;
-                decompress_done = false;
-            }
+            bool done = decompress_done;
             lock.unlock();
+
+            rq_remaining_offset = readq->size();
 
             if (done) {
                 handle_read(readq, boost::system::error_code(), read->size());
@@ -334,32 +318,27 @@ void DataStream::start_write(
                     handle_write(writeq, ec, bytes_transferred); });
 #else
     write_channel_used = false;
-    wq_remaining_offset = 0;
-    wq_remaining_size = write->size();
+    write_offset = 0;
 
     auto compression_thread = new std::thread([this, writeq, write] { // TODOXXX memory leak
-        size_t remaining_offset = 0, remaining_size = write->size();
-        while (remaining_size >= CHUNK_SIZE) {
+        for (size_t offset = 0; (write->size() - offset) >= CHUNK_SIZE; offset += CHUNK_SIZE) {
             // Compress chunk
             auto compress_buffer = new uint8_t[2 * CHUNK_SIZE];
             size_t compressed_size = 2 * CHUNK_SIZE;
 
-            int ret = lib842_compress((uint8_t *)write->ptr() + remaining_offset, CHUNK_SIZE, compress_buffer,
+            int ret = lib842_compress((uint8_t *)write->ptr() + offset, CHUNK_SIZE, compress_buffer,
                                       &compressed_size);
             assert(ret == 0);
 
             // Push into the chunk queue
+            // TODO: Should we have a heuristic here to write the chunk uncompressed sometimes? Do experiments
             write_chunk chunk(compress_buffer, compressed_size, true);
 
             std::unique_lock<std::mutex> lock(write_queue_mutex);
             write_queue.push(std::move(chunk));
             lock.unlock();
-            write_queue_available.notify_one();
 
             write_next_compressed_chunk(writeq, write);
-
-            remaining_offset += CHUNK_SIZE;
-            remaining_size -= CHUNK_SIZE;
         }
     });
 
@@ -371,21 +350,21 @@ void DataStream::start_write(
 void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write) {
     std::unique_lock<std::mutex> lock(write_queue_mutex);
     if (write_channel_used) {
+        // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
         return;
     }
 
-    if (wq_remaining_size >= CHUNK_SIZE) {
-        // (Blocking) pop from the chunk queue
+    if ((write->size() - write_offset) >= CHUNK_SIZE) {
         if (write_queue.empty()) {
+            // No compressed chunk is yet available
             return;
         }
 
         const auto &chunk = write_queue.front();
-
         write_channel_used = true;
         lock.unlock();
 
-        // (Synchronous) chunk I/O
+        // Chunk I/O
         std::array<boost::asio::const_buffer, 2> header_and_data = {
                 boost::asio::buffer(&chunk.size, sizeof(size_t)),
                 boost::asio::buffer(chunk.ptr, chunk.size)};
@@ -396,27 +375,26 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
              write_queue.pop();
              lock.unlock();
 
-             wq_remaining_offset += CHUNK_SIZE;
-             wq_remaining_size -= CHUNK_SIZE;
+             write_offset += CHUNK_SIZE;
 
              write_next_compressed_chunk(writeq, write);
          });
-    } else if (wq_remaining_size >= 0) {
+    } else {
         // Always write the last incomplete chunk of the input uncompressed
         write_channel_used = true;
         lock.unlock();
 
         boost::asio::async_write(*_socket,
-         boost::asio::buffer((uint8_t *) write->ptr() + wq_remaining_offset, wq_remaining_size),
+         boost::asio::buffer((uint8_t *) write->ptr() + write_offset, (write->size() - write_offset)),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              std::unique_lock<std::mutex> lock(write_queue_mutex);
              write_channel_used = false;
              lock.unlock();
+
+             write_offset = writeq->size();
+
              handle_write(std::move(writeq), boost::system::error_code(), write->size());
          });
-
-        wq_remaining_offset = writeq->size();
-        wq_remaining_size = 0;
     }
 }
 #endif
