@@ -369,7 +369,8 @@ void _cl_mem::onAcquireComplete(dcl::Process& destination, cl_int executionStatu
     if (executionStatus == CL_COMPLETE) {
         /* forward acquired memory object data to acquiring compute node */
         try {
-            destination.sendData(_size, _data);
+            // See matching receiveData call for why skip_compression_step=true here
+            destination.sendData(_size, _data, true);
         } catch (const dcl::IOException& e) {
             dcl::util::Logger << dcl::util::Error
                     << "(SYN) Acquire failed: " << e.what()
@@ -412,5 +413,8 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
 std::shared_ptr<dcl::DataTransfer> _cl_mem::acquire(dcl::Process& process) {
     std::lock_guard<std::mutex> lock(_dataMutex);
     allocHostMemory();
-    return process.receiveData(_size, _data);
+    // Note that here we pass skip_compression_step=true, which allows us to
+    // avoid a double decompression step immediately followed by a compression
+    // step when we are just acting as a proxy for a node-to-node transfer
+    return process.receiveData(_size, _data, true);
 }

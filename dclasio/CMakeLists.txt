@@ -32,10 +32,6 @@ target_link_libraries(dcl
 	${Boost_LIBRARIES})
 
 if (ENABLE_IO_LINK_COMPRESSION)
-	add_definitions(-DIO_LINK_COMPRESSION)
-	if (USE_HW_IO_LINK_COMPRESSION)
-		add_definitions(-DUSE_HW_IO_LINK_COMPRESSION)
-	endif(USE_HW_IO_LINK_COMPRESSION)
 	target_link_libraries(dcl 842)
 endif(ENABLE_IO_LINK_COMPRESSION)
 

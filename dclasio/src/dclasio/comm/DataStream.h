@@ -112,7 +112,8 @@ public:
      */
     std::shared_ptr<DataReceipt> read(
             size_t size,
-            void *ptr);
+            void *ptr,
+            bool skip_compress_step);
 
     /*!
      * \brief Submits a data sending for this data stream
@@ -123,7 +124,8 @@ public:
      */
     std::shared_ptr<DataSending> write(
             size_t size,
-            const void *ptr);
+            const void *ptr,
+            bool skip_compress_step);
 
 private:
     /* Data streams must be non-copyable */

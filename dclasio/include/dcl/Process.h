@@ -91,7 +91,8 @@ public:
 	 */
 	virtual std::shared_ptr<DataTransfer> sendData(
 			size_t      size,
-			const void *ptr) = 0;
+			const void *ptr,
+			bool skip_compress_step = false) = 0;
 
 	/*!
 	 * \brief Receive data from host.
@@ -103,7 +104,8 @@ public:
 	 */
 	virtual std::shared_ptr<DataTransfer> receiveData(
 			size_t  size,
-			void *  ptr) = 0;
+			void *  ptr,
+			bool skip_compress_step = false) = 0;
 };
 
 } /* namespace dcl */

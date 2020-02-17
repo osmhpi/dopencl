@@ -153,10 +153,12 @@ public:
 
     std::shared_ptr<dcl::DataTransfer> sendData(
             size_t      size,
-            const void *ptr);
+            const void *ptr,
+            bool skip_compress_step = false);
     std::shared_ptr<dcl::DataTransfer> receiveData(
             size_t  size,
-            void *  ptr);
+            void *  ptr,
+            bool skip_compress_step = false);
 
     /*!
      * \brief (Un)sets the processes data stream

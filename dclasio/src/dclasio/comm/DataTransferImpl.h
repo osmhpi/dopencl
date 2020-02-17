@@ -120,8 +120,8 @@ private:
 
 public:
     DataTransferImpl(
-            size_t size, typename Operation::pointer_type ptr) :
-            _size(size), _ptr(ptr),
+            size_t size, typename Operation::pointer_type ptr, bool skip_compress_step) :
+            _size(size), _ptr(ptr), _skip_compress_step(skip_compress_step),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
             _status(CL_SUBMITTED) { }
 
@@ -191,6 +191,10 @@ public:
         return _ptr;
     }
 
+    bool skip_compress_step() const {
+        return _skip_compress_step;
+    }
+
     void onStart() {
         std::lock_guard<std::mutex> lock(_mutex);
         _start = dcl::util::clock.getTime(); // take time stamp
@@ -223,6 +227,7 @@ public:
 private:
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
+	const bool _skip_compress_step;
 
 	cl_ulong _submit;
 	cl_ulong _start;
