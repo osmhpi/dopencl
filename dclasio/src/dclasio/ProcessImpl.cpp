@@ -60,6 +60,8 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <boost/uuid/uuid_io.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <condition_variable>
@@ -132,16 +134,8 @@ bool ProcessImpl::isConnected() {
 
 const std::string& ProcessImpl::url() const {
     if (_url.empty()) {
-        std::stringstream ss;
-
         // TODO Generate process URL from message queue's remote endpoint
-        /*
-        // create URL string once
-        if (!(ss << _messageQueue.getHostname() << ':' << _messageQueue.getPort()) ||
-                !(ss >> _url) ||
-                !((ss >> std::ws).eof())) // skip whitespace and check if EOF flag has been set
-            _url.clear();
-         */
+        _url = boost::uuids::to_string(_messageQueue.get_process_id());
     }
 
     return _url;
