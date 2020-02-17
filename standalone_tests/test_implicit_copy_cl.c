@@ -98,6 +98,7 @@ int main(void)
     // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
     // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
     // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
+    // See also: synchronize() method in daemon/src/CommandQueue.cpp on dOpenCL tree
     cl_event events[NUM_DEVICES+1];
 
     // NB: Avoiding clEnqueueFillBuffer since it's not supported by dOpenCL
