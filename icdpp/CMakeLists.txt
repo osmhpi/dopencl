@@ -30,10 +30,11 @@ target_link_libraries (dOpenCL
 	dcl
 	${Boost_LIBRARIES})
 
-# enable OpenCL 1.1 compatibility
+# enable OpenCL 1.1/1.2 compatibility
 set_property(TARGET dOpenCL
 	PROPERTY COMPILE_DEFINITIONS
-			CL_USE_DEPRECATED_OPENCL_1_1_APIS)
+			CL_USE_DEPRECATED_OPENCL_1_1_APIS
+			CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 if(USE_MEM_LOCK)
 set_property(TARGET dOpenCL
 	APPEND PROPERTY COMPILE_DEFINITIONS
