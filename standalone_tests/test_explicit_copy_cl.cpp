@@ -17,6 +17,9 @@ struct device_opencl
 
 #define NUM_DEVICES 2
 
+#ifndef NUM_COPIES
+#define NUM_COPIES 1
+#endif
 #ifndef BUF_SIZE
 #define BUF_SIZE (1048576*30)
 #endif
@@ -64,19 +67,24 @@ int main(void)
     // -----------------------
     // CROSS-GPU DATA EXCHANGE
     // -----------------------
-    std::vector<cl::Event> eventVector = {event};
-    devinfo[1].queue.enqueueCopyBuffer(devinfo[0].buf, devinfo[1].buf,
-                                       0, 0, BUF_SIZE, &eventVector, nullptr);
+    for (cl_uint c = 0; c < NUM_COPIES; c++) {
+        device_opencl &dev = devinfo[c%NUM_DEVICES], &nextDev = devinfo[(c+1)%NUM_DEVICES];
+
+        std::vector<cl::Event> eventVector = {event};
+        nextDev.queue.enqueueCopyBuffer(dev.buf, nextDev.buf,
+                                        0, 0, BUF_SIZE, &eventVector, &event);
+    }
 
     // --------------------
     // PRINT BUFFER (AFTER)
     // --------------------
     std::cout << "**AFTER COPY**\n";
     std::string buf_start(8, '*'), buf_end(8, '*');
-    devinfo[1].queue.enqueueReadBuffer(devinfo[1].buf, CL_TRUE,
-                                       0, buf_start.size(), &buf_start[0]);
-    devinfo[1].queue.enqueueReadBuffer(devinfo[1].buf, CL_TRUE,
-                                       BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
+    size_t lastDev = NUM_COPIES % NUM_DEVICES;
+    devinfo[lastDev].queue.enqueueReadBuffer(devinfo[lastDev].buf, CL_TRUE,
+                                             0, buf_start.size(), &buf_start[0]);
+    devinfo[lastDev].queue.enqueueReadBuffer(devinfo[lastDev].buf, CL_TRUE,
+                                             BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
     std::cout << "Buffer:   " << buf_start << "..." << buf_end << "\n";
 
     std::string expected_start(8, 'A'), expected_end(8, 'A');
