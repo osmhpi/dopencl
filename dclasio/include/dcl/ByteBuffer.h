@@ -179,10 +179,6 @@ public:
 
     OutputByteBuffer& operator<<(
             const bool flag);
-#if USE_CSTRING
-    OutputByteBuffer& operator<<(
-            const char *str);
-#endif
     OutputByteBuffer& operator<<(
             const std::string& str);
     OutputByteBuffer& operator<<(
@@ -307,10 +303,6 @@ public:
 
     InputByteBuffer& operator>>(
             bool& flag);
-#if USE_CSTRING
-    InputByteBuffer& operator>>(
-        char *str);
-#endif
     InputByteBuffer& operator>>(
             std::string& str);
     InputByteBuffer& operator>>(

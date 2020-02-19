@@ -45,9 +45,6 @@
 #include <dcl/ByteBuffer.h>
 
 #include <algorithm>
-#if USE_CSTRING
-#include <cstring>
-#endif
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -71,16 +68,6 @@ OutputByteBuffer& OutputByteBuffer::operator<<(const bool flag) {
     ++_len;
     return *this;
 }
-
-#if USE_CSTRING
-OutputByteBuffer& OutputByteBuffer::operator<<(const char *str) {
-    size_t size = strlen(str) + 1; // size of C string including terminating null character
-    ensure_free(size);
-    std::copy(str, str + size, end());
-    _len += size;
-    return *this;
-}
-#endif
 
 OutputByteBuffer& OutputByteBuffer::operator<<(const std::string& str) {
     auto size = str.size();
@@ -145,16 +132,6 @@ InputByteBuffer& InputByteBuffer::operator>>(bool& flag) {
     ++_pos;
     return *this;
 }
-
-#if USE_CSTRING
-InputByteBuffer& InputByteBuffer::operator>>(char *str) {
-size_t size = strlen(reinterpret_cast<char *>(_bytes.get() + _pos)) + 1;
-ensure_bytes(size); // fails if C string is not terminated (within this buffer)
-std::copy(cbegin(), cbegin() + size, str);
-_pos += size;
-return *this;
-}
-#endif
 
 InputByteBuffer& InputByteBuffer::operator>>(std::string& str) {
     size_t size;
