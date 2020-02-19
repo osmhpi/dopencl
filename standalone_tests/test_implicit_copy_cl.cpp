@@ -52,7 +52,7 @@ int main(void)
     device_opencl devinfo[NUM_DEVICES];
     for (cl_uint i = 0; i < NUM_DEVICES; i++) {
         device_opencl &dev = devinfo[i];
-        dev.queue = cl::CommandQueue(context, devices[0]);
+        dev.queue = cl::CommandQueue(context, devices[i]);
     }
 
     // --------------
