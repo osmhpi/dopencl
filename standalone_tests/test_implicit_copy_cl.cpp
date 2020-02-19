@@ -18,7 +18,7 @@ __kernel void increment_each(__global char *buf, ulong buf_size)
     if (x >= buf_size)
         return;
 
-    buf[x]++;
+    buf[x] = ((buf[x] - 'A' + 1) % 26) + 'A';
 }
 )V0G0N";
 
@@ -28,7 +28,13 @@ typedef struct device_opencl
 } device_opencl;
 
 #define NUM_DEVICES 2
+
+#ifndef NUM_BOUNCES
+#define NUM_BOUNCES 2
+#endif
+#ifndef BUF_SIZE
 #define BUF_SIZE (1048576*30)
+#endif
 
 int main(void)
 {
@@ -75,15 +81,15 @@ int main(void)
     // -------
     // KERNELS
     // -------
-    for (cl_uint i = 0; i < NUM_DEVICES; i++) {
-        device_opencl &dev = devinfo[(i+1)%NUM_DEVICES];
-        kernel.setArg(0, buf);
-        kernel.setArg(1, static_cast<cl_ulong>(BUF_SIZE));
-        std::vector<cl::Event> eventVector = {event};
-        cl::Event nextEvent;
-        dev.queue.enqueueNDRangeKernel(kernel, cl::NullRange, BUF_SIZE, cl::NullRange,
-                                       &eventVector, &nextEvent);
-        event = nextEvent;
+    for (cl_uint b = 0; b < NUM_BOUNCES; b++) {
+        for (cl_uint i = 0; i < NUM_DEVICES; i++) {
+            device_opencl &nextDev = devinfo[(i+1)%NUM_DEVICES];
+            kernel.setArg(0, buf);
+            kernel.setArg(1, static_cast<cl_ulong>(BUF_SIZE));
+            std::vector<cl::Event> eventVector = {event};
+            nextDev.queue.enqueueNDRangeKernel(kernel, cl::NullRange, BUF_SIZE, cl::NullRange,
+                                               &eventVector, &event);
+        }
     }
 
     // ---------------------
@@ -97,7 +103,8 @@ int main(void)
                                        BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
     std::cout << "Buffer: " << buf_start << "..." << buf_end << "\n";
 
-    std::string expected_start(8, 'A' + NUM_DEVICES), expected_end(8, 'A' + NUM_DEVICES);
+    std::string expected_start(8, 'A' + (NUM_DEVICES * NUM_BOUNCES) % 26),
+                expected_end(8, 'A' + (NUM_DEVICES * NUM_BOUNCES) % 26);
     std::cout << "Expected: " << expected_start << "..." << expected_end << "\n";
 
     return (buf_start == expected_start && buf_end == expected_end) ? EXIT_SUCCESS : EXIT_FAILURE;

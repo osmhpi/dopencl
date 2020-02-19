@@ -16,7 +16,10 @@ struct device_opencl
 };
 
 #define NUM_DEVICES 2
+
+#ifndef BUF_SIZE
 #define BUF_SIZE (1048576*30)
+#endif
 
 int main(void)
 {
