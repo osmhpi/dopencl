@@ -40,6 +40,9 @@ int main(void)
 
     std::vector<cl::Device> devices;
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+    #if 0 // For testing with a single device
+    devices = std::vector<cl::Device>(NUM_DEVICES, devices[0]);
+    #endif
     if (devices.size() < NUM_DEVICES)
         throw std::runtime_error("Not enough OpenCL devices available");
     devices.resize(NUM_DEVICES);
@@ -73,7 +76,7 @@ int main(void)
     // KERNELS
     // -------
     for (cl_uint i = 0; i < NUM_DEVICES; i++) {
-        device_opencl &dev = devinfo[i];
+        device_opencl &dev = devinfo[(i+1)%NUM_DEVICES];
         kernel.setArg(0, buf);
         kernel.setArg(1, static_cast<cl_ulong>(BUF_SIZE));
         std::vector<cl::Event> eventVector = {event};
@@ -88,10 +91,10 @@ int main(void)
     // ---------------------
     std::cout << "**AFTER KERNELS**\n";
     std::string buf_start(8, '*'), buf_end(8, '*');
-    devinfo[NUM_DEVICES-1].queue.enqueueReadBuffer(buf, CL_TRUE,
-                                                   0, buf_start.size(), &buf_start[0]);
-    devinfo[NUM_DEVICES-1].queue.enqueueReadBuffer(buf, CL_TRUE,
-                                                   BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
+    devinfo[0].queue.enqueueReadBuffer(buf, CL_TRUE,
+                                       0, buf_start.size(), &buf_start[0]);
+    devinfo[0].queue.enqueueReadBuffer(buf, CL_TRUE,
+                                       BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
     std::cout << "Buffer: " << buf_start << "..." << buf_end << "\n";
 
     std::string expected_start(8, 'A' + NUM_DEVICES), expected_end(8, 'A' + NUM_DEVICES);
