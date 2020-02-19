@@ -56,20 +56,14 @@
 namespace dcl {
 
 OutputByteBuffer::OutputByteBuffer() :
-    _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
+    _len(0), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
 OutputByteBuffer::OutputByteBuffer(size_type initial_size) :
-    _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(initial_size), _bytes(new value_type[_size]) { }
+    _len(0), _size(initial_size), _bytes(new value_type[_size]) { }
 OutputByteBuffer::OutputByteBuffer(size_type size, value_type bytes[]) :
-    _pos(0), _len(size), _max_size(DEFAULT_MAX_SIZE), _size(size), _bytes(bytes) { }
+    _len(size), _size(size), _bytes(bytes) { }
 OutputByteBuffer::OutputByteBuffer(OutputByteBuffer&& other) :
-    _pos(other._pos), _len(other._len), _max_size(DEFAULT_MAX_SIZE), _size(other._size), _bytes(std::move(other._bytes)) { }
+    _len(other._len), _size(other._size), _bytes(std::move(other._bytes)) { }
 OutputByteBuffer::~OutputByteBuffer() { }
-
-void OutputByteBuffer::set_max_size(size_type max_size) {
-    // max_size must not be reduced below current buffer size
-    if (max_size < _size) throw std::out_of_range("Buffer limit must be greater than buffer size");
-    _max_size = max_size;
-}
 
 OutputByteBuffer& OutputByteBuffer::operator<<(const bool flag) {
     ensure_free(1);
@@ -107,26 +101,20 @@ OutputByteBuffer& OutputByteBuffer::operator<<(const Binary& data) {
     return *this;
 }
 
-void OutputByteBuffer::resize(size_type size_) {
-    reserve(size_); // no operation, if internal buffer size is greater or equal
-    _pos = 0;
-    _len = size_;
-}
-
 OutputByteBuffer::size_type OutputByteBuffer::size() const {
-    return _len - _pos;
+    return _len;
 }
 
 OutputByteBuffer::iterator OutputByteBuffer::begin() {
-    return _bytes.get() + _pos;
+    return _bytes.get();
 }
 
 OutputByteBuffer::const_iterator OutputByteBuffer::begin() const {
-    return _bytes.get() + _pos;
+    return _bytes.get();
 }
 
 OutputByteBuffer::const_iterator OutputByteBuffer::cbegin() const {
-    return _bytes.get() + _pos;
+    return _bytes.get();
 }
 
 OutputByteBuffer::iterator OutputByteBuffer::end() {
@@ -142,20 +130,14 @@ OutputByteBuffer::const_iterator OutputByteBuffer::cend() const {
 }
 
 InputByteBuffer::InputByteBuffer() :
-        _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
+        _pos(0), _len(0), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
 InputByteBuffer::InputByteBuffer(size_type initial_size) :
-        _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(initial_size), _bytes(new value_type[_size]) { }
+        _pos(0), _len(0), _size(initial_size), _bytes(new value_type[_size]) { }
 InputByteBuffer::InputByteBuffer(size_type size, value_type bytes[]) :
-        _pos(0), _len(size), _max_size(DEFAULT_MAX_SIZE), _size(size), _bytes(bytes) { }
+        _pos(0), _len(size), _size(size), _bytes(bytes) { }
 InputByteBuffer::InputByteBuffer(InputByteBuffer&& other) :
-        _pos(other._pos), _len(other._len), _max_size(DEFAULT_MAX_SIZE), _size(other._size), _bytes(std::move(other._bytes)) { }
+        _pos(other._pos), _len(other._len), _size(other._size), _bytes(std::move(other._bytes)) { }
 InputByteBuffer::~InputByteBuffer() { }
-
-void InputByteBuffer::set_max_size(size_type max_size) {
-    // max_size must not be reduced below current buffer size
-    if (max_size < _size) throw std::out_of_range("Buffer limit must be greater than buffer size");
-    _max_size = max_size;
-}
 
 InputByteBuffer& InputByteBuffer::operator>>(bool& flag) {
     ensure_bytes(1);

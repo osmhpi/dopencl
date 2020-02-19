@@ -106,14 +106,11 @@ class OutputByteBuffer {
 public:
     typedef char value_type;
     typedef uint32_t size_type;
-    typedef std::ptrdiff_t difference_type;
     typedef value_type * pointer;
-    typedef const value_type * const_pointer;
     typedef value_type * iterator;
     typedef const value_type * const_iterator;
 
     const static size_type DEFAULT_SIZE = 512; //!< default buffer size in bytes
-    const static size_type DEFAULT_MAX_SIZE = 65536; //!< default maximum buffer size in bytes
 
 private:
     /*!
@@ -123,7 +120,6 @@ private:
      */
     inline void reserve(
             size_type size) {
-        if (size > _max_size) throw std::out_of_range("Internal buffer overflow");
         if (size <= _size) return; // no operation
         /* TODO Resize buffer
          * First, try to recover memory of read bytes just by moving content to beginning
@@ -142,18 +138,8 @@ private:
             while (size < _size) {
                 size *= 2; // double buffer size
             }
-            reserve(std::max(std::min(size, _max_size), free));
+            reserve(std::max(size, free));
         }
-    }
-
-    /*!
-     * \brief Ensures that at least \c size bytes can be read from the buffer
-     * \param[in]  size the number of bytes to read
-     * \throw std::out_of_range if less than \c size bytes can be read from the buffer
-     */
-    inline void ensure_bytes(
-            size_type size) {
-        if ((_len - _pos) < size) throw std::out_of_range("Buffer underflow");
     }
 
     OutputByteBuffer(const OutputByteBuffer& other) = delete;
@@ -179,13 +165,6 @@ public:
     OutputByteBuffer(
             OutputByteBuffer&& other);
     virtual ~OutputByteBuffer();
-
-    /*!
-     * \brief Restricts the buffer's maximum size to the specified value
-     * \param[in]  max_size the buffer's maximum size
-     */
-    void set_max_size(
-            size_type max_size);
 
     template<typename T>
     OutputByteBuffer& operator<<(
@@ -240,15 +219,6 @@ public:
         return *this;
     }
 
-    /*!
-     * \brief Resizes the buffer to the specified size
-     * The buffer's content is undefined after this operation.
-     * Usually, this method is used before overwriting the buffer directly using an iterator.
-     * \param[in]  size the new buffer size
-     */
-    void resize(
-            size_type size);
-
     size_type size() const;
 
     iterator begin();
@@ -260,10 +230,8 @@ public:
     const_iterator cend() const;
 
 private:
-    size_type _pos; // read count
-    size_type _len; // write count, i.e., size of buffer content *including* the read bytes
-    size_type _max_size;
-    size_type _size; // buffer size
+    size_type _len; // actual valid buffer size
+    size_type _size; // allocated buffer size
     std::unique_ptr<value_type[]> _bytes; // buffer data
 };
 
@@ -271,14 +239,11 @@ class InputByteBuffer {
 public:
     typedef char value_type;
     typedef uint32_t size_type;
-    typedef std::ptrdiff_t difference_type;
     typedef value_type * pointer;
-    typedef const value_type * const_pointer;
     typedef value_type * iterator;
     typedef const value_type * const_iterator;
 
     const static size_type DEFAULT_SIZE = 512; //!< default buffer size in bytes
-    const static size_type DEFAULT_MAX_SIZE = 65536; //!< default maximum buffer size in bytes
 
 private:
     /*!
@@ -288,27 +253,11 @@ private:
      */
     inline void reserve(
             size_type size) {
-        if (size > _max_size) throw std::out_of_range("Internal buffer overflow");
         if (size <= _size) return; // no operation
         /* TODO Resize buffer
          * First, try to recover memory of read bytes just by moving content to beginning
          * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
         assert(!"resize not implemented");
-    }
-
-    /*!
-     * \brief Ensures that at least \c size bytes can be written to the buffer
-     * \param[in]  free the number of bytes to write
-     */
-    inline void ensure_free(
-            size_type free) {
-        auto size = _len + free;
-        if (size > _size) { // ensure required buffer size
-            while (size < _size) {
-                size *= 2; // double buffer size
-            }
-            reserve(std::max(std::min(size, _max_size), free));
-        }
     }
 
     /*!
@@ -344,13 +293,6 @@ public:
     InputByteBuffer(
             InputByteBuffer&& other);
     virtual ~InputByteBuffer();
-
-    /*!
-     * \brief Restricts the buffer's maximum size to the specified value
-     * \param[in]  max_size the buffer's maximum size
-     */
-    void set_max_size(
-            size_type max_size);
 
     template<typename T>
     InputByteBuffer& operator>>(
@@ -427,9 +369,8 @@ public:
 
 private:
     size_type _pos; // read count
-    size_type _len; // write count, i.e., size of buffer content *including* the read bytes
-    size_type _max_size;
-    size_type _size; // buffer size
+    size_type _len; // actual valid buffer size
+    size_type _size; // allocated buffer size
     std::unique_ptr<value_type[]> _bytes; // buffer data
 };
 
