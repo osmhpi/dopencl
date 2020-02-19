@@ -62,12 +62,12 @@ int main(void)
     // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
     // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
     // See also: synchronize() method in daemon/src/CommandQueue.cpp on dOpenCL tree
-    cl::Event events[NUM_DEVICES+1];
+    cl::Event event;
 
     // NB: Avoiding clEnqueueFillBuffer since it's not supported by dOpenCL
     std::vector<char> initial_buf(BUF_SIZE, 'A');
     devinfo[0].queue.enqueueWriteBuffer(buf, CL_TRUE, 0,
-                                        BUF_SIZE, initial_buf.data(), nullptr, &events[0]);
+                                        BUF_SIZE, initial_buf.data(), nullptr, &event);
 
     // -------
     // KERNELS
@@ -76,9 +76,11 @@ int main(void)
         device_opencl &dev = devinfo[i];
         kernel.setArg(0, buf);
         kernel.setArg(1, static_cast<cl_ulong>(BUF_SIZE));
-        std::vector<cl::Event> eventVector = {events[i]};
+        std::vector<cl::Event> eventVector = {event};
+        cl::Event nextEvent;
         dev.queue.enqueueNDRangeKernel(kernel, cl::NullRange, BUF_SIZE, cl::NullRange,
-                                       &eventVector, &events[i+1]);
+                                       &eventVector, &nextEvent);
+        event = nextEvent;
     }
 
     // ---------------------
