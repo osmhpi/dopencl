@@ -104,7 +104,7 @@ InputByteBuffer& InputByteBuffer::operator>>(std::string& str) {
     size_t size;
     operator>>(size); // read number of characters
     ensure_bytes(size);
-    str.assign(_bytes.data(), size);
+    str.assign(_bytes.data() + _pos, size);
     _pos += size;
     return *this;
 }
@@ -113,7 +113,7 @@ InputByteBuffer& InputByteBuffer::operator>>(Binary& data) {
     size_t size;
     operator>>(size); // read number of bytes
     ensure_bytes(size);
-    data.assign(size, _bytes.data());
+    data.assign(size, _bytes.data() + _pos);
     _pos += size;
     return *this;
 }
