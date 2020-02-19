@@ -170,7 +170,7 @@ void MessageDispatcher::handle_accept(
         return;
     }
 
-    auto buf(std::make_shared<dcl::ByteBuffer>());
+    auto buf(std::make_shared<dcl::InputByteBuffer>());
     buf->resize(sizeof(dcl::process_id) + 2);
 
     // await authentication request from incoming data stream
@@ -185,7 +185,7 @@ void MessageDispatcher::handle_accept(
 
 void MessageDispatcher::handle_approval(
         std::shared_ptr<boost::asio::ip::tcp::socket> socket,
-        std::shared_ptr<dcl::ByteBuffer> buf,
+        std::shared_ptr<dcl::InputByteBuffer> buf,
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {
@@ -216,12 +216,13 @@ void MessageDispatcher::handle_approval(
         }
     }
 
+    dcl::OutputByteBuffer obuf;
     if (approved) {
         // message queue has been approved - keep it
         auto msgq = add_message_queue(new message_queue(socket, pid));
 
-        *buf << _pid; // signal approval: return own process ID
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        obuf << _pid; // signal approval: return own process ID
+        boost::asio::write(*socket, boost::asio::buffer(obuf.begin(), obuf.size()));
         dcl::util::Logger << dcl::util::Verbose
                 << "Accepted message queue from process (pid=" << pid << ')'
                 << std::endl;
@@ -234,8 +235,8 @@ void MessageDispatcher::handle_approval(
         start_read_message(*msgq);
     } else {
         // signal reject: return process ID 0
-        *buf << dcl::process_id();
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        obuf << dcl::process_id();
+        boost::asio::write(*socket, boost::asio::buffer(obuf.begin(), obuf.size()));
         dcl::util::Logger << dcl::util::Error
                 << "Rejected message queue from process (pid=" << pid << ')'
                 << std::endl;

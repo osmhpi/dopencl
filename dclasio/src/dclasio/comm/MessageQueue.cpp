@@ -114,7 +114,7 @@ dcl::process_id message_queue::connect(
 
     // send local process ID and type to remote process
     // TODO Encode message queue protocol
-    dcl::ByteBuffer buf;
+    dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(process_type) << uint8_t(0);
     boost::asio::write(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
     dcl::util::Logger << dcl::util::Verbose
@@ -124,9 +124,10 @@ dcl::process_id message_queue::connect(
             << std::endl;
 
     // receive response
-    buf.resize(sizeof(dcl::process_id));
-    boost::asio::read(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
-    buf >> _pid;
+    dcl::InputByteBuffer obuf;
+    obuf.resize(sizeof(dcl::process_id));
+    boost::asio::read(*_socket, boost::asio::buffer(obuf.begin(), obuf.size()));
+    obuf >> _pid;
     dcl::util::Logger << dcl::util::Verbose
             << "Received identification message response (pid=" << _pid << ')'
             << std::endl;
@@ -158,7 +159,7 @@ void message_queue::send_message(
             << std::endl;
 #else
     // send message length and type (4 + 4 Byte), followed by message body
-    dcl::ByteBuffer buf;
+    dcl::OutputByteBuffer buf;
     message.pack(buf); // pack message to determine length
     header_type header({ htonl(buf.size()), htonl(message.get_type()) });
 

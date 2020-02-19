@@ -164,7 +164,7 @@ void DataDispatcher::handle_accept(
         return;
     }
 
-    auto buf(std::make_shared<dcl::ByteBuffer>());
+    auto buf(std::make_shared<dcl::InputByteBuffer>());
     buf->resize(sizeof(dcl::process_id) + 2);
 
     // await authentication request from incoming data stream
@@ -179,7 +179,7 @@ void DataDispatcher::handle_accept(
 
 void DataDispatcher::handle_approval(
         std::shared_ptr<boost::asio::ip::tcp::socket> socket,
-        std::shared_ptr<dcl::ByteBuffer> buf,
+        std::shared_ptr<dcl::InputByteBuffer> buf,
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {

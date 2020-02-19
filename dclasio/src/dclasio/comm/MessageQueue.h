@@ -218,10 +218,10 @@ private:
     std::shared_ptr<boost::asio::ip::tcp::socket> _socket; //!< I/O object for remote process
     boost::asio::ip::tcp::endpoint _remote_endpoint; //!< remote endpoint of message queue
     header_type _message_header;
-    dcl::ByteBuffer _message_buffer;
+    dcl::InputByteBuffer _message_buffer;
 #if defined(USE_SEND_BUFFER)
     header_type _send_header;
-    dcl::ByteBuffer _send_buffer;
+    dcl::OutputByteBuffer _send_buffer;
 #endif
     /* FIXME Remove process ID from message_queue
      * This is a hack to avoid a message_queue-to-process_id lookup table in MessageDispatcher */

@@ -55,23 +55,23 @@
 
 namespace dcl {
 
-ByteBuffer::ByteBuffer() :
+OutputByteBuffer::OutputByteBuffer() :
     _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
-ByteBuffer::ByteBuffer(size_type initial_size) :
+OutputByteBuffer::OutputByteBuffer(size_type initial_size) :
     _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(initial_size), _bytes(new value_type[_size]) { }
-ByteBuffer::ByteBuffer(size_type size, value_type bytes[]) :
+OutputByteBuffer::OutputByteBuffer(size_type size, value_type bytes[]) :
     _pos(0), _len(size), _max_size(DEFAULT_MAX_SIZE), _size(size), _bytes(bytes) { }
-ByteBuffer::ByteBuffer(ByteBuffer&& other) :
+OutputByteBuffer::OutputByteBuffer(OutputByteBuffer&& other) :
     _pos(other._pos), _len(other._len), _max_size(DEFAULT_MAX_SIZE), _size(other._size), _bytes(std::move(other._bytes)) { }
-ByteBuffer::~ByteBuffer() { }
+OutputByteBuffer::~OutputByteBuffer() { }
 
-void ByteBuffer::set_max_size(size_type max_size) {
+void OutputByteBuffer::set_max_size(size_type max_size) {
     // max_size must not be reduced below current buffer size
     if (max_size < _size) throw std::out_of_range("Buffer limit must be greater than buffer size");
     _max_size = max_size;
 }
 
-ByteBuffer& ByteBuffer::operator<<(const bool flag) {
+OutputByteBuffer& OutputByteBuffer::operator<<(const bool flag) {
     ensure_free(1);
     _bytes[_len] = (flag ? 1 : 0);
     ++_len;
@@ -79,7 +79,7 @@ ByteBuffer& ByteBuffer::operator<<(const bool flag) {
 }
 
 #if USE_CSTRING
-ByteBuffer& ByteBuffer::operator<<(const char *str) {
+OutputByteBuffer& OutputByteBuffer::operator<<(const char *str) {
     size_t size = strlen(str) + 1; // size of C string including terminating null character
     ensure_free(size);
     std::copy(str, str + size, end());
@@ -88,7 +88,7 @@ ByteBuffer& ByteBuffer::operator<<(const char *str) {
 }
 #endif
 
-ByteBuffer& ByteBuffer::operator<<(const std::string& str) {
+OutputByteBuffer& OutputByteBuffer::operator<<(const std::string& str) {
     auto size = str.size();
     operator<<(size); // write number of characters
     ensure_free(size);
@@ -97,7 +97,7 @@ ByteBuffer& ByteBuffer::operator<<(const std::string& str) {
     return *this;
 }
 
-ByteBuffer& ByteBuffer::operator<<(const Binary& data) {
+OutputByteBuffer& OutputByteBuffer::operator<<(const Binary& data) {
     auto size = data.size();
     operator<<(size); // write number of bytes
     ensure_free(size);
@@ -107,7 +107,57 @@ ByteBuffer& ByteBuffer::operator<<(const Binary& data) {
     return *this;
 }
 
-ByteBuffer& ByteBuffer::operator>>(bool& flag) {
+void OutputByteBuffer::resize(size_type size_) {
+    reserve(size_); // no operation, if internal buffer size is greater or equal
+    _pos = 0;
+    _len = size_;
+}
+
+OutputByteBuffer::size_type OutputByteBuffer::size() const {
+    return _len - _pos;
+}
+
+OutputByteBuffer::iterator OutputByteBuffer::begin() {
+    return _bytes.get() + _pos;
+}
+
+OutputByteBuffer::const_iterator OutputByteBuffer::begin() const {
+    return _bytes.get() + _pos;
+}
+
+OutputByteBuffer::const_iterator OutputByteBuffer::cbegin() const {
+    return _bytes.get() + _pos;
+}
+
+OutputByteBuffer::iterator OutputByteBuffer::end() {
+    return _bytes.get() + _len;
+}
+
+OutputByteBuffer::const_iterator OutputByteBuffer::end() const {
+    return _bytes.get() + _len;
+}
+
+OutputByteBuffer::const_iterator OutputByteBuffer::cend() const {
+    return _bytes.get() + _len;
+}
+
+InputByteBuffer::InputByteBuffer() :
+        _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
+InputByteBuffer::InputByteBuffer(size_type initial_size) :
+        _pos(0), _len(0), _max_size(DEFAULT_MAX_SIZE), _size(initial_size), _bytes(new value_type[_size]) { }
+InputByteBuffer::InputByteBuffer(size_type size, value_type bytes[]) :
+        _pos(0), _len(size), _max_size(DEFAULT_MAX_SIZE), _size(size), _bytes(bytes) { }
+InputByteBuffer::InputByteBuffer(InputByteBuffer&& other) :
+        _pos(other._pos), _len(other._len), _max_size(DEFAULT_MAX_SIZE), _size(other._size), _bytes(std::move(other._bytes)) { }
+InputByteBuffer::~InputByteBuffer() { }
+
+void InputByteBuffer::set_max_size(size_type max_size) {
+    // max_size must not be reduced below current buffer size
+    if (max_size < _size) throw std::out_of_range("Buffer limit must be greater than buffer size");
+    _max_size = max_size;
+}
+
+InputByteBuffer& InputByteBuffer::operator>>(bool& flag) {
     ensure_bytes(1);
     flag = (_bytes[_pos] != 0);
     ++_pos;
@@ -115,16 +165,16 @@ ByteBuffer& ByteBuffer::operator>>(bool& flag) {
 }
 
 #if USE_CSTRING
-ByteBuffer& ByteBuffer::operator>>(char *str) {
-    size_t size = strlen(reinterpret_cast<char *>(_bytes.get() + _pos)) + 1;
-    ensure_bytes(size); // fails if C string is not terminated (within this buffer)
-    std::copy(cbegin(), cbegin() + size, str);
-    _pos += size;
-    return *this;
+InputByteBuffer& InputByteBuffer::operator>>(char *str) {
+size_t size = strlen(reinterpret_cast<char *>(_bytes.get() + _pos)) + 1;
+ensure_bytes(size); // fails if C string is not terminated (within this buffer)
+std::copy(cbegin(), cbegin() + size, str);
+_pos += size;
+return *this;
 }
 #endif
 
-ByteBuffer& ByteBuffer::operator>>(std::string& str) {
+InputByteBuffer& InputByteBuffer::operator>>(std::string& str) {
     size_t size;
     operator>>(size); // read number of characters
     ensure_bytes(size);
@@ -133,7 +183,7 @@ ByteBuffer& ByteBuffer::operator>>(std::string& str) {
     return *this;
 }
 
-ByteBuffer& ByteBuffer::operator>>(Binary& data) {
+InputByteBuffer& InputByteBuffer::operator>>(Binary& data) {
     size_t size;
     operator>>(size); // read number of bytes
     ensure_bytes(size);
@@ -142,37 +192,37 @@ ByteBuffer& ByteBuffer::operator>>(Binary& data) {
     return *this;
 }
 
-void ByteBuffer::resize(size_type size_) {
+void InputByteBuffer::resize(size_type size_) {
     reserve(size_); // no operation, if internal buffer size is greater or equal
     _pos = 0;
     _len = size_;
 }
 
-ByteBuffer::size_type ByteBuffer::size() const {
+InputByteBuffer::size_type InputByteBuffer::size() const {
     return _len - _pos;
 }
 
-ByteBuffer::iterator ByteBuffer::begin() {
+InputByteBuffer::iterator InputByteBuffer::begin() {
     return _bytes.get() + _pos;
 }
 
-ByteBuffer::const_iterator ByteBuffer::begin() const {
+InputByteBuffer::const_iterator InputByteBuffer::begin() const {
     return _bytes.get() + _pos;
 }
 
-ByteBuffer::const_iterator ByteBuffer::cbegin() const {
+InputByteBuffer::const_iterator InputByteBuffer::cbegin() const {
     return _bytes.get() + _pos;
 }
 
-ByteBuffer::iterator ByteBuffer::end() {
+InputByteBuffer::iterator InputByteBuffer::end() {
     return _bytes.get() + _len;
 }
 
-ByteBuffer::const_iterator ByteBuffer::end() const {
+InputByteBuffer::const_iterator InputByteBuffer::end() const {
     return _bytes.get() + _len;
 }
 
-ByteBuffer::const_iterator ByteBuffer::cend() const {
+InputByteBuffer::const_iterator InputByteBuffer::cend() const {
     return _bytes.get() + _len;
 }
 

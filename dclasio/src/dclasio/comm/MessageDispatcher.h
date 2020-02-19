@@ -130,7 +130,7 @@ private:
      */
     void handle_approval(
             std::shared_ptr<boost::asio::ip::tcp::socket> socket,
-            std::shared_ptr<dcl::ByteBuffer> buf,
+            std::shared_ptr<dcl::InputByteBuffer> buf,
             const boost::system::error_code& ec,
             size_t bytes_transferred);
 

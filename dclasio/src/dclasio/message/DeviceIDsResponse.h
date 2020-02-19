@@ -82,12 +82,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         DefaultResponse::pack(buf);
         buf << deviceIds;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         DefaultResponse::unpack(buf);
         buf >> deviceIds;
     }

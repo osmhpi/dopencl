@@ -115,11 +115,11 @@ public:
 
     virtual class_type get_type() const = 0;
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         buf << id;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         buf >> id;
     }
 

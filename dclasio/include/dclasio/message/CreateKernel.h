@@ -74,12 +74,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
         buf << _kernelId << _programId << _kernelName;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
         buf >> _kernelId >> _programId >> _kernelName;
     }

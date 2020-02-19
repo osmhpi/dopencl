@@ -70,9 +70,9 @@ public:
     virtual class_type get_type() const = 0;
 
     virtual void pack(
-            dcl::ByteBuffer& buf) const = 0;
+            dcl::OutputByteBuffer& buf) const = 0;
     virtual void unpack(
-            dcl::ByteBuffer& buf) = 0;
+            dcl::InputByteBuffer& buf) = 0;
 };
 
 /* ****************************************************************************/

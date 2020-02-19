@@ -113,7 +113,7 @@ dcl::process_id DataStream::connect(
 
     // send process ID to remote process via data stream
     // TODO Encode local process type and data stream protocol
-    dcl::ByteBuffer buf;
+    dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(0) << uint8_t(0);
     boost::asio::write(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
     dcl::util::Logger << dcl::util::Verbose
