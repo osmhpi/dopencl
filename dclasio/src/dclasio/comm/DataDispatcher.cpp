@@ -170,7 +170,7 @@ void DataDispatcher::handle_accept(
     // await authentication request from incoming data stream
     boost::asio::async_read(
             *socket,
-            boost::asio::buffer(buf->begin(), buf->size()),
+            boost::asio::buffer(buf->data(), buf->size()),
             [this, socket, buf](const boost::system::error_code& ec, size_t bytes_transferred) {
                     handle_approval(socket, buf, ec, bytes_transferred); });
 
@@ -218,7 +218,7 @@ void DataDispatcher::handle_approval(
 
 #if USE_DATA_STREAM_RESPONSE
         *buf << _pid; // signal approval: return own process ID
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        boost::asio::write(*socket, boost::asio::buffer(buf->data(), buf->size()));
 #endif
         dcl::util::Logger << dcl::util::Verbose
                 << "Accepted data stream from process (pid=" << pid << ')'
@@ -231,7 +231,7 @@ void DataDispatcher::handle_approval(
 #if USE_DATA_STREAM_RESPONSE
         // signal reject: return process ID 0
         *buf << dcl::process_id();
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        boost::asio::write(*socket, boost::asio::buffer(buf->data(), buf->size()));
 #endif
         dcl::util::Logger << dcl::util::Error
                 << "Rejected data stream from process (pid=" << pid << ')'

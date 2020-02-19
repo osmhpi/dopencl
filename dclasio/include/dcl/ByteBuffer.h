@@ -105,22 +105,17 @@ namespace dcl {
 class OutputByteBuffer {
 public:
     typedef char value_type;
-    typedef uint32_t size_type;
-    typedef value_type * pointer;
-    typedef value_type * iterator;
-    typedef const value_type * const_iterator;
 
-    const static size_type DEFAULT_SIZE = 512; //!< default buffer size in bytes
+    const static size_t DEFAULT_SIZE = 512; //!< default buffer size in bytes
 
 private:
     /*!
      * \brief Resizes the buffer to the specified internal size.
      * \param[in]  size the new internal buffer size
-     * \throw std::out_of_range if \c size exceeds max_size
      */
     inline void reserve(
-            size_type size) {
-        if (size <= _size) return; // no operation
+            size_t size) {
+        if (size <= _bytes.size()) return; // no operation
         /* TODO Resize buffer
          * First, try to recover memory of read bytes just by moving content to beginning
          * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
@@ -132,17 +127,15 @@ private:
      * \param[in]  free the number of bytes to write
      */
     inline void ensure_free(
-            size_type free) {
+            size_t free) {
         auto size = _len + free;
-        if (size > _size) { // ensure required buffer size
-            while (size < _size) {
+        if (size > _bytes.size()) { // ensure required buffer size
+            while (size < _bytes.size()) {
                 size *= 2; // double buffer size
             }
             reserve(std::max(size, free));
         }
     }
-
-    OutputByteBuffer(const OutputByteBuffer& other) = delete;
 
 public:
     OutputByteBuffer();
@@ -152,19 +145,7 @@ public:
      * \param[in]  initial_size the internal size of the byte buffer
      */
     OutputByteBuffer(
-            size_type initial_size);
-    /*!
-     * \brief Creates a buffer from raw bytes
-     * The buffer becomes owner of the bytes - it does *not* copy the bytes.
-     * \param[in]  size     the number of bytes
-     * \param[in]  bytes    the raw bytes
-     */
-    OutputByteBuffer(
-            size_type size,
-            value_type bytes[]);
-    OutputByteBuffer(
-            OutputByteBuffer&& other);
-    virtual ~OutputByteBuffer();
+            size_t initial_size);
 
     template<typename T>
     OutputByteBuffer& operator<<(
@@ -172,7 +153,7 @@ public:
         ensure_free(serialization<T>::size);
         // TODO Convert to network byte order
         // TODO Use std::copy
-        memcpy(_bytes.get() + _len, &value, serialization<T>::size);
+        memcpy(_bytes.data() + _len, &value, serialization<T>::size);
         _len += serialization<T>::size;
         return *this;
     }
@@ -215,41 +196,27 @@ public:
         return *this;
     }
 
-    size_type size() const;
-
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
+    size_t size() const;
+    const value_type *data() const;
 
 private:
-    size_type _len; // actual valid buffer size
-    size_type _size; // allocated buffer size
-    std::unique_ptr<value_type[]> _bytes; // buffer data
+    size_t _len; // actual valid buffer size
+    std::vector<value_type> _bytes; // buffer data
 };
 
 class InputByteBuffer {
 public:
     typedef char value_type;
-    typedef uint32_t size_type;
-    typedef value_type * pointer;
-    typedef value_type * iterator;
-    typedef const value_type * const_iterator;
 
-    const static size_type DEFAULT_SIZE = 512; //!< default buffer size in bytes
+    const static size_t DEFAULT_SIZE = 512; //!< default buffer size in bytes
 
 private:
     /*!
      * \brief Resizes the buffer to the specified internal size.
      * \param[in]  size the new internal buffer size
-     * \throw std::out_of_range if \c size exceeds max_size
      */
-    inline void reserve(
-            size_type size) {
-        if (size <= _size) return; // no operation
+    inline void reserve(size_t size) {
+        if (size <= _bytes.size()) return; // no operation
         /* TODO Resize buffer
          * First, try to recover memory of read bytes just by moving content to beginning
          * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
@@ -261,12 +228,9 @@ private:
      * \param[in]  size the number of bytes to read
      * \throw std::out_of_range if less than \c size bytes can be read from the buffer
      */
-    inline void ensure_bytes(
-            size_type size) {
+    inline void ensure_bytes(size_t size) {
         if ((_len - _pos) < size) throw std::out_of_range("Buffer underflow");
     }
-
-    InputByteBuffer(const InputByteBuffer& other) = delete;
 
 public:
     InputByteBuffer();
@@ -275,20 +239,7 @@ public:
      * The buffer size as returned by InputByteBuffer::size is 0.
      * \param[in]  initial_size the internal size of the byte buffer
      */
-    InputByteBuffer(
-            size_type initial_size);
-    /*!
-     * \brief Creates a buffer from raw bytes
-     * The buffer becomes owner of the bytes - it does *not* copy the bytes.
-     * \param[in]  size     the number of bytes
-     * \param[in]  bytes    the raw bytes
-     */
-    InputByteBuffer(
-            size_type size,
-            value_type bytes[]);
-    InputByteBuffer(
-            InputByteBuffer&& other);
-    virtual ~InputByteBuffer();
+    InputByteBuffer(size_t initial_size);
 
     template<typename T>
     InputByteBuffer& operator>>(
@@ -296,7 +247,7 @@ public:
         ensure_bytes(serialization<T>::size);
         // TODO Convert to host byte order
         // TODO Use std::copy
-        memcpy(&value, _bytes.get() + _pos, serialization<T>::size);
+        memcpy(&value, _bytes.data() + _pos, serialization<T>::size);
         _pos += serialization<T>::size;
         return *this;
     }
@@ -346,24 +297,15 @@ public:
      * Usually, this method is used before overwriting the buffer directly using an iterator.
      * \param[in]  size the new buffer size
      */
-    void resize(
-            size_type size);
+    void resize(size_t size);
 
-    size_type size() const;
-
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
+    size_t size() const;
+    value_type *data();
 
 private:
-    size_type _pos; // read count
-    size_type _len; // actual valid buffer size
-    size_type _size; // allocated buffer size
-    std::unique_ptr<value_type[]> _bytes; // buffer data
+    size_t _pos; // read count
+    size_t _len; // actual valid buffer size
+    std::vector<value_type> _bytes; // buffer data
 };
 
 } // namespace dcl

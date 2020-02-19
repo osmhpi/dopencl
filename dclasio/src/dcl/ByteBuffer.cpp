@@ -45,22 +45,14 @@
 #include <dcl/ByteBuffer.h>
 
 #include <algorithm>
-#include <memory>
-#include <stdexcept>
 #include <string>
-#include <utility>
 
 namespace dcl {
 
 OutputByteBuffer::OutputByteBuffer() :
-    _len(0), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
-OutputByteBuffer::OutputByteBuffer(size_type initial_size) :
-    _len(0), _size(initial_size), _bytes(new value_type[_size]) { }
-OutputByteBuffer::OutputByteBuffer(size_type size, value_type bytes[]) :
-    _len(size), _size(size), _bytes(bytes) { }
-OutputByteBuffer::OutputByteBuffer(OutputByteBuffer&& other) :
-    _len(other._len), _size(other._size), _bytes(std::move(other._bytes)) { }
-OutputByteBuffer::~OutputByteBuffer() { }
+    _len(0), _bytes(DEFAULT_SIZE) { }
+OutputByteBuffer::OutputByteBuffer(size_t initial_size) :
+    _len(0), _bytes(initial_size) { }
 
 OutputByteBuffer& OutputByteBuffer::operator<<(const bool flag) {
     ensure_free(1);
@@ -73,7 +65,7 @@ OutputByteBuffer& OutputByteBuffer::operator<<(const std::string& str) {
     auto size = str.size();
     operator<<(size); // write number of characters
     ensure_free(size);
-    std::copy(std::begin(str), std::end(str), end());
+    std::copy(std::begin(str), std::end(str), _bytes.begin() + _len);
     _len += size;
     return *this;
 }
@@ -83,48 +75,23 @@ OutputByteBuffer& OutputByteBuffer::operator<<(const Binary& data) {
     operator<<(size); // write number of bytes
     ensure_free(size);
     auto begin = static_cast<const value_type *>(data.value());
-    std::copy(begin, begin + size, end());
+    std::copy(begin, begin + size, _bytes.begin() + _len);
     _len += size;
     return *this;
 }
 
-OutputByteBuffer::size_type OutputByteBuffer::size() const {
+size_t OutputByteBuffer::size() const {
     return _len;
 }
 
-OutputByteBuffer::iterator OutputByteBuffer::begin() {
-    return _bytes.get();
-}
-
-OutputByteBuffer::const_iterator OutputByteBuffer::begin() const {
-    return _bytes.get();
-}
-
-OutputByteBuffer::const_iterator OutputByteBuffer::cbegin() const {
-    return _bytes.get();
-}
-
-OutputByteBuffer::iterator OutputByteBuffer::end() {
-    return _bytes.get() + _len;
-}
-
-OutputByteBuffer::const_iterator OutputByteBuffer::end() const {
-    return _bytes.get() + _len;
-}
-
-OutputByteBuffer::const_iterator OutputByteBuffer::cend() const {
-    return _bytes.get() + _len;
+const OutputByteBuffer::value_type *OutputByteBuffer::data() const {
+    return _bytes.data();
 }
 
 InputByteBuffer::InputByteBuffer() :
-        _pos(0), _len(0), _size(DEFAULT_SIZE), _bytes(new value_type[_size]) { }
-InputByteBuffer::InputByteBuffer(size_type initial_size) :
-        _pos(0), _len(0), _size(initial_size), _bytes(new value_type[_size]) { }
-InputByteBuffer::InputByteBuffer(size_type size, value_type bytes[]) :
-        _pos(0), _len(size), _size(size), _bytes(bytes) { }
-InputByteBuffer::InputByteBuffer(InputByteBuffer&& other) :
-        _pos(other._pos), _len(other._len), _size(other._size), _bytes(std::move(other._bytes)) { }
-InputByteBuffer::~InputByteBuffer() { }
+        _pos(0), _len(0), _bytes(DEFAULT_SIZE) { }
+InputByteBuffer::InputByteBuffer(size_t initial_size) :
+        _pos(0), _len(0), _bytes(initial_size) { }
 
 InputByteBuffer& InputByteBuffer::operator>>(bool& flag) {
     ensure_bytes(1);
@@ -137,7 +104,7 @@ InputByteBuffer& InputByteBuffer::operator>>(std::string& str) {
     size_t size;
     operator>>(size); // read number of characters
     ensure_bytes(size);
-    str.assign(cbegin(), size);
+    str.assign(_bytes.data(), size);
     _pos += size;
     return *this;
 }
@@ -146,43 +113,23 @@ InputByteBuffer& InputByteBuffer::operator>>(Binary& data) {
     size_t size;
     operator>>(size); // read number of bytes
     ensure_bytes(size);
-    data.assign(size, cbegin());
+    data.assign(size, _bytes.data());
     _pos += size;
     return *this;
 }
 
-void InputByteBuffer::resize(size_type size_) {
+void InputByteBuffer::resize(size_t size_) {
     reserve(size_); // no operation, if internal buffer size is greater or equal
     _pos = 0;
     _len = size_;
 }
 
-InputByteBuffer::size_type InputByteBuffer::size() const {
+size_t InputByteBuffer::size() const {
     return _len - _pos;
 }
 
-InputByteBuffer::iterator InputByteBuffer::begin() {
-    return _bytes.get() + _pos;
-}
-
-InputByteBuffer::const_iterator InputByteBuffer::begin() const {
-    return _bytes.get() + _pos;
-}
-
-InputByteBuffer::const_iterator InputByteBuffer::cbegin() const {
-    return _bytes.get() + _pos;
-}
-
-InputByteBuffer::iterator InputByteBuffer::end() {
-    return _bytes.get() + _len;
-}
-
-InputByteBuffer::const_iterator InputByteBuffer::end() const {
-    return _bytes.get() + _len;
-}
-
-InputByteBuffer::const_iterator InputByteBuffer::cend() const {
-    return _bytes.get() + _len;
+InputByteBuffer::value_type *InputByteBuffer::data() {
+    return _bytes.data() + _pos;
 }
 
 } // namespace dcl

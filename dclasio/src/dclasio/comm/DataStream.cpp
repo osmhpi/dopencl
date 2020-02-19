@@ -115,7 +115,7 @@ dcl::process_id DataStream::connect(
     // TODO Encode local process type and data stream protocol
     dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(0) << uint8_t(0);
-    boost::asio::write(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
+    boost::asio::write(*_socket, boost::asio::buffer(buf.data(), buf.size()));
     dcl::util::Logger << dcl::util::Verbose
             << "Sent process identification message for data stream (pid=" << pid << ')'
             << std::endl;
@@ -123,7 +123,7 @@ dcl::process_id DataStream::connect(
 #if USE_DATA_STREAM_RESPONSE
     // receive response
     buf.resize(sizeof(dcl::process_id));
-    boost::asio::read(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
+    boost::asio::read(*_socket, boost::asio::buffer(buf.data(), buf.size()));
     buf >> pid;
     dcl::util::Logger << dcl::util::Verbose
             << "Received identification message response (pid=" << pid << ')'

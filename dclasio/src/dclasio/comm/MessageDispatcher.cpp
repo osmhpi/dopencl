@@ -176,7 +176,7 @@ void MessageDispatcher::handle_accept(
     // await authentication request from incoming data stream
     boost::asio::async_read(
             *socket,
-            boost::asio::buffer(buf->begin(), buf->size()),
+            boost::asio::buffer(buf->data(), buf->size()),
             [this, socket, buf](const boost::system::error_code& ec, size_t bytes_transferred) {
                     handle_approval(socket, buf, ec, bytes_transferred); });
 
@@ -222,7 +222,7 @@ void MessageDispatcher::handle_approval(
         auto msgq = add_message_queue(new message_queue(socket, pid));
 
         obuf << _pid; // signal approval: return own process ID
-        boost::asio::write(*socket, boost::asio::buffer(obuf.begin(), obuf.size()));
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
         dcl::util::Logger << dcl::util::Verbose
                 << "Accepted message queue from process (pid=" << pid << ')'
                 << std::endl;
@@ -236,7 +236,7 @@ void MessageDispatcher::handle_approval(
     } else {
         // signal reject: return process ID 0
         obuf << dcl::process_id();
-        boost::asio::write(*socket, boost::asio::buffer(obuf.begin(), obuf.size()));
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
         dcl::util::Logger << dcl::util::Error
                 << "Rejected message queue from process (pid=" << pid << ')'
                 << std::endl;

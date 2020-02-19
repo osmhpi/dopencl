@@ -181,7 +181,7 @@ private:
         _message_buffer.resize(size);
         // read message
         boost::asio::async_read(*_socket,
-                boost::asio::buffer(_message_buffer.begin(), _message_buffer.size()),
+                boost::asio::buffer(_message_buffer.data(), _message_buffer.size()),
                 [this, handler](const boost::system::error_code& ec, size_t bytes_transferred){
                         handle_message(ec, bytes_transferred, handler); });
     }
