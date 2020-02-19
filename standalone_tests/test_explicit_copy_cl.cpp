@@ -1,3 +1,5 @@
+/* Tests whether a a buffer shared in a context containing two OpenCL devices which
+   is copied using an explicit copy (clEnqueueCopyBuffer) is successfully transferred */
 #include <iostream>
 #include <vector>
 #include <string>
@@ -69,10 +71,10 @@ int main(void)
                                        0, buf_start.size(), &buf_start[0]);
     devinfo[1].queue.enqueueReadBuffer(devinfo[1].buf, CL_TRUE,
                                        BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
-    std::cout << "Buffer: " << buf_start << "..." << buf_end << "\n";
-    std::fill(buf_start.begin(), buf_start.end(), 'A');
-    std::fill(buf_end.begin(), buf_end.end(), 'A');
-    std::cout << "Expected: " << buf_start << "..." << buf_end << "\n";
+    std::cout << "Buffer:   " << buf_start << "..." << buf_end << "\n";
 
-    return EXIT_SUCCESS;
+    std::string expected_start(8, 'A'), expected_end(8, 'A');
+    std::cout << "Expected: " << expected_start << "..." << expected_end << "\n";
+
+    return (buf_start == expected_start && buf_end == expected_end) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
