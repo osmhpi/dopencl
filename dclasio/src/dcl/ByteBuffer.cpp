@@ -119,7 +119,7 @@ InputByteBuffer& InputByteBuffer::operator>>(Binary& data) {
 }
 
 void InputByteBuffer::resize(size_t size_) {
-    reserve(size_); // no operation, if internal buffer size is greater or equal
+    _bytes.resize(size_);
     _pos = 0;
     _len = size_;
 }

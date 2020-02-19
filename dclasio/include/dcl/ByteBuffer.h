@@ -110,19 +110,6 @@ public:
 
 private:
     /*!
-     * \brief Resizes the buffer to the specified internal size.
-     * \param[in]  size the new internal buffer size
-     */
-    inline void reserve(
-            size_t size) {
-        if (size <= _bytes.size()) return; // no operation
-        /* TODO Resize buffer
-         * First, try to recover memory of read bytes just by moving content to beginning
-         * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
-        assert(!"resize not implemented");
-    }
-
-    /*!
      * \brief Ensures that at least \c size bytes can be written to the buffer
      * \param[in]  free the number of bytes to write
      */
@@ -133,7 +120,7 @@ private:
             while (size < _bytes.size()) {
                 size *= 2; // double buffer size
             }
-            reserve(std::max(size, free));
+            _bytes.resize(size);
         }
     }
 
@@ -211,18 +198,6 @@ public:
     const static size_t DEFAULT_SIZE = 512; //!< default buffer size in bytes
 
 private:
-    /*!
-     * \brief Resizes the buffer to the specified internal size.
-     * \param[in]  size the new internal buffer size
-     */
-    inline void reserve(size_t size) {
-        if (size <= _bytes.size()) return; // no operation
-        /* TODO Resize buffer
-         * First, try to recover memory of read bytes just by moving content to beginning
-         * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
-        assert(!"resize not implemented");
-    }
-
     /*!
      * \brief Ensures that at least \c size bytes can be read from the buffer
      * \param[in]  size the number of bytes to read
