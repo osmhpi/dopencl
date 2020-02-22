@@ -20,7 +20,7 @@ export DCL_LOG_LEVEL=VERBOSE
 (mkdir -p n2 && cd n2 && ../../daemon/dcld 127.0.0.1:30001) &
 sleep 1 # TODO: Find a better way to wait for dcld startup
 
-printf "127.0.0.1:30000\n127.0.0.1:30001" > dcl.nodes
+printf "127.0.0.1:30000\n127.0.0.1:30001\n" > dcl.nodes
 find ../test/ -maxdepth 1 -type f -executable -exec env LD_PRELOAD=../icdpp/libdOpenCL.so {} \;
 echo "**test_explicit_copy_cl**" && env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_explicit_copy_cl
 echo "**test_implicit_copy_cl**" && env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_implicit_copy_cl
