@@ -15,15 +15,12 @@ g++ ../standalone_tests/test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HP
 
 cd "$TEMPDIR"
 
-(mkdir -p n1 && cd n1 && DCL_LOG_LEVEL=VERBOSE ../../daemon/dcld 127.0.0.1:30000) &
-(mkdir -p n2 && cd n2 && DCL_LOG_LEVEL=VERBOSE ../../daemon/dcld 127.0.0.1:30001) &
+export DCL_LOG_LEVEL=VERBOSE
+(mkdir -p n1 && cd n1 && ../../daemon/dcld 127.0.0.1:30000) &
+(mkdir -p n2 && cd n2 && ../../daemon/dcld 127.0.0.1:30001) &
 sleep 1 # TODO: Find a better way to wait for dcld startup
 
 printf "127.0.0.1:30000\n127.0.0.1:30001" > dcl.nodes
 find ../test/ -maxdepth 1 -type f -executable -exec env LD_PRELOAD=../icdpp/libdOpenCL.so {} \;
-
-echo "**test_explicit_copy_cl**"
-env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_explicit_copy_cl
-
-echo "**test_implicit_copy_cl**"
-env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_implicit_copy_cl
+echo "**test_explicit_copy_cl**" && env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_explicit_copy_cl
+echo "**test_implicit_copy_cl**" && env LD_PRELOAD=../icdpp/libdOpenCL.so ./test_implicit_copy_cl
