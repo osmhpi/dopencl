@@ -260,8 +260,7 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context, memoryObjects), _event(event)
 {
-    /* Schedule event status update notification */
-    _event.setCallback(CL_COMPLETE, &onEventComplete, this);
+    postConstructorInitialize();
 }
 
 SimpleEvent::SimpleEvent(dcl::object_id id,
@@ -270,8 +269,7 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context, memoryObject), _event(event)
 {
-    /* Schedule event status update notification */
-    _event.setCallback(CL_COMPLETE, &onEventComplete, this);
+    postConstructorInitialize();
 }
 
 SimpleEvent::SimpleEvent(dcl::object_id id,
@@ -279,6 +277,28 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context), _event(event)
 {
+    postConstructorInitialize();
+}
+
+SimpleEvent::SimpleEvent(dcl::object_id id,
+                         const std::shared_ptr<Context>& context,
+                         const cl::Event& event,
+                         bool doPostConstructorInitialize) :
+        LocalEvent(id, context), _event(event)
+{
+    // This constructor is needed to correctly handle the case where a class derived from SimpleEvent overrides
+    // onExecutionStatusChanged(). Without this constructor, if this happens, when registering the event callback
+    // from the constructor, if the event is already completed, the callback will trigger immediately, and call
+    // onExecutionStatusChanged from within the constructor. However, this will call the base implementation of
+    // onExecutionStatusChanged instead of the derived one, because the derived class still hasn't been constructed
+    // For more information: https://stackoverflow.com/a/962148
+    //                       https://isocpp.org/wiki/faq/strange-inheritance#calling-virtuals-from-ctor-idiom
+    // This overload gives the derived class a chance to call postConstructorInitialize itself after its constructor
+    if (doPostConstructorInitialize)
+        postConstructorInitialize();
+}
+
+void SimpleEvent::postConstructorInitialize() {
     /* Schedule event status update notification */
     _event.setCallback(CL_COMPLETE, &onEventComplete, this);
 }
@@ -324,7 +344,9 @@ void SimpleEvent::onExecutionStatusChanged(cl_int executionStatus) {
 SimpleNodeEvent::SimpleNodeEvent(dcl::object_id id,
         const std::shared_ptr<Context>& context,
         const cl::Event& event) :
-    SimpleEvent(id, context, event) { }
+    SimpleEvent(id, context, event, false) {
+    postConstructorInitialize(); // See comment inside called base class constructor as for why this is necessary
+}
 
 void SimpleNodeEvent::onExecutionStatusChanged(cl_int executionStatus) {
     if (!_context->computeNodes().empty()) {

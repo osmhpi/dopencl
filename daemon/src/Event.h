@@ -250,6 +250,14 @@ public:
     void onExecutionStatusChanged(
             cl_int executionStatus);
 
+protected:
+    SimpleEvent(dcl::object_id id,
+            const std::shared_ptr<Context>& context,
+            const cl::Event& event,
+            bool doPostConstructorInitialize);
+
+    void postConstructorInitialize();
+
 private:
     cl::Event _event; //!< Native event
 };
