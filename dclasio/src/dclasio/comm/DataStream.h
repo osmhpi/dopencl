@@ -187,6 +187,7 @@ private:
     std::mutex read_decompress_queue_mutex;
     std::condition_variable read_decompress_queue_available;
 
+    size_t rq_cumulative_transfer;
     size_t rq_remaining_offset;
     size_t rq_compressed_size;
     std::vector<uint8_t> rq_compress_buffer;
@@ -226,6 +227,7 @@ private:
     bool write_channel_used;
     std::queue<write_chunk> write_queue;
     std::mutex write_queue_mutex;
+    size_t write_cumulative_transfer;
     size_t write_offset;
 #endif
 };

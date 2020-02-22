@@ -202,6 +202,7 @@ void DataStream::start_read(
 
     read_done = false;
     decompress_done = false;
+    rq_cumulative_transfer = 0;
     rq_remaining_offset = 0;
 
     read_next_compressed_chunk(readq, read);
@@ -240,7 +241,7 @@ void DataStream::start_read(
         lock.unlock();
 
         if (done) {
-            handle_read(readq, boost::system::error_code(), read->size());
+            handle_read(readq, boost::system::error_code(), rq_cumulative_transfer);
         }
     });
 #endif
@@ -251,15 +252,19 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
     if (read->size() - rq_remaining_offset >= CHUNK_SIZE) {
         boost::asio::async_read(*_socket, boost::asio::buffer(&rq_compressed_size, sizeof(size_t)),
                 [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred){
+            assert(!ec);
+            rq_cumulative_transfer += bytes_transferred;
             rq_compress_buffer.resize(rq_compressed_size);
             boost::asio::async_read(*_socket, boost::asio::buffer(rq_compress_buffer.data(), rq_compressed_size),
             [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
+                assert(!ec);
                 // Push into the chunk queue
                 std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
                 read_decompress_queue.push(std::move(rq_compress_buffer));
                 lock.unlock();
                 read_decompress_queue_available.notify_one();
 
+                rq_cumulative_transfer += bytes_transferred;
                 rq_remaining_offset += CHUNK_SIZE;
 
                 read_next_compressed_chunk(readq, read);
@@ -275,10 +280,11 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
             bool done = decompress_done;
             lock.unlock();
 
+            rq_cumulative_transfer += bytes_transferred;
             rq_remaining_offset = readq->size();
 
             if (done) {
-                handle_read(readq, boost::system::error_code(), read->size());
+                handle_read(readq, boost::system::error_code(), rq_cumulative_transfer);
             }
         });
     }
@@ -334,6 +340,7 @@ void DataStream::start_write(
                     handle_write(writeq, ec, bytes_transferred); });
 #else
     write_channel_used = false;
+    write_cumulative_transfer = 0;
     write_offset = 0;
 
     auto compression_thread = new std::thread([this, writeq, write] { // TODOXXX memory leak
@@ -406,11 +413,14 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
                 boost::asio::buffer(chunk.ptr, chunk.size)};
         boost::asio::async_write(*_socket, header_and_data,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+             assert(!ec);
+
              std::unique_lock<std::mutex> lock(write_queue_mutex);
              write_channel_used = false;
              write_queue.pop();
              lock.unlock();
 
+             write_cumulative_transfer += bytes_transferred;
              write_offset += CHUNK_SIZE;
 
              write_next_compressed_chunk(writeq, write);
@@ -421,15 +431,18 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
         lock.unlock();
 
         boost::asio::async_write(*_socket,
-         boost::asio::buffer((uint8_t *) write->ptr() + write_offset, (write->size() - write_offset)),
+         boost::asio::buffer((uint8_t *) write->ptr() + write_offset, write->size() - write_offset),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+             assert(!ec);
+
              std::unique_lock<std::mutex> lock(write_queue_mutex);
              write_channel_used = false;
              lock.unlock();
 
+             write_cumulative_transfer += bytes_transferred;
              write_offset = writeq->size();
 
-             handle_write(std::move(writeq), boost::system::error_code(), write->size());
+             handle_write(std::move(writeq), boost::system::error_code(), write_cumulative_transfer);
          });
     }
 }

@@ -75,31 +75,14 @@ namespace comm {
 
 struct Receive {
     typedef void * pointer_type;
+    constexpr static const char *action_log_name = "Received";
 
-    static void logFinish(
-            size_t size,
-            double latency,
-            double bandwidth) {
-        dcl::util::Logger << dcl::util::Debug
-                << "Received " << size << " bytes\n"
-                << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s"
-                << std::endl;
 
-    }
 };
 
 struct Send {
     typedef const void * pointer_type;
-
-    static void logFinish(
-            size_t size,
-            double latency,
-            double bandwidth) {
-        dcl::util::Logger << dcl::util::Debug
-                << "Sent " << size << " bytes\n"
-                << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s"
-                << std::endl;
-    }
+    constexpr static const char *action_log_name = "Sent";
 };
 
 /* ****************************************************************************/
@@ -209,9 +192,6 @@ public:
         std::unique_lock<std::mutex> lock(_mutex);
         _end = dcl::util::clock.getTime(); // take time stamp
 
-        double latency = static_cast<double>(_start - _submit) / 1000000.0;
-        double durance = static_cast<double>(_end   - _start) / 1000000000.0;
-
         // TODO Use more specific error codes
         _status = ec ? CL_IO_ERROR_WWU : CL_SUCCESS;
         // signal completion
@@ -220,8 +200,19 @@ public:
 
         triggerCallbacks();
 
-        double bandwidth = (_size / static_cast<double>(1024 * 1024)) / durance;
-        Operation::logFinish(_size, latency, bandwidth);
+        double latency = static_cast<double>(_start - _submit) / 1000000.0;
+        double durance = static_cast<double>(_end   - _start) / 1000000000.0;
+        double bandwidth = (bytes_transferred / static_cast<double>(1024 * 1024)) / durance;
+        double compressibility = static_cast<double>(_size) / static_cast<double>(bytes_transferred);
+
+        dcl::util::Logger << dcl::util::Debug
+                          << Operation::action_log_name << " " << bytes_transferred << " bytes\n"
+                          << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n"
+                          #ifdef IO_LINK_COMPRESSION
+                          << "\tuncompressed size: " << _size << " bytes, "
+                          << "compressibility:" << compressibility << "\n"
+                          #endif
+                          << std::flush;
     }
 
 private:
