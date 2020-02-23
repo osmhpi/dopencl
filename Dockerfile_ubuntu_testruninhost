@@ -3,27 +3,31 @@ FROM dopencl_ubuntu
 # Install dependencies
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends \
-    gcc opencl-headers ocl-icd-opencl-dev libssl-dev gdb \
+    g++ opencl-headers ocl-icd-opencl-dev gdb \
  && rm -rf /var/lib/apt/lists/*
 
 # Build sample program
-COPY test_ca.c test_ca.c
-RUN gcc -fopenmp -g -Wall -Wextra -DLEGACY_OPENCL_1_2 test_ca.c -o test_ca -lOpenCL -lcrypto
+COPY standalone_tests /tmp/dopencl/standalone_tests
+WORKDIR /tmp/dopencl/standalone_tests
+RUN g++ test_explicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_explicit_copy_cl \
+ && g++ test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_implicit_copy_cl
 
 # The list of dOpenCL worker nodes must be given as an environment variable (comma separated hosts)
-ENV DCL_NODES 192.168.1.234,192.168.1.243
+ENV DCL_NODES dopencl_worker1,dopencl_worker2
 
 # Run sample program on the given dOpenCL worker nodes
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
 echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
-LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_ca 100 10\n' > launchscript.sh \
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_explicit_copy_cl\n\
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_implicit_copy_cl\n' > launchscript.sh \
  && chmod +x launchscript.sh
 
 RUN printf '#!/bin/sh\n\
 . /etc/profile.d/dopenclenv.sh\n\
 echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
-gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so env DCL_LOG_LEVEL=VERBOSE ./test_ca 100 10\n' > launchscript_debug.sh \
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so env DCL_LOG_LEVEL=VERBOSE ./test_explicit_copy_cl\n\
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so env DCL_LOG_LEVEL=VERBOSE ./test_implicit_copy_cl\n\' > launchscript_debug.sh \
  && chmod +x launchscript_debug.sh
 
-CMD ["/launchscript.sh"]
+CMD ["./launchscript.sh"]
