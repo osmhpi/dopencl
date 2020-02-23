@@ -40,7 +40,7 @@ add_executable(Memory
 		${PROJECT_SOURCE_DIR}/src/MemoryConsistency.cpp)
 add_executable(Platform ${PROJECT_SOURCE_DIR}/src/Platform.cpp)
 add_executable(Program ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Program.cpp)
-add_executable(DataTransfer ${PROJECT_SOURCE_DIR}/src/DataTransfer.cpp)
+add_executable(DataTransfer ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/DataTransfer.cpp)
 
 foreach(test CommandQueue Context Device Event Memory Platform Program DataTransfer)
 	add_test(${test} ${test})
