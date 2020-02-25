@@ -63,7 +63,6 @@
 #include <memory>
 #include <mutex>
 #include <utility>
-#include <utility>
 
 #ifdef IO_LINK_COMPRESSION
 #define CHUNK_SIZE 16384
@@ -85,6 +84,76 @@ static const uint8_t CHUNK_MAGIC[16] = {
 #define lib842_decompress hw842_decompress
 #endif
 #endif
+
+// If USE_SENTINELS is defined, special marker sequences are included and checked before/after each data transfer
+// If marker sequences in a read operation don't match those in each write operation, an assertion will be triggered
+// This is useful as a "fail fast" for stream desynchronization, for bugs such as race conditions
+//#define USE_SENTINELS
+
+#ifdef USE_SENTINELS
+static constexpr unsigned int SENTINEL_START = 0x12345678, SENTINEL_END = 0x87654321;
+#endif
+
+/**
+ * Like boost::asio::async_write, but also sends sentinels
+ * through the stream if USE_SENTINELS is set.
+ */
+template<typename AsyncWriteStream, typename ConstBufferSequence, typename WriteHandler>
+static auto boost_asio_async_write_with_sentinels(AsyncWriteStream &s, const ConstBufferSequence &buffers, WriteHandler &&handler)
+    -> decltype(boost::asio::async_write(s, buffers, handler)) {
+#ifdef USE_SENTINELS
+    std::vector<boost::asio::const_buffer> buffers_with_sentinels;
+    for (const auto &b : buffers) {
+        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_START, sizeof(SENTINEL_START)));
+        buffers_with_sentinels.push_back(b);
+        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_END, sizeof(SENTINEL_END)));
+    }
+    return boost::asio::async_write(s, buffers_with_sentinels, handler);
+#else
+    return boost::asio::async_write(s, buffers, handler);
+#endif
+}
+
+/**
+ * Like boost::asio::async_read, but also reads and verifies sentinels
+ * through the stream if USE_SENTINELS is set.
+ */
+template<typename AsyncReadStream, typename MutableBufferSequence, typename ReadHandler>
+static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const MutableBufferSequence &buffers, ReadHandler &&handler)
+    -> decltype(boost::asio::async_read(s, buffers, handler)) {
+#ifdef USE_SENTINELS
+    struct sentinel_t {
+        unsigned int start, end;
+    };
+
+    // Since the sentinels need to survive the asynchronous read call, we need to use a
+    // std::shared_ptr for the sentinels to survive until the read completes
+    std::shared_ptr<std::vector<sentinel_t>> sentinels(new std::vector<sentinel_t>(
+            std::distance(buffers.begin(), buffers.end())));
+
+    size_t i = 0;
+    std::vector<boost::asio::mutable_buffer> buffers_with_sentinels;
+    for (const auto &b : buffers) {
+        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].start, sizeof(sentinel_t::start)));
+        buffers_with_sentinels.push_back(b);
+        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].end, sizeof(sentinel_t::end)));
+        i++;
+    }
+
+    return boost::asio::async_read(
+            s, buffers_with_sentinels,
+            [handler, sentinels](const boost::system::error_code &ec, size_t bytes_transferred) {
+                if (!ec) { // On error, we expect the original handler to handle the failure
+                    for (const auto &s : *sentinels) {
+                        assert(s.start == SENTINEL_START && s.end == SENTINEL_END);
+                    }
+                }
+                handler(ec, bytes_transferred);
+            });
+#else
+    return boost::asio::async_read(s, buffers, handler);
+#endif
+}
 
 namespace dclasio {
 
@@ -194,7 +263,7 @@ void DataStream::start_read(
     auto& read = readq->front();
     read->onStart();
 #ifndef IO_LINK_COMPRESSION
-    boost::asio::async_read(
+    boost_asio_async_read_with_sentinels(
             *_socket, boost::asio::buffer(read->ptr(), read->size()),
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
@@ -250,12 +319,12 @@ void DataStream::start_read(
 #ifdef IO_LINK_COMPRESSION
 void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read) {
     if (read->size() - rq_remaining_offset >= CHUNK_SIZE) {
-        boost::asio::async_read(*_socket, boost::asio::buffer(&rq_compressed_size, sizeof(size_t)),
+        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(&rq_compressed_size, sizeof(size_t)),
                 [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred){
             assert(!ec);
             rq_cumulative_transfer += bytes_transferred;
             rq_compress_buffer.resize(rq_compressed_size);
-            boost::asio::async_read(*_socket, boost::asio::buffer(rq_compress_buffer.data(), rq_compressed_size),
+            boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(rq_compress_buffer.data(), rq_compressed_size),
             [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
                 assert(!ec);
                 // Push into the chunk queue
@@ -272,9 +341,9 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
         });
     } else {
         // Always read the last incomplete chunk of the input uncompressed
-        boost::asio::async_read(*_socket,
-                          boost::asio::buffer((uint8_t *)read->ptr() + rq_remaining_offset, read->size() - rq_remaining_offset),
+        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer((uint8_t *) read->ptr() + rq_remaining_offset, read->size() - rq_remaining_offset),
                                 [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
+            assert(!ec);
             std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
             read_done = true;
             bool done = decompress_done;
@@ -328,13 +397,13 @@ void DataStream::start_write(
     write->onStart();
     /* TODO *Move* writeq through (i.e., into and out of) lambda capture
      * In C++14 this should be possible by generalized lambda captures as follows:
-    boost::asio::async_write(
+    boost_asio_async_write_with_sentinels(
             *_socket, boost::asio::buffer(write->ptr(), write->size()),
             [this, writeq{std::move(writeq)}](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(std::move(writeq), ec, bytes_transferred); });
      */
 #ifndef IO_LINK_COMPRESSION
-    boost::asio::async_write(
+    boost_asio_async_write_with_sentinels(
             *_socket, boost::asio::buffer(write->ptr(), write->size()),
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(writeq, ec, bytes_transferred); });
@@ -408,10 +477,11 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
         lock.unlock();
 
         // Chunk I/O
-        std::array<boost::asio::const_buffer, 2> header_and_data = {
+        std::array<boost::asio::const_buffer, 2> buffers = {
                 boost::asio::buffer(&chunk.size, sizeof(size_t)),
-                boost::asio::buffer(chunk.ptr, chunk.size)};
-        boost::asio::async_write(*_socket, header_and_data,
+                boost::asio::buffer(chunk.ptr, chunk.size),
+        };
+        boost_asio_async_write_with_sentinels(*_socket, buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              assert(!ec);
 
@@ -430,8 +500,8 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
         write_channel_used = true;
         lock.unlock();
 
-        boost::asio::async_write(*_socket,
-         boost::asio::buffer((uint8_t *) write->ptr() + write_offset, write->size() - write_offset),
+        boost_asio_async_write_with_sentinels(*_socket,
+                boost::asio::buffer((uint8_t *) write->ptr() + write_offset, write->size() - write_offset),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              assert(!ec);
 
