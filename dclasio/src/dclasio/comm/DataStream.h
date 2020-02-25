@@ -58,6 +58,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <type_traits>
 
 namespace dclasio {
 
@@ -91,6 +92,10 @@ public:
             const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
             boost::asio::ip::tcp::endpoint remote_endpoint);
     virtual ~DataStream();
+
+    /* Data streams must be non-copyable */
+    DataStream(const DataStream&) = delete;
+    DataStream& operator=(const DataStream&) = delete;
 
     /*!
      * \brief Connects this data stream to its remote process
@@ -128,13 +133,6 @@ public:
             size_t size,
             const void *ptr,
             bool skip_compress_step);
-
-private:
-    /* Data streams must be non-copyable */
-    DataStream(
-            const DataStream&) = delete;
-    DataStream& operator=(
-            const DataStream&) = delete;
 
     /*!
      * \brief Processes the next data transfer from the read queue.
@@ -186,79 +184,121 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    std::thread _decompress_thread;
-    unsigned decompress_inflight;
-    struct read_queue_decompress_message {
+    struct decompress_message_decompress {
         std::vector<uint8_t> compressed_data;
         void *destination;
         bool skip_compress_step;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
-        read_queue_decompress_message(const read_queue_decompress_message &) = delete;
-        read_queue_decompress_message& operator=(const read_queue_decompress_message &) = delete;
-        read_queue_decompress_message(read_queue_decompress_message &&) = default;
-        read_queue_decompress_message& operator=(read_queue_decompress_message &&) = default;
+        decompress_message_decompress(const decompress_message_decompress &) = delete;
+        decompress_message_decompress& operator=(const decompress_message_decompress &) = delete;
+        decompress_message_decompress(decompress_message_decompress &&) = default;
+        decompress_message_decompress& operator=(decompress_message_decompress &&) = default;
     };
-    struct read_queue_finalize_message {
+    struct decompress_message_finalize {
         readq_type *readq;
     };
-    struct read_queue_quit_message {};
-    using readq_message_t = boost::variant<read_queue_decompress_message,
-                                           read_queue_finalize_message,
-                                           read_queue_quit_message>;
-    std::queue<readq_message_t> read_decompress_queue;
-    std::mutex read_decompress_queue_mutex;
-    std::condition_variable read_decompress_queue_available;
+    struct decompress_message_quit {};
+    using decompress_message_t = boost::variant<decompress_message_decompress,
+                                                decompress_message_finalize,
+                                                decompress_message_quit>;
 
-    size_t rq_cumulative_transfer;
-    size_t rq_remaining_offset;
-    size_t rq_compressed_size;
-    std::vector<uint8_t> rq_compress_buffer;
+    // ** Variables related to the decompression thread (associated to reads) **
+    // Instance of the decompression thread
+    std::thread _decompress_thread;
+    // Mutex for protecting concurrent accesses to
+    // (_decompress_queue, _decompress_working_thread_count)
+    std::mutex _decompress_queue_mutex;
+    // Stores pending decompression operations after reads,
+    // and can also receive other kinds of messages for lifetime management
+    std::queue<decompress_message_t> _decompress_queue;
+    // Wakes up the decompression threads when new operations have been added to the queue
+    std::condition_variable _decompress_queue_available;
+    // Number of threads currently running decompression operations
+    unsigned _decompress_working_thread_count;
 
-    struct write_chunk {
-        uint8_t *ptr;
-        size_t size;
+    // ** Variables related to the current asynchronous I/O read operation **
+    // Total bytes transferred through the network by current read (for statistical purposes)
+    size_t _read_io_total_bytes_transferred;
+    // Offset into the destination buffer where the data associated
+    // with the current read operation will go (after decompression)
+    size_t _read_io_destination_offset;
+    // Size of the current read operation
+    size_t _read_io_buffer_size;
+    // Target buffer of the current read operation
+    std::vector<uint8_t> _read_io_buffer;
+
+    // A custom smart pointer that conditionally owns a value
+    // If is_owner = true, it owns the value (works similarly to a std::unique_ptr)
+    // If is_owner = false, it doesn't own the value (works similarly to a raw pointer)
+    // (in this case, the pointer must be kept alive by other means during the lifetime of the class)
+    template<typename T, typename = typename std::enable_if<std::is_array<T>::value>::type>
+    class maybe_unique_ptr {
+        using ptr_t = typename std::add_pointer<typename std::remove_extent<T>::type>::type;
+
+        ptr_t ptr;
         bool is_owner;
 
-        write_chunk(uint8_t *ptr, size_t size, bool is_owner)
-                : ptr(ptr), size(size), is_owner(is_owner) {
-        }
-
-        ~write_chunk() {
+    public:
+        maybe_unique_ptr(T ptr, bool is_owner) : ptr(ptr), is_owner(is_owner) {}
+        ~maybe_unique_ptr() {
             if (is_owner) {
                 delete[] ptr;
             }
         }
 
-        write_chunk(const write_chunk& other) = delete;
-        write_chunk& operator=(const write_chunk& other) = delete;
+        maybe_unique_ptr(const maybe_unique_ptr& other) = delete;
+        maybe_unique_ptr& operator=(const maybe_unique_ptr& other) = delete;
 
-        write_chunk(write_chunk&& other) noexcept // move constructor
-                : ptr(other.ptr), size(other.size), is_owner(other.is_owner) {
+        maybe_unique_ptr(maybe_unique_ptr&& other) noexcept // move constructor
+            : ptr(other.ptr), is_owner(other.is_owner) {
             other.ptr = nullptr; // Avoid delete
         }
 
-        write_chunk& operator=(write_chunk&& other) noexcept {
+        maybe_unique_ptr& operator=(maybe_unique_ptr&& other) noexcept {
             ptr = other.ptr;
-            size = other.size;
             is_owner = other.is_owner;
             other.ptr = nullptr; // Avoid delete
             return *this;
         }
+
+        ptr_t get() const { return ptr; }
     };
 
-    bool write_channel_used;
-    std::queue<write_chunk> write_queue;
-    std::mutex write_queue_mutex;
-    size_t write_cumulative_transfer;
-    size_t write_offset;
-    writeq_type *write_current_writeq;
-    std::shared_ptr<DataSending> write_current_write;
+    struct write_chunk {
+        maybe_unique_ptr<const uint8_t[]> data;
+        size_t size;
+    };
+
+    // ** Variables related to the compression thread (associated to writes) **
+    // Instance of the compression thread
     std::thread _compress_thread;
-    bool write_thread_trigger = false;
-    bool write_thread_trigger_quit = false;
-    std::mutex write_thread_mutex;
-    std::condition_variable write_thread_trigger_cv;
+    // Mutex for protecting concurrent accesses to
+    // (_compress_trigger, _compress_quit)
+    std::mutex _compress_trigger_mutex;
+    // true if a new operation must be started in the compression thread
+    bool _compress_trigger = false;
+    // Wakes up the compression thread when a new operation must be started
+    std::condition_variable _compress_trigger_changed;
+    // If set to true, causes the compression to quit (for cleanup)
+    bool _compress_quit = false;
+    // Necessary data for triggering an asynchronous I/O write operation from the compression thread
+    writeq_type *_compress_current_writeq;
+    std::shared_ptr<DataSending> _compress_current_write;
+
+    // ** Variables related to the current asynchronous I/O write operation **
+    // Total bytes transferred through the network by current write (for statistical purposes)
+    size_t _write_io_total_bytes_transferred;
+    // Offset into the source buffer where the data associated
+    // with the current write operation comes from (before compression)
+    size_t _write_io_source_offset;
+    // Mutex for protecting concurrent accesses to
+    // (_write_io_queue, _write_io_channel_busy)
+    std::mutex _write_io_queue_mutex;
+    // Stores pending write operations after compression
+    std::queue<write_chunk> _write_io_queue;
+    // Set when a write operation is in progress, so a new write operation knows it has to wait
+    bool _write_io_channel_busy;
 #endif
 };
 
