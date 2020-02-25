@@ -228,45 +228,24 @@ public:
     // Target buffer of the current read operation
     std::vector<uint8_t> _read_io_buffer;
 
-    // A custom smart pointer that conditionally owns a value
-    // If is_owner = true, it owns the value (works similarly to a std::unique_ptr)
-    // If is_owner = false, it doesn't own the value (works similarly to a raw pointer)
+    // A custom deleter for std::unique_ptr<const uint8_t[]> that conditionally deletes a value
+    // If is_owner = true, the pointer owns the value (works like a regular std::unique_ptr)
+    // If is_owner = false, it doesn't own the value (works like a raw pointer)
     // (in this case, the pointer must be kept alive by other means during the lifetime of the class)
-    template<typename T, typename = typename std::enable_if<std::is_array<T>::value>::type>
-    class maybe_unique_ptr {
-        using ptr_t = typename std::add_pointer<typename std::remove_extent<T>::type>::type;
-
-        ptr_t ptr;
+    class ConditionalOwnerDeleter {
         bool is_owner;
-
     public:
-        maybe_unique_ptr(T ptr, bool is_owner) : ptr(ptr), is_owner(is_owner) {}
-        ~maybe_unique_ptr() {
+        ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
+        void operator()(const uint8_t *ptr)
+        {
             if (is_owner) {
                 delete[] ptr;
             }
         }
-
-        maybe_unique_ptr(const maybe_unique_ptr& other) = delete;
-        maybe_unique_ptr& operator=(const maybe_unique_ptr& other) = delete;
-
-        maybe_unique_ptr(maybe_unique_ptr&& other) noexcept // move constructor
-            : ptr(other.ptr), is_owner(other.is_owner) {
-            other.ptr = nullptr; // Avoid delete
-        }
-
-        maybe_unique_ptr& operator=(maybe_unique_ptr&& other) noexcept {
-            ptr = other.ptr;
-            is_owner = other.is_owner;
-            other.ptr = nullptr; // Avoid delete
-            return *this;
-        }
-
-        ptr_t get() const { return ptr; }
     };
 
     struct write_chunk {
-        maybe_unique_ptr<const uint8_t[]> data;
+        std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter> data;
         size_t size;
     };
 

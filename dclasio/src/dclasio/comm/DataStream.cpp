@@ -564,7 +564,8 @@ void DataStream::start_compress_thread() {
                         : CHUNK_SIZE;
 
                 write_chunk chunk {
-                    .data = maybe_unique_ptr<const uint8_t[]>(chunk_buffer, false),
+                    .data = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
+                            chunk_buffer, ConditionalOwnerDeleter(false)),
                     .size = chunk_buffer_size
                 };
 
@@ -585,8 +586,9 @@ void DataStream::start_compress_thread() {
                 // If the chunk is compressible, transfer ownership of the compressed buffer,
                 // otherwise use the uncompressed buffer and destroy the compressed buffer
                 write_chunk chunk {
-                    .data = maybe_unique_ptr<const uint8_t[]>(compressible
-                            ? compress_buffer.release() : source, compressible),
+                    .data = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
+                            compressible ? compress_buffer.release() : source,
+                            ConditionalOwnerDeleter(compressible)),
                     .size = compressible ? compressed_size : CHUNK_SIZE
                 };
 
