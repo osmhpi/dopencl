@@ -145,7 +145,7 @@ public:
 
 #ifdef IO_LINK_COMPRESSION
     void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
-    void start_decompress_thread();
+    void loop_decompress_thread();
 #endif
 
     void handle_read(
@@ -163,8 +163,8 @@ public:
             writeq_type *writeq = new writeq_type());
 
 #ifdef IO_LINK_COMPRESSION
-    void write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
-    void start_compress_thread();
+    void try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
+    void loop_compress_thread();
 #endif
 
     void handle_write(

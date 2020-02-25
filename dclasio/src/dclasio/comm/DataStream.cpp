@@ -165,8 +165,8 @@ DataStream::DataStream(
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
-    _decompress_thread = std::thread{&DataStream::start_decompress_thread, this};
-    _compress_thread = std::thread{&DataStream::start_compress_thread, this};
+    _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
+    _compress_thread = std::thread{&DataStream::loop_compress_thread, this};
 #endif
 }
 
@@ -177,8 +177,8 @@ DataStream::DataStream(
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
-    _decompress_thread = std::thread{&DataStream::start_decompress_thread, this};
-    _compress_thread = std::thread{&DataStream::start_compress_thread, this};
+    _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
+    _compress_thread = std::thread{&DataStream::loop_compress_thread, this};
 #endif
 }
 
@@ -365,7 +365,7 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
     }
 }
 
-void DataStream::start_decompress_thread() {
+void DataStream::loop_decompress_thread() {
     while (true) {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
@@ -473,12 +473,12 @@ void DataStream::start_write(
     lock.unlock();
     _compress_trigger_changed.notify_one();
 
-    write_next_compressed_chunk(writeq, write);
+    try_write_next_compressed_chunk(writeq, write);
 #endif
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write) {
+void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write) {
     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
     if (_write_io_channel_busy) {
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
@@ -512,7 +512,7 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
              _write_io_total_bytes_transferred += bytes_transferred;
              _write_io_source_offset += CHUNK_SIZE;
 
-             write_next_compressed_chunk(writeq, write);
+             try_write_next_compressed_chunk(writeq, write);
          });
     } else {
         // Always write the last incomplete chunk of the input uncompressed
@@ -536,7 +536,7 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
     }
 }
 
-void DataStream::start_compress_thread() {
+void DataStream::loop_compress_thread() {
     while (true) {
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
@@ -596,7 +596,7 @@ void DataStream::start_compress_thread() {
                 _write_io_queue.push(std::move(chunk));
             }
 
-            write_next_compressed_chunk(writeq, write);
+            try_write_next_compressed_chunk(writeq, write);
         }
     }
 }
