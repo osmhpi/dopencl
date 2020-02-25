@@ -71,7 +71,6 @@ static const uint8_t CHUNK_MAGIC[16] = {
 };
 #define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(size_t)))
 
-#include <thread>
 #include <queue>
 
 #ifndef USE_HW_IO_LINK_COMPRESSION
@@ -164,6 +163,11 @@ DataStream::DataStream(
         _socket(socket), _receiving(false), _sending(false) {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
+
+#ifdef IO_LINK_COMPRESSION
+    _decompress_thread = std::thread{&DataStream::start_decompress_thread, this};
+    _compress_thread = std::thread{&DataStream::start_compress_thread, this};
+#endif
 }
 
 DataStream::DataStream(
@@ -171,9 +175,30 @@ DataStream::DataStream(
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false) {
     assert(!socket->is_open()); // socket must not be connect
+
+#ifdef IO_LINK_COMPRESSION
+    _decompress_thread = std::thread{&DataStream::start_decompress_thread, this};
+    _compress_thread = std::thread{&DataStream::start_compress_thread, this};
+#endif
 }
 
 DataStream::~DataStream() {
+#ifdef IO_LINK_COMPRESSION
+    {
+        std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
+        read_decompress_queue.push(read_queue_quit_message());
+    }
+    read_decompress_queue_available.notify_one();
+    _decompress_thread.join();
+
+    {
+        std::unique_lock<std::mutex> lock(write_thread_mutex);
+        write_thread_trigger = true;
+        write_thread_trigger_quit = true;
+    }
+    write_thread_trigger_cv.notify_one();
+    _compress_thread.join();
+#endif
 }
 
 dcl::process_id DataStream::connect(
@@ -268,51 +293,11 @@ void DataStream::start_read(
             [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_read(readq, ec, bytes_transferred); });
 #else
-
-    read_done = false;
-    decompress_done = false;
+    decompress_inflight = 0;
     rq_cumulative_transfer = 0;
     rq_remaining_offset = 0;
 
     read_next_compressed_chunk(readq, read);
-
-    auto compression_thread = new std::thread([this, readq, read] { // TODOXXX memleak!
-        for (size_t offset = 0; ((read->size() - offset) >= CHUNK_SIZE); offset += CHUNK_SIZE) {
-            // (Blocking) pop from the chunk queue
-            std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
-            while (read_decompress_queue.empty())
-                read_decompress_queue_available.wait(lock);
-            auto chunk = std::move(read_decompress_queue.front());
-            read_decompress_queue.pop();
-            lock.unlock();
-
-            if (chunk.size() <= COMPRESSIBLE_THRESHOLD) {
-                if (read->skip_compress_step()) {
-                    std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), (uint8_t *) read->ptr() + offset);
-                    *(size_t *)((uint8_t *) read->ptr() + offset + sizeof(CHUNK_MAGIC)) = chunk.size();
-                    std::copy(chunk.data(), chunk.data() + chunk.size(), (uint8_t *) read->ptr() + offset + sizeof(CHUNK_MAGIC) + sizeof(size_t));
-                } else {
-                    size_t uncompressed_size = CHUNK_SIZE;
-                    int ret = lib842_decompress((uint8_t *) chunk.data(), chunk.size(),
-                                                (uint8_t *) read->ptr() + offset, &uncompressed_size);
-                    assert(ret == 0);
-                    assert(uncompressed_size == CHUNK_SIZE);
-                }
-            } else {
-                assert(chunk.size() == CHUNK_SIZE);
-                std::copy(chunk.data(), chunk.data() + CHUNK_SIZE, (uint8_t *) read->ptr() + offset);
-            }
-        }
-
-        std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
-        decompress_done = true;
-        bool done = read_done;
-        lock.unlock();
-
-        if (done) {
-            handle_read(readq, boost::system::error_code(), rq_cumulative_transfer);
-        }
-    });
 #endif
 }
 
@@ -329,7 +314,13 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                 assert(!ec);
                 // Push into the chunk queue
                 std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
-                read_decompress_queue.push(std::move(rq_compress_buffer));
+                read_queue_decompress_message dm = {
+                        .compressed_data = std::move(rq_compress_buffer),
+                        .destination = static_cast<uint8_t *>(read->ptr()) + rq_remaining_offset,
+                        .skip_compress_step = read->skip_compress_step()
+                };
+                readq_message_t msg(std::move(dm));
+                read_decompress_queue.emplace(std::move(msg));
                 lock.unlock();
                 read_decompress_queue_available.notify_one();
 
@@ -345,8 +336,13 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                                 [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
             assert(!ec);
             std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
-            read_done = true;
-            bool done = decompress_done;
+            bool done = decompress_inflight == 0 && read_decompress_queue.empty();
+            if (!done) {
+                read_decompress_queue.push(read_queue_finalize_message {
+                    .readq = readq
+                });
+            }
+            read_decompress_queue_available.notify_one();
             lock.unlock();
 
             rq_cumulative_transfer += bytes_transferred;
@@ -356,6 +352,53 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                 handle_read(readq, boost::system::error_code(), rq_cumulative_transfer);
             }
         });
+    }
+}
+
+void DataStream::start_decompress_thread() {
+    while (true) {
+        // (Blocking) pop from the chunk queue
+        std::unique_lock<std::mutex> lock(read_decompress_queue_mutex);
+        while (read_decompress_queue.empty())
+            read_decompress_queue_available.wait(lock);
+        auto chunkVariant = std::move(read_decompress_queue.front());
+        read_decompress_queue.pop();
+        if (chunkVariant.which() == 1) { // read_queue_finalize_message
+            auto finalize_message = boost::get<read_queue_finalize_message>(chunkVariant);
+            handle_read(finalize_message.readq, boost::system::error_code(), rq_cumulative_transfer);
+        } else if (chunkVariant.which() == 2) { // read_queue_quit_message
+            break;
+        } else if (chunkVariant.which() == 0) { // read_queue_decompress_message
+            decompress_inflight++;
+            auto chunk = std::move(boost::get<read_queue_decompress_message>(chunkVariant));
+            lock.unlock();
+
+            if (chunk.compressed_data.size() <= COMPRESSIBLE_THRESHOLD) {
+                if (chunk.skip_compress_step) {
+                    std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), (uint8_t *) chunk.destination);
+                    *(size_t *) ((uint8_t *) chunk.destination + sizeof(CHUNK_MAGIC)) = chunk.compressed_data.size();
+                    std::copy(chunk.compressed_data.data(), chunk.compressed_data.data() + chunk.compressed_data.size(),
+                              (uint8_t *) chunk.destination + sizeof(CHUNK_MAGIC) + sizeof(size_t));
+                } else {
+                    size_t uncompressed_size = CHUNK_SIZE;
+                    int ret = lib842_decompress((const uint8_t *) chunk.compressed_data.data(),
+                                                chunk.compressed_data.size(),
+                                                (uint8_t *) chunk.destination, &uncompressed_size);
+                    assert(ret == 0);
+                    assert(uncompressed_size == CHUNK_SIZE);
+                }
+            } else {
+                assert(chunk.compressed_data.size() == CHUNK_SIZE);
+                std::copy(chunk.compressed_data.data(), chunk.compressed_data.data() + CHUNK_SIZE,
+                          (uint8_t *) chunk.destination);
+            }
+
+            lock.lock();
+            decompress_inflight--;
+            lock.unlock();
+        } else {
+            assert(0);
+        }
     }
 }
 #endif
@@ -411,48 +454,13 @@ void DataStream::start_write(
     write_channel_used = false;
     write_cumulative_transfer = 0;
     write_offset = 0;
+    write_current_writeq = writeq;
+    write_current_write = write;
 
-    auto compression_thread = new std::thread([this, writeq, write] { // TODOXXX memory leak
-        for (size_t offset = 0; (write->size() - offset) >= CHUNK_SIZE; offset += CHUNK_SIZE) {
-            if (write->skip_compress_step()) {
-                auto is_compressed = std::equal((uint8_t *) write->ptr() + offset, (uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC), CHUNK_MAGIC);
-
-                uint8_t *chunk_buffer = is_compressed
-                        ? (uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC) + sizeof(size_t)
-                        : (uint8_t *) write->ptr() + offset;
-                size_t chunk_buffer_size = is_compressed ?
-                        *(size_t *)((uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC))
-                        : CHUNK_SIZE;
-
-                write_chunk chunk(chunk_buffer, chunk_buffer_size, false);
-
-                std::unique_lock<std::mutex> lock(write_queue_mutex);
-                write_queue.push(std::move(chunk));
-                lock.unlock();
-            } else {
-                // Compress chunk
-                auto compress_buffer = new uint8_t[2 * CHUNK_SIZE];
-                size_t compressed_size = 2 * CHUNK_SIZE;
-
-                int ret = lib842_compress((uint8_t *) write->ptr() + offset, CHUNK_SIZE, compress_buffer,
-                                          &compressed_size);
-                assert(ret == 0);
-
-                // Push into the chunk queue
-                auto compressible = compressed_size <= COMPRESSIBLE_THRESHOLD;
-                uint8_t *chunk_buffer = compressible ? compress_buffer : (uint8_t *) write->ptr() + offset;
-                size_t chunk_buffer_size = compressible ? compressed_size : CHUNK_SIZE;
-
-                write_chunk chunk(chunk_buffer, chunk_buffer_size, compressible);
-
-                std::unique_lock<std::mutex> lock(write_queue_mutex);
-                write_queue.push(std::move(chunk));
-                lock.unlock();
-            }
-
-            write_next_compressed_chunk(writeq, write);
-        }
-    });
+    std::unique_lock<std::mutex> lock(write_thread_mutex);
+    write_thread_trigger = true;
+    lock.unlock();
+    write_thread_trigger_cv.notify_one();
 
     write_next_compressed_chunk(writeq, write);
 #endif
@@ -512,8 +520,64 @@ void DataStream::write_next_compressed_chunk(writeq_type *writeq, std::shared_pt
              write_cumulative_transfer += bytes_transferred;
              write_offset = writeq->size();
 
-             handle_write(std::move(writeq), boost::system::error_code(), write_cumulative_transfer);
+             handle_write(writeq, boost::system::error_code(), write_cumulative_transfer);
          });
+    }
+}
+
+void DataStream::start_compress_thread() {
+    while (true) {
+        std::unique_lock<std::mutex> lock(write_thread_mutex);
+        while (!write_thread_trigger)
+            write_thread_trigger_cv.wait(lock);
+        write_thread_trigger = false;
+        if (write_thread_trigger_quit)
+            return;
+        lock.unlock();
+
+        auto writeq = write_current_writeq;
+        auto write = write_current_write;
+
+        for (size_t offset = 0; (write->size() - offset) >= CHUNK_SIZE; offset += CHUNK_SIZE) {
+            if (write->skip_compress_step()) {
+                auto is_compressed = std::equal((uint8_t *) write->ptr() + offset,
+                                                (uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC), CHUNK_MAGIC);
+
+                uint8_t *chunk_buffer = is_compressed
+                                        ? (uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC) + sizeof(size_t)
+                                        : (uint8_t *) write->ptr() + offset;
+                size_t chunk_buffer_size = is_compressed ?
+                                           *(size_t *) ((uint8_t *) write->ptr() + offset + sizeof(CHUNK_MAGIC))
+                                                         : CHUNK_SIZE;
+
+                write_chunk chunk(chunk_buffer, chunk_buffer_size, false);
+
+                std::unique_lock<std::mutex> lock(write_queue_mutex);
+                write_queue.push(std::move(chunk));
+                lock.unlock();
+            } else {
+                // Compress chunk
+                std::unique_ptr<uint8_t[]> compress_buffer(new uint8_t[2 * CHUNK_SIZE]);
+                size_t compressed_size = 2 * CHUNK_SIZE;
+
+                int ret = lib842_compress((uint8_t *) write->ptr() + offset, CHUNK_SIZE, compress_buffer.get(),
+                                          &compressed_size);
+                assert(ret == 0);
+
+                // Push into the chunk queue
+                auto compressible = compressed_size <= COMPRESSIBLE_THRESHOLD;
+                uint8_t *chunk_buffer = compressible ? compress_buffer.release() : (uint8_t *) write->ptr() + offset;
+                size_t chunk_buffer_size = compressible ? compressed_size : CHUNK_SIZE;
+
+                write_chunk chunk(chunk_buffer, chunk_buffer_size, compressible);
+
+                std::unique_lock<std::mutex> lock(write_queue_mutex);
+                write_queue.push(std::move(chunk));
+                lock.unlock();
+            }
+
+            write_next_compressed_chunk(writeq, write);
+        }
     }
 }
 #endif

@@ -49,6 +49,7 @@
 #include <dcl/DCLTypes.h>
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/variant.hpp>
 
 #include <cstddef>
 #include <list>
@@ -56,6 +57,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 
 namespace dclasio {
 
@@ -145,6 +147,7 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
+    void start_decompress_thread();
 #endif
 
     void handle_read(
@@ -163,6 +166,7 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     void write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
+    void start_compress_thread();
 #endif
 
     void handle_write(
@@ -182,8 +186,27 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    bool read_done, decompress_done;
-    std::queue<std::vector<uint8_t>> read_decompress_queue;
+    std::thread _decompress_thread;
+    unsigned decompress_inflight;
+    struct read_queue_decompress_message {
+        std::vector<uint8_t> compressed_data;
+        void *destination;
+        bool skip_compress_step;
+
+        // Disable default copy constructor/assignment to prevent accidental performance hit
+        read_queue_decompress_message(const read_queue_decompress_message &) = delete;
+        read_queue_decompress_message& operator=(const read_queue_decompress_message &) = delete;
+        read_queue_decompress_message(read_queue_decompress_message &&) = default;
+        read_queue_decompress_message& operator=(read_queue_decompress_message &&) = default;
+    };
+    struct read_queue_finalize_message {
+        readq_type *readq;
+    };
+    struct read_queue_quit_message {};
+    using readq_message_t = boost::variant<read_queue_decompress_message,
+                                           read_queue_finalize_message,
+                                           read_queue_quit_message>;
+    std::queue<readq_message_t> read_decompress_queue;
     std::mutex read_decompress_queue_mutex;
     std::condition_variable read_decompress_queue_available;
 
@@ -229,6 +252,13 @@ private:
     std::mutex write_queue_mutex;
     size_t write_cumulative_transfer;
     size_t write_offset;
+    writeq_type *write_current_writeq;
+    std::shared_ptr<DataSending> write_current_write;
+    std::thread _compress_thread;
+    bool write_thread_trigger = false;
+    bool write_thread_trigger_quit = false;
+    std::mutex write_thread_mutex;
+    std::condition_variable write_thread_trigger_cv;
 #endif
 };
 
