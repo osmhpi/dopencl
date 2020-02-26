@@ -13,8 +13,8 @@ RUN apt-get update \
         libboost-system-dev \
         # Required by tests
         libboost-thread-dev libboost-test-dev \
-	# Development utilities
-	gdb nano clinfo git \
+        # Development utilities
+        gdb nano clinfo git \
         # NB: Both C and C++ headers + libOpenCL required
         opencl-headers ocl-icd-opencl-dev
 
