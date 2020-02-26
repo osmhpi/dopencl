@@ -10,8 +10,9 @@ make -j$(nproc)
 TEMPDIR="testdir" && rm -Rf "$TEMPDIR" && mkdir -p "$TEMPDIR"
 trap 'pkill dcld; pkill -9 dcld;' EXIT
 
-g++ ../standalone_tests/test_explicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -o"$TEMPDIR/test_explicit_copy_cl"
-g++ ../standalone_tests/test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -o"$TEMPDIR/test_implicit_copy_cl"
+g++ ../standalone_tests/test_explicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -o"$TEMPDIR/test_explicit_copy_cl" &
+g++ ../standalone_tests/test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -o"$TEMPDIR/test_implicit_copy_cl" &
+wait
 
 cd "$TEMPDIR"
 
