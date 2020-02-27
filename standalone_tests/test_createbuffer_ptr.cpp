@@ -46,7 +46,7 @@ int main(void)
 
     std::vector<cl::Device> devices;
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    #if 1 // For testing with a single device
+    #if 0 // For testing with a single device
     devices = std::vector<cl::Device>(NUM_DEVICES, devices[0]);
     #endif
     if (devices.size() < NUM_DEVICES)
