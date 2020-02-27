@@ -187,16 +187,16 @@ DataStream::~DataStream() {
     {
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
         _decompress_queue.push(decompress_message_quit());
+        _decompress_queue_available.notify_one();
     }
-    _decompress_queue_available.notify_one();
     _decompress_thread.join();
 
     {
         std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
         _compress_trigger = true;
         _compress_quit = true;
+        _compress_trigger_changed.notify_one();
     }
-    _compress_trigger_changed.notify_one();
     _compress_thread.join();
 #endif
 }
@@ -328,8 +328,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                 {
                     std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
                     _decompress_queue.push(std::move(msg));
+                    _decompress_queue_available.notify_one();
                 }
-                _decompress_queue_available.notify_one();
 
                 _read_io_destination_offset += CHUNK_SIZE;
 
@@ -351,8 +351,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
             if (!done) {
                 _decompress_queue.push(decompress_message_finalize{.readq = readq});
             }
-            lock.unlock();
             _decompress_queue_available.notify_one();
+            lock.unlock();
 
             _read_io_destination_offset = readq->size();
 
@@ -369,8 +369,7 @@ void DataStream::loop_decompress_thread() {
     while (true) {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        while (_decompress_queue.empty())
-            _decompress_queue_available.wait(lock);
+        _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
         auto chunkVariant = std::move(_decompress_queue.front());
         _decompress_queue.pop();
         if (chunkVariant.which() == 1) { // decompress_message_finalize
@@ -470,8 +469,8 @@ void DataStream::start_write(
 
     std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
     _compress_trigger = true;
-    lock.unlock();
     _compress_trigger_changed.notify_one();
+    lock.unlock();
 
     try_write_next_compressed_chunk(writeq, write);
 #endif
@@ -540,8 +539,7 @@ void DataStream::loop_compress_thread() {
     while (true) {
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            while (!_compress_trigger)
-                _compress_trigger_changed.wait(lock);
+            _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
             _compress_trigger = false;
             if (_compress_quit)
                 return;
