@@ -10,7 +10,7 @@ make -j"$(nproc)"
 TEMPDIR="testdir" && rm -Rf "$TEMPDIR" && mkdir -p "$TEMPDIR"
 trap 'pkill dcld; pkill -9 dcld;' EXIT
 
-standalone_tests=(test_explicit_copy_cl test_implicit_copy_cl test_createbuffer_ptr)
+standalone_tests=(test_explicit_copy_cl test_implicit_copy_cl test_createbuffer_ptr test_createbuffer_ptr_multi test_createbuffer_ptr_race)
 for test_name in "${standalone_tests[@]}"; do
     g++ ../standalone_tests/"$test_name".cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -o"$TEMPDIR"/"$test_name" &
 done

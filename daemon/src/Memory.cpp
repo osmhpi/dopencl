@@ -239,6 +239,14 @@ void Buffer::acquire(
     syncData->event   = dataReceipt;
 
     /* receive buffer data when mapping is complete */
+    // TODOXXX: There's a race condition here! Since the acquire message has already
+    // been sent to the host (so it will start its transfer ASAP), but this callback is
+    // asynchronous, there's a chance that another data stream operation comes before
+    // the callback and matches the wrong data transfer in the host!
+    // See: standalone_tests: standalone_tests/test_createbuffer_ptr_race.cpp
+    // Idea: Call DataStream::sendData here immediately but add the possibility to give
+    // it an event so the transfer starts after this event, and add logic to delay
+    // DataStream operations that come later (a "ticket" system).
     mapEvent.setCallback(CL_COMPLETE, &execAcquire, syncData);
 
     /* WARNING: do not use syncData after this point, as the callback of
@@ -285,6 +293,7 @@ void Buffer::release(
     syncData->event   = dataSending;
 
     /* send buffer data when mapping is complete */
+    // TODOXXX: There's a race condition here! See above for more details
     mapEvent.setCallback(CL_COMPLETE, &execRelease, syncData);
 
     /* WARNING: do not use syncData after this point, as the callback of
