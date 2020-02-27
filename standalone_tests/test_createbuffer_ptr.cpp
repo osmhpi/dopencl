@@ -46,7 +46,7 @@ int main(void)
 
     std::vector<cl::Device> devices;
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    #if 0 // For testing with a single device
+    #if 1 // For testing with a single device
     devices = std::vector<cl::Device>(NUM_DEVICES, devices[0]);
     #endif
     if (devices.size() < NUM_DEVICES)
@@ -56,7 +56,6 @@ int main(void)
     cl::Context context(devices);
     cl::Program program(context, OPENCL_PROGRAM, true);
     cl::Kernel kernel(program, "increment_each");
-    cl::Buffer buf(context, CL_MEM_READ_WRITE, BUF_SIZE);
 
     device_opencl devinfo[NUM_DEVICES];
     for (cl_uint i = 0; i < NUM_DEVICES; i++) {
@@ -73,10 +72,18 @@ int main(void)
     // See also: synchronize() method in daemon/src/CommandQueue.cpp on dOpenCL tree
     cl::Event event;
 
-    // NB: Avoiding clEnqueueFillBuffer since it's not supported by dOpenCL
-    std::vector<char> initial_buf(BUF_SIZE, 'A');
-    devinfo[0].queue.enqueueWriteBuffer(buf, CL_TRUE, 0,
-                                        BUF_SIZE, initial_buf.data(), nullptr, &event);
+    std::vector<unsigned char> orig(BUF_SIZE, 'A');
+    cl::Buffer buf(context, static_cast<cl_mem_flags>(CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR), BUF_SIZE, orig.data());
+    // As a bonus test, make sure that CL_MEM_COPY_HOST_PTR did really copy our pointer,
+    // by deallocating the associated memory now. Note that std::vector<T>.clear() does not guarantee this
+    // See: https://web.archive.org/web/20190201121515/http://www.cplusplus.com/reference/vector/vector/clear/
+    std::vector<unsigned char>().swap(orig);
+
+    // Note that cl::Buffer / clCreateBuffer with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR
+    // differs from e.g. clEnqueueCopyBuffer in that it can fill a buffer without being associated
+    // with a command queue or producing an event. Instead, it conceptually works like a "broadcast"
+    // to all devices in the context. In most implementations this is implemented by lazily copying
+    // the data to the devices when they need it
 
     // -------
     // KERNELS
@@ -86,8 +93,10 @@ int main(void)
 
     for (cl_uint b = 0; b < NUM_BOUNCES; b++) {
         for (cl_uint i = 0; i < NUM_DEVICES; i++) {
-            device_opencl &nextDev = devinfo[(i+1)%NUM_DEVICES];
-            std::vector<cl::Event> eventVector = {event};
+            device_opencl &nextDev = devinfo[(i + 1) % NUM_DEVICES];
+            std::vector<cl::Event> eventVector;
+            if (b > 0 || i > 0)
+                eventVector = {event};
             nextDev.queue.enqueueNDRangeKernel(kernel, cl::NullRange, BUF_SIZE, cl::NullRange,
                                                &eventVector, &event);
         }
