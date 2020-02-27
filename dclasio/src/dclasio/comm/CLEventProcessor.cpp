@@ -53,12 +53,14 @@
 #include "../message/ContextErrorMessage.h"
 #include <dclasio/message/EventSynchronizationMessage.h>
 #include "../message/ProgramBuildMessage.h"
+#include <dclasio/message/RequestBufferTransfer.h>
 
 #include <dcl/Binary.h>
 #include <dcl/BlockingQueue.h>
 #include <dcl/CLObjectRegistry.h>
 #include <dcl/CommandListener.h>
 #include <dcl/ContextListener.h>
+#include <dcl/BufferListener.h>
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
@@ -175,6 +177,13 @@ void CLComputeNodeEventProcessor::programBuildComplete(
     }
 }
 
+void CLComputeNodeEventProcessor::requestBufferTransfer(
+        const message::RequestBufferTransfer& notification,
+        dcl::Process& process) const {
+    auto buffer = _objectRegistry.lookup<dcl::BufferListener>(notification.bufferId());
+    buffer->onRequestBufferTransfer(process);
+}
+
 bool CLComputeNodeEventProcessor::dispatch(
         const message::Message& message,
         dcl::process_id pid) {
@@ -214,6 +223,20 @@ bool CLComputeNodeEventProcessor::dispatch(
                 << "Received program build message" << std::endl;
         programBuildComplete(
                 static_cast<const message::ProgramBuildMessage&>(message));
+        break;
+
+    case message::RequestBufferTransfer::TYPE:
+        dcl::util::Logger << dcl::util::Debug
+                << "Received request buffer transfer from compute node" << std::endl;
+
+        computeNode = _communicationManager.get_compute_node(pid);
+        assert(computeNode && "No host for event");
+        if (!computeNode)
+            return false;
+
+        requestBufferTransfer(
+                static_cast<const message::RequestBufferTransfer&>(message),
+                *computeNode);
         break;
 
     default: // unknown message

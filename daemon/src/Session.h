@@ -107,7 +107,7 @@ public:
 			const std::shared_ptr<dcl::Context>&    context,
 			cl_mem_flags		                    flags,
 			size_t				                    size,
-			void *                                  ptr);
+			dcl::object_id		                    bufferId);
 	void releaseMemObject(
 	        const std::shared_ptr<dcl::Memory>& memory);
 

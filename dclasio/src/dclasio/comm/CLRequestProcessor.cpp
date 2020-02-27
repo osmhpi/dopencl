@@ -348,21 +348,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     SmartCLObjectRegistry& registry = getObjectRegistry(host);
 
     try {
-        cl_mem_flags hostPtrFlags = request.flags() &
-                (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
-        size_t size = request.size();
-        std::unique_ptr<unsigned char[]> host_ptr;
-
-        if (hostPtrFlags) {
-            /* receive buffer data from host */
-            host_ptr.reset(new unsigned char[size]);
-            if (!host_ptr) throw cl::Error(CL_OUT_OF_RESOURCES);
-            host.receiveData(size, host_ptr.get())->wait();
-        }
-
         auto buffer = getSession(host).createBuffer(
                 registry.lookup<std::shared_ptr<dcl::Context>>(request.contextId()),
-                request.flags(), request.size(), host_ptr.get());
+                request.flags(), request.size(), request.bufferId());
         registry.bind(request.bufferId(), buffer);
 
         dcl::util::Logger << dcl::util::Info

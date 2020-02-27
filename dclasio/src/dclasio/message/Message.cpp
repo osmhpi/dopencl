@@ -85,6 +85,7 @@
 #include <dclasio/message/InfoResponse.h>
 #include <dclasio/message/Message.h>
 #include <dclasio/message/Request.h>
+#include <dclasio/message/RequestBufferTransfer.h>
 #include <dclasio/message/Response.h>
 #include <dclasio/message/SetKernelArg.h>
 
@@ -107,6 +108,7 @@ Message * createMessage(Message::class_type type) {
     // request messages
     case BuildProgram::TYPE:                return new BuildProgram();
     case CreateBuffer::TYPE:                return new CreateBuffer();
+    case RequestBufferTransfer::TYPE:       return new RequestBufferTransfer();
     case CreateCommandQueue::TYPE:          return new CreateCommandQueue();
     case CreateContext::TYPE:               return new CreateContext();
     case CreateEvent::TYPE:                 return new CreateEvent();

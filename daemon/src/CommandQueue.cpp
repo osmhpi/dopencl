@@ -192,41 +192,56 @@ CommandQueue::operator cl::CommandQueue() const {
  * other devices have to synchronize in order to obtain the data.
  */
 void CommandQueue::synchronize(
-        const std::vector<std::shared_ptr<dcl::Event>>& eventWaitList,
+        const std::vector<std::shared_ptr<Memory>>& syncBuffers,
+        const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
         VECTOR_CLASS<cl::Event>& nativeEventWaitList) {
     bool synchronizationPending = false;
 
     nativeEventWaitList.clear();
 
-    if (eventWaitList.empty()) return;
+    if (eventWaitList != nullptr) {
+        if (!eventWaitList->empty()) {
+            dcl::util::Logger << dcl::util::Debug
+                              << "Synchronizing event wait list with " << eventWaitList->size()
+                              << " event(s)" << std::endl;
+        }
 
-    dcl::util::Logger << dcl::util::Debug
-            << "Synchronizing event wait list with " << eventWaitList.size()
-            << " event(s)" << std::endl;
+        for (auto event : *eventWaitList) {
+            /* TODO Create Event::synchronize method
+             * Rather than checking if an event is of type RemoteEvent before
+             * calling synchronize, make synchronize a member of all event classes
+             * that returns a list native events for local events and performs
+             * synchronization for remote events */
+            auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
+            if (remoteEvent) { // event is a remote event
+                VECTOR_CLASS<cl::Event> synchronizeEvents;
+                remoteEvent->synchronize(_commandQueue, synchronizeEvents);
+                /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
+                 * Different events may be associated with the same memory object
+                 * However, a memory object must only be synchronized once.
+                 * Synchronizing with multiple events associated with the same memory
+                 * object may be considered undefined behavior. */
+                nativeEventWaitList.insert(std::end(nativeEventWaitList),
+                                           std::begin(synchronizeEvents), std::end(synchronizeEvents));
 
-    for (auto event : eventWaitList) {
-        /* TODO Create Event::synchronize method
-         * Rather than checking if an event is of type RemoteEvent before
-         * calling synchronize, make synchronize a member of all event classes
-         * that returns a list native events for local events and performs
-         * synchronization for remote events */
-        auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
-        if (remoteEvent) { // event is a remote event
-            VECTOR_CLASS<cl::Event> synchronizeEvents;
-            remoteEvent->synchronize(_commandQueue, synchronizeEvents);
-            /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
-             * Different events may be associated with the same memory object
-             * However, a memory object must only be synchronized once.
-             * Synchronizing with multiple events associated with the same memory
-             * object may be considered undefined behavior. */
-            nativeEventWaitList.insert(std::end(nativeEventWaitList),
-                    std::begin(synchronizeEvents), std::end(synchronizeEvents));
+                synchronizationPending = true;
+            } else { // event is a local event
+                auto eventImpl = std::dynamic_pointer_cast<Event>(event);
+                if (!eventImpl) throw cl::Error(CL_INVALID_EVENT_WAIT_LIST);
+                nativeEventWaitList.push_back(*eventImpl);
+            }
+        }
+    }
 
+    // If we need to synchronize the initial data of any of the buffers (in case data
+    // has been given in clCreateBuffer through host_ptr), we do it here.
+    // Note that if a buffer was already synchronized to a more recent version through an event,
+    // the initial synchronization flag is unset, so no transfer happens here
+    for (auto buffer : syncBuffers) {
+        cl::Event _syncEvent;
+        if (buffer->_checkCreateBufferInitialSync(_context->host(), _commandQueue, &_syncEvent)) {
+            nativeEventWaitList.push_back(_syncEvent);
             synchronizationPending = true;
-        } else { // event is a local event
-            auto eventImpl = std::dynamic_pointer_cast<Event>(event);
-            if (!eventImpl) throw cl::Error(CL_INVALID_EVENT_WAIT_LIST);
-            nativeEventWaitList.push_back(*eventImpl);
         }
     }
 
@@ -415,9 +430,8 @@ void CommandQueue::enqueueCopyBuffer(
     if (!dstImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {srcImpl, dstImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue copy buffer
      * Only create event if requested by caller */
@@ -454,9 +468,8 @@ void CommandQueue::enqueueReadBuffer(
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue map buffer (implicit download) */
     void *ptr = _commandQueue.enqueueMapBuffer(
@@ -522,9 +535,8 @@ void CommandQueue::enqueueWriteBuffer(
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue map buffer */
     void *ptr = _commandQueue.enqueueMapBuffer(
@@ -620,9 +632,8 @@ void CommandQueue::enqueueMapBuffer(
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     if (map_flags & CL_MAP_READ) {
         /* The mapped memory region has to be synchronized, i.e., it has to be
@@ -691,9 +702,8 @@ void CommandQueue::enqueueUnmapBuffer(
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     if (map_flags & CL_MAP_WRITE) {
         /* The mapped memory region has to be synchronized, i.e. its data
@@ -757,9 +767,8 @@ void CommandQueue::enqueueNDRangeKernel(
     if (!kernelImpl) throw cl::Error(CL_INVALID_KERNEL);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = kernelImpl->allMemoryObjects();
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue ND range kernel
      * Only create event if requested by caller */
@@ -792,9 +801,8 @@ void CommandQueue::enqueueMarker(
     cl::Event marker;
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
 #if defined(CL_VERSION_1_2)
     /* Use native enqueueMarkerWithWaitList */
@@ -888,9 +896,8 @@ void CommandQueue::enqueueBarrier(
     cl::Event barrier;
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-	    synchronize(*eventWaitList, nativeEventWaitList);
-	}
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
 #if defined(CL_VERSION_1_2)
     /* Use native enqueueBarrierWithWaitList */

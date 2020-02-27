@@ -35,18 +35,19 @@
  ******************************************************************************/
 
 /*!
- * \file Buffer.h
+ * \file RequestBufferTransfer.h
  *
- * \date 2011-08-21
- * \author Philipp Kegel
+ * \date 2020-02-26
+ * \author Joan Bruguera
  */
 
-#ifndef BUFFER_H_
-#define BUFFER_H_
+#ifndef REQUESTBUFFERTRANSFER_H_
+#define REQUESTBUFFERTRANSFER_H_
 
-#include "../Memory.h"
+#include "Request.h"
 
-#include "detail/MappedMemory.h"
+#include <dcl/ByteBuffer.h>
+#include <dcl/DCLTypes.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -55,69 +56,41 @@
 #endif
 
 #include <cstddef>
-#include <map>
-#include <dcl/BufferListener.h>
 
-namespace dclicd {
+namespace dclasio {
+namespace message {
 
-class Buffer: public _cl_mem, dcl::BufferListener {
+class RequestBufferTransfer : public Request {
 public:
-    Buffer(
-            cl_context context,
-            cl_mem_flags flags,
-            size_t size,
-            void *host_ptr);
+    RequestBufferTransfer();
+    RequestBufferTransfer(
+			dcl::object_id bufferId);
+    RequestBufferTransfer(
+	        const RequestBufferTransfer& rhs);
 
-    virtual ~Buffer();
+	dcl::object_id bufferId() const;
 
-    /*!
-     * \brief Maps a region of this buffer into the host address space and returns a pointer to this mapped region.
-     *
-     * This method only allocates the pointer to the mapped region of the buffer
-     * but does not actually map, i.e. copy its data from a device.
-     *
-     * \param[in]  flags
-     * \param[in]  offset
-     * \param[in]  cb
-     * \return a pointer to the mapped region of the buffer
-     */
-    void * map(
-            cl_map_flags flags,
-            size_t       offset,
-            size_t       cb);
+    static const class_type TYPE = 100 + REQUEST_BUFFER_TRANSFER;
 
-    void unmap(
-            void *mappedPtr);
+    class_type get_type() const {
+        return TYPE;
+    }
 
-    const detail::MappedBufferRegion * findMapping(
-            void *mappedPtr) const;
+    void pack(dcl::OutputByteBuffer& buf) const {
+        Request::pack(buf);
+        buf << _bufferId;
+    }
 
-    // Buffer listener API
-    void onRequestBufferTransfer(dcl::Process &process);
-
-protected:
-    cl_mem_object_type type() const ;
-    cl_uint mapCount() const;
-    cl_mem associatedMemObject() const;
-    size_t offset() const;
+    void unpack(dcl::InputByteBuffer& buf) {
+        Request::unpack(buf);
+        buf >> _bufferId;
+    }
 
 private:
-    /*!
-     * \brief A list of mapped regions of this memory object.
-     *
-     * A pointer for a mapped region is always derived from the data cache of
-     * this memory object. The size of this member is the mapCount of this
-     * memory object.
-     */
-    std::map<void *, detail::MappedBufferRegion> _mappedRegions;
-
-    /*
-     * Sub-buffer attributes
-     */
-    cl_mem _associatedMemory;
-    size_t _offset;
+	dcl::object_id _bufferId;
 };
 
-} /* namespace dclicd */
+} /* namespace message */
+} /* namespace dclasio */
 
-#endif /* BUFFER_H_ */
+#endif /* REQUESTBUFFERTRANSFER_H_ */

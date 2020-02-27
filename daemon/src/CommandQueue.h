@@ -60,6 +60,7 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
+#include "Memory.h"
 
 namespace dcld {
 
@@ -184,7 +185,8 @@ private:
      * \param[out] nativeEventWaitList  a list of corresponding native events
      */
     void synchronize(
-            const std::vector<std::shared_ptr<dcl::Event>>& eventWaitList,
+            const std::vector<std::shared_ptr<Memory>>&     syncBuffers,
+            const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
             VECTOR_CLASS<cl::Event>&                        nativeEventWaitList);
 
     void enqueueReadBuffer(

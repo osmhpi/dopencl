@@ -65,6 +65,7 @@
 #include <functional>
 #include <memory>
 #include <ostream>
+#include <dclasio/message/RequestBufferTransfer.h>
 
 namespace {
 
@@ -171,7 +172,7 @@ bool Memory::isOutput() const {
 
 Buffer::Buffer(
         const std::shared_ptr<Context>& context, cl_mem_flags flags,
-		size_t size, void *ptr) :
+		size_t size, dcl::object_id bufferId) :
 	dcld::Memory(context)
 {
     cl_mem_flags rwFlags = flags &
@@ -188,15 +189,14 @@ Buffer::Buffer(
      * pinned memory to ensure optimal performance for frequent data transfers.
      */
 
-    if (ptr) {
-        /* TODO Improve data transfer on buffer creation
-         * Use map/unmap to avoid explicit memory allocation *or*
-         * copy data only on host */
-        _buffer = cl::Buffer(*_context, rwFlags | CL_MEM_COPY_HOST_PTR | allocHostPtr, size, ptr);
-    } else {
-        /* create uninitialized buffer */
-        _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
-    }
+    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
+
+    cl_mem_flags hostPtrFlags = flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
+    // If the buffer has been created with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR,
+    // the data stays in the host until it is used for the first time it is used,
+    // at which point it is synchronized in the compute node.
+    _needsCreateBufferInitialSync = (hostPtrFlags != 0);
+    _bufferId = bufferId;
 }
 
 Buffer::~Buffer() { }
@@ -212,7 +212,7 @@ Buffer::operator cl::Buffer() const {
 void Buffer::acquire(
         dcl::Process& process,
         const cl::CommandQueue& commandQueue,
-        const cl::Event& releaseEvent,
+        cl::Event *releaseEvent,
         cl::Event *acquireEvent) {
     cl::Event mapEvent;
     cl::UserEvent dataReceipt(*_context);
@@ -222,13 +222,15 @@ void Buffer::acquire(
             << std::endl;
 
     /* map buffer to host memory when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> mapWaitList(1, releaseEvent);
+    VECTOR_CLASS<cl::Event> mapWaitList;
+    if (releaseEvent != nullptr)
+        mapWaitList.push_back(*releaseEvent);
     void *ptr = commandQueue.enqueueMapBuffer(
             _buffer,
             CL_FALSE,
             CL_MAP_WRITE,
             0, size(),
-            &mapWaitList, &mapEvent);
+            (mapWaitList.empty() ? nullptr : &mapWaitList), &mapEvent);
 
     auto syncData = new ExecData;
     syncData->process = &process;
@@ -248,6 +250,11 @@ void Buffer::acquire(
             _buffer,
             ptr,
             &unmapWaitList, acquireEvent);
+
+    // Mark the buffer as needing no synchronization with the data
+    // given to clCreateBuffer, since we have just acquired either
+    // this data from the host,or a more recent version from a node
+    _needsCreateBufferInitialSync = false;
 }
 
 void Buffer::release(
@@ -289,6 +296,25 @@ void Buffer::release(
             _buffer,
             ptr,
             &unmapWaitList, nullptr);
+}
+
+bool Buffer::_checkCreateBufferInitialSync(dcl::Process&           process,
+                                           const cl::CommandQueue& commandQueue,
+                                           cl::Event*              acquireEvent) {
+    if (!_needsCreateBufferInitialSync) {
+        // Needs no synchronization or already synchronized
+        return false;
+    }
+
+    // Request the host to transfer the buffer
+    // TODOXXX: Is this the right place to do this? I think this transfer
+    // and _bufferId should not belong here, but I can't find a better place
+    dclasio::message::RequestBufferTransfer msg(_bufferId);
+    process.sendMessage(msg);
+
+    // Download the buffer from the host
+    acquire(process, commandQueue, nullptr, acquireEvent);
+    return true;
 }
 
 } /* namespace dcld */

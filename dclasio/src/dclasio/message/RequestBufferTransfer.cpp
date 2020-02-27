@@ -35,62 +35,43 @@
  ******************************************************************************/
 
 /*!
- * \file   CLObjectRegistry.cpp
+ * \file RequestBufferTransfer.cpp
  *
- * \date   2012-07-31
- * \author Philipp Kegel
+ * \date 2020-02-26
+ * \author Joan Bruguera
  */
 
-#include <dcl/CLObjectRegistry.h>
+#include <dclasio/message/RequestBufferTransfer.h>
+#include <dclasio/message/Request.h>
 
-#include <dcl/CommandListener.h>
-#include <dcl/CommandQueueListener.h>
-#include <dcl/ContextListener.h>
 #include <dcl/DCLTypes.h>
-#include <dcl/ProgramBuildListener.h>
-#include <dcl/SynchronizationListener.h>
 
-#include <iterator>
-#include <map>
-#include <utility>
+#ifdef __APPLE__
+#include <OpenCL/cl.h>
+#else
+#include <CL/cl.h>
+#endif
 
-namespace dcl {
+#include <cstddef>
 
-namespace detail {
+namespace dclasio {
+namespace message {
 
-template<class T>
-void Registry<T>::bind(object_id id, T& object) {
-    _objects.insert(std::make_pair(id, &object));
+RequestBufferTransfer::RequestBufferTransfer() {
 }
 
-template<class T>
-void Registry<T>::unbind(object_id id) {
-    _objects.erase(id);
+RequestBufferTransfer::RequestBufferTransfer(
+		dcl::object_id bufferId) :
+	_bufferId(bufferId) {
 }
 
-template<class T>
-T * Registry<T>::lookup(object_id id) const {
-    auto i = _objects.find(id);
-    return (i == std::end(_objects)) ? nullptr : i->second;
+RequestBufferTransfer::RequestBufferTransfer(const RequestBufferTransfer& rhs) :
+	Request(rhs), _bufferId(rhs._bufferId) {
 }
 
-/* explicit instantiation */
-template class Registry<CommandListener>;
-template class Registry<CommandQueueListener>;
-template class Registry<ContextListener>;
-template class Registry<BufferListener>;
-template class Registry<ProgramBuildListener>;
-template class Registry<SynchronizationListener>;
-/* ^^^ add support for additional object types in registry here ^^^ */
-
-} /* namespace detail */
-
-/* ****************************************************************************/
-
-CLObjectRegistry::CLObjectRegistry() {
+dcl::object_id RequestBufferTransfer::bufferId() const {
+	return _bufferId;
 }
 
-CLObjectRegistry::~CLObjectRegistry() {
-}
-
-} /* namespace dcl */
+} /* namespace message */
+} /* namespace dclasio */

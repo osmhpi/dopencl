@@ -71,7 +71,9 @@ Kernel::Kernel(const std::shared_ptr<Program>& program, const char *name) {
     if (!program) throw cl::Error(CL_INVALID_PROGRAM);
 
     _kernel = cl::Kernel(*program, name);
-    _writeMemoryObjects.resize(_kernel.getInfo<CL_KERNEL_NUM_ARGS>());
+    cl_uint numArgs = _kernel.getInfo<CL_KERNEL_NUM_ARGS>();
+    _allMemoryObjects.resize(numArgs);
+    _writeMemoryObjects.resize(numArgs);
 }
 
 Kernel::Kernel(const cl::Kernel& kernel) : _kernel(kernel) { }
@@ -148,6 +150,12 @@ void Kernel::setArg(cl_uint index,
 
     _kernel.setArg(index, memoryImpl->operator cl::Memory()());
 
+    assert(index < _allMemoryObjects.size());
+    if (_allMemoryObjects.size() <= index) {
+        _allMemoryObjects.resize(index + 1);
+    }
+    _allMemoryObjects[index] = memoryImpl;
+
     if (memoryImpl->isOutput()) { // memory object will be modified by kernel
         /* If a writable (CL_MEM_WRITE_ONLY, CL_MEM_READ_WRITE)
          * memory object is set as kernel argument, it is assumed
@@ -171,18 +179,27 @@ void Kernel::setArg(cl_uint index, size_t size, const void *argPtr) {
 	_kernel.setArg(index, size, const_cast<void *>(argPtr));
 }
 
-std::vector<std::shared_ptr<Memory>> Kernel::writeMemoryObjects() {
-    std::set<std::shared_ptr<Memory>> writeMemoryObjects;
+static std::vector<std::shared_ptr<Memory>> removeNullsAndDuplicates(
+        const std::vector<std::shared_ptr<Memory>> &objects) {
+    std::set<std::shared_ptr<Memory>> uniqueMemoryObjects;
 
     /* copy memory objects from argument list to set to remove duplicates */
-    for (auto memoryObject : _writeMemoryObjects) {
+    for (auto memoryObject : objects) {
         /* ignore empty (NULL) entries */
-        if (memoryObject) writeMemoryObjects.insert(memoryObject);
+        if (memoryObject) uniqueMemoryObjects.insert(memoryObject);
     }
 
     /* return value optimization should kick-in here to avoid copying */
-    return std::vector<std::shared_ptr<Memory>>(std::begin(writeMemoryObjects),
-            std::end(writeMemoryObjects));
+    return std::vector<std::shared_ptr<Memory>>(std::begin(uniqueMemoryObjects),
+                                                std::end(uniqueMemoryObjects));
+}
+
+std::vector<std::shared_ptr<Memory>> Kernel::allMemoryObjects() {
+    return removeNullsAndDuplicates(_allMemoryObjects);
+}
+
+std::vector<std::shared_ptr<Memory>> Kernel::writeMemoryObjects() {
+    return removeNullsAndDuplicates(_writeMemoryObjects);
 }
 
 } /* namespace dcld */

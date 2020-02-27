@@ -107,14 +107,49 @@ BOOST_AUTO_TEST_CASE( CreateBuffer )
 BOOST_AUTO_TEST_CASE( CreateBufferCopyHostPtr )
 {
     const size_t VEC_SIZE = 1024 * 1024;
+    std::vector<cl_int> vec1(VEC_SIZE, 0), vec2(VEC_SIZE, 1), vec1copy;
+    cl_int err = CL_SUCCESS;
+
+    dcltest::fillVector(vec1, 1, 1); // initialize input data
+    vec1copy = vec1;
+
+    // create buffer from first host pointer
+    cl_mem buffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, VEC_SIZE * sizeof(cl_int), &vec1.front(), &err);
+    BOOST_REQUIRE_EQUAL(err, CL_SUCCESS);
+
+    // As a bonus test, make sure that CL_MEM_COPY_HOST_PTR did really copy our pointer,
+    // by deallocating the associated memory now. Note that std::vector<T>.clear() does not guarantee this
+    // See: https://web.archive.org/web/20190201121515/http://www.cplusplus.com/reference/vector/vector/clear/
+    std::vector<cl_int>().swap(vec1);
+
+    // download buffer to second host pointer
+    err = clEnqueueReadBuffer(
+            commandQueue,
+            buffer,
+            CL_TRUE,
+            0, VEC_SIZE * sizeof(cl_int), &vec2.front(),
+            0, nullptr, nullptr);
+    BOOST_REQUIRE_EQUAL(err, CL_SUCCESS);
+
+    BOOST_CHECK_MESSAGE(vec1copy == vec2, "Input and output buffers differ"); // compare input and output data
+
+    // clean up
+    clReleaseMemObject(buffer);
+}
+
+BOOST_AUTO_TEST_CASE( CreateBufferUseHostPtr )
+{
+    const size_t VEC_SIZE = 1024 * 1024;
     std::vector<cl_int> vec1(VEC_SIZE, 0), vec2(VEC_SIZE, 1);
     cl_int err = CL_SUCCESS;
 
     dcltest::fillVector(vec1, 1, 1); // initialize input data
 
     // create buffer from first host pointer
-    cl_mem buffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, VEC_SIZE * sizeof(cl_int), &vec1.front(), &err);
+    cl_mem buffer = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_USE_HOST_PTR, VEC_SIZE * sizeof(cl_int), &vec1.front(), &err);
     BOOST_REQUIRE_EQUAL(err, CL_SUCCESS);
+
+    // the vector data is referenced by the internal OpenCL buffer, so we can NOT destroy it here
 
     // download buffer to second host pointer
     err = clEnqueueReadBuffer(

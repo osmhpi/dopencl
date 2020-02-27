@@ -123,7 +123,7 @@ public:
 			const std::shared_ptr<Context>& context,
             cl_mem_flags                    flags,
             size_t                          size,
-            void *                          ptr) = 0;
+            dcl::object_id                  bufferId) = 0;
 
     /*!
      * \brief Deletes a memory object (buffer or image) from this session.

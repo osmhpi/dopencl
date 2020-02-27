@@ -67,6 +67,7 @@ public:
 
 	    CREATE_BUFFER               = 21,
 	    RELEASE_MEM_OBJECT          = 22,
+	    REQUEST_BUFFER_TRANSFER     = 23,
 
 	    CREATE_COMMAND_QUEUE        = 31,
 	    RELEASE_COMMAND_QUEUE       = 32,

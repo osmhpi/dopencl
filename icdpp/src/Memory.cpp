@@ -154,8 +154,11 @@ _cl_mem::_cl_mem(
     	case CL_MEM_COPY_HOST_PTR:
     	    /* allocate memory for copying the host pointer */
     	    allocHostMemory();
-    	    /* TODO Copy data at host pointer to memory object's host memory */
-    		break;
+    	    /* copy data at host pointer to memory object's host memory */
+    	    std::copy(static_cast<const uint8_t *>(host_ptr),
+    	              static_cast<const uint8_t *>(host_ptr) + size,
+    	              static_cast<uint8_t *>(_data));
+    	    break;
     	case CL_MEM_USE_HOST_PTR:
     		/* CL_MEM_USE_HOST_PTR and CL_MEM_ALLOC_HOST_PTR are mutually
     		 * exclusive */

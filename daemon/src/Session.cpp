@@ -129,9 +129,9 @@ std::shared_ptr<dcl::Buffer> Session::createBuffer(
         const std::shared_ptr<dcl::Context>& context,
         cl_mem_flags flags,
         size_t size,
-        void *ptr) {
+        dcl::object_id bufferId) {
     auto buffer = std::make_shared<Buffer>(
-            std::dynamic_pointer_cast<Context>(context), flags, size, ptr);
+            std::dynamic_pointer_cast<Context>(context), flags, size, bufferId);
     _memoryObjects.insert(buffer);
 
 	return buffer;

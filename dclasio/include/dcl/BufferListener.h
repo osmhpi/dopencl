@@ -35,62 +35,36 @@
  ******************************************************************************/
 
 /*!
- * \file   CLObjectRegistry.cpp
+ * \file BufferListener.h
  *
- * \date   2012-07-31
- * \author Philipp Kegel
+ * \date 2020-02-26
+ * \author Joan Bruguera
  */
 
-#include <dcl/CLObjectRegistry.h>
+#ifndef DCL_BUFFERLISTENER_H_
+#define DCL_BUFFERLISTENER_H_
 
-#include <dcl/CommandListener.h>
-#include <dcl/CommandQueueListener.h>
-#include <dcl/ContextListener.h>
-#include <dcl/DCLTypes.h>
-#include <dcl/ProgramBuildListener.h>
-#include <dcl/SynchronizationListener.h>
-
-#include <iterator>
-#include <map>
-#include <utility>
+#include <cstddef>
 
 namespace dcl {
 
-namespace detail {
+class Process;
 
-template<class T>
-void Registry<T>::bind(object_id id, T& object) {
-    _objects.insert(std::make_pair(id, &object));
-}
+/*!
+ * \brief Remote buffer listener API
+ *
+ * A buffer listener is informed when a buffer needs to be transferred from the host to a compute node.
+ */
+class BufferListener {
+public:
+    virtual ~BufferListener() { }
 
-template<class T>
-void Registry<T>::unbind(object_id id) {
-    _objects.erase(id);
-}
-
-template<class T>
-T * Registry<T>::lookup(object_id id) const {
-    auto i = _objects.find(id);
-    return (i == std::end(_objects)) ? nullptr : i->second;
-}
-
-/* explicit instantiation */
-template class Registry<CommandListener>;
-template class Registry<CommandQueueListener>;
-template class Registry<ContextListener>;
-template class Registry<BufferListener>;
-template class Registry<ProgramBuildListener>;
-template class Registry<SynchronizationListener>;
-/* ^^^ add support for additional object types in registry here ^^^ */
-
-} /* namespace detail */
-
-/* ****************************************************************************/
-
-CLObjectRegistry::CLObjectRegistry() {
-}
-
-CLObjectRegistry::~CLObjectRegistry() {
-}
+    /*!
+     * \brief Notifies a listener about a buffer transfer.
+     */
+    virtual void onRequestBufferTransfer(dcl::Process &process) = 0;
+};
 
 } /* namespace dcl */
+
+#endif /* DCL_BUFFERLISTENER_H_ */

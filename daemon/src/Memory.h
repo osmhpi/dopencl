@@ -102,14 +102,14 @@ public:
      *
      * \param[in]  process      the process from which the changes should be acquired
      * \param[in]  commandQueue command queue for uploading the received data
-     * \param[in]  releaseEvent event that releases the changes to be acquired
+     * \param[in]  releaseEvent event that releases the changes to be acquired (can be nullptr)
      * \param[out] acquireEvent event associated with this acquire operation
      */
     virtual void acquire(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
-            const cl::Event&        releaseEvent,
-            cl::Event *             acquireEvent) = 0;
+            cl::Event*              releaseEvent,
+            cl::Event*              acquireEvent) = 0;
 
     /*!
      * \brief Releases the changes to this memory object associated with \c releaseEvent
@@ -127,6 +127,19 @@ public:
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
             const cl::Event&        releaseEvent) const = 0;
+
+    /*!
+     * \brief Acquires the initial state of the buffer given to clCreateBuffer
+     *        through host_ptr, if necessary.
+     *
+     * \param[in]  process      the process from which the changes should be acquired
+     * \param[in]  commandQueue command queue for uploading the received data
+     * \param[out] acquireEvent event associated with this acquire operation
+     */
+    virtual bool _checkCreateBufferInitialSync(
+            dcl::Process&           process,
+            const cl::CommandQueue& commandQueue,
+            cl::Event*              acquireEvent) = 0;
 
 protected:
     Memory(
@@ -152,7 +165,7 @@ public:
             const std::shared_ptr<Context>& context,
             cl_mem_flags                    flags,
             size_t                          size,
-            void *                          ptr);
+            dcl::object_id                  bufferId);
     virtual ~Buffer();
 
     operator cl::Memory() const;
@@ -161,16 +174,23 @@ public:
     void acquire(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
-            const cl::Event&        releaseEvent,
-            cl::Event *             acquireEvent);
+            cl::Event*              releaseEvent,
+            cl::Event*              acquireEvent);
 
     void release(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
             const cl::Event&        releaseEvent) const;
 
+    bool _checkCreateBufferInitialSync(
+            dcl::Process&           process,
+            const cl::CommandQueue& commandQueue,
+            cl::Event*              acquireEvent);
+
 private:
     cl::Buffer _buffer; //!< Native buffer
+    bool _needsCreateBufferInitialSync;
+    dcl::object_id _bufferId;
 };
 
 } /* namespace dcld */

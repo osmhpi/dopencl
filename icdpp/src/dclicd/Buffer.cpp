@@ -43,6 +43,7 @@
 
 #include "Buffer.h"
 
+#include "../Platform.h"
 #include "../Context.h"
 #include "../Device.h"
 #include "../Memory.h"
@@ -57,6 +58,7 @@
 #include <dclasio/message/DeleteMemory.h>
 
 #include <dcl/CLError.h>
+#include <dcl/CLObjectRegistry.h>
 #include <dcl/ComputeNode.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
@@ -93,52 +95,21 @@ Buffer::Buffer(
         void *host_ptr) :
     _cl_mem(context, flags, size, host_ptr), _associatedMemory(nullptr), _offset(0) {
     try {
+        /* Register buffer as buffer listener */
+        /* This is necessary in case host_ptr was given in order for the compute
+         * nodes to be able to request the initial buffer state from the host.
+         * For an efficient implementation, we do not copy this data to any
+         * compute node before the memory object is accessed by a device on
+         * a compute node. However, if CL_MEM_COPY_HOST_PTR has been
+         * specified the data has to be copied to a local buffer (_data).
+         */
+        _context->getPlatform()->remote().objectRegistry().bind<dcl::BufferListener>(_id, *this);
+
         /*
          * Create buffer
          */
         dclasio::message::CreateBuffer request(_id, _context->remoteId(), flags, size);
-
-        /* Tentative solution:
-         * Copy data to all compute nodes of context, if CL_MEM_COPY_HOST_PTR or
-         * CL_MEM_USE_HOST_PTR (cached copy) is specified.
-         * The memory objects on the compute nodes will not be updated by the
-         * memory coherency protocol, as there is no synchronization point (an
-         * event) before the first command actually uses the memory object on
-         * any compute node. */
-        if (flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR)) {
-            const auto& computeNodes = _context->computeNodes();
-            std::vector<std::shared_ptr<const dcl::DataTransfer>> dataTransfers;
-
-            /* TODO Never send data to compute nodes when creating a memory object
-             * The current solution is working but introduces considerable
-             * communication overhead as the data is sent to *all* compute nodes.
-             * For an efficient implementation, do not copy this data to any
-             * compute node before the memory object is accessed by a device on
-             * a compute node. However, if CL_MEM_COPY_HOST_PTR has been
-             * specified the data has to be copied to a local buffer (_data). */
-
-            // send request and data
-            for (auto computeNode : computeNodes) {
-                assert(computeNode != nullptr);
-
-                computeNode->sendRequest(request);
-                auto sending =
-                        computeNode->sendData(size, host_ptr); // copy host pointer
-                dataTransfers.push_back(sending);
-            }
-
-            // await responses from all compute nodes
-            for (auto computeNode : computeNodes) {
-                /* TODO Await completion of data transfer
-                 * Handle failed data transfers explicitly, as possibly no
-                 * response will be sent in that case. */
-
-                computeNode->awaitResponse(request);
-                /* TODO Receive responses from *all* compute nodes, i.e., do not stop receipt on first failure */
-            }
-        } else {
-            dcl::executeCommand(_context->computeNodes(), request);
-        }
+        dcl::executeCommand(_context->computeNodes(), request);
 
         dcl::util::Logger << dcl::util::Info
                 << "Buffer created (ID=" << _id << ')' << std::endl;
@@ -211,6 +182,16 @@ cl_mem Buffer::associatedMemObject() const {
 
 size_t Buffer::offset() const {
     return 0;
+}
+
+void Buffer::onRequestBufferTransfer(dcl::Process &process) {
+    // This is called when a compute node asks for the data initially given
+    // to the buffer through host_ptr. Note that there's no guarantee that
+    // this is really the initial version of the data if another node has
+    // already requested and modified the buffer, but in this case it's the
+    // application's responsability to give the correct events, so the most
+    // recent buffer can be obtained from the corresponding device in this case
+    process.sendData(_size, _data);
 }
 
 } /* namespace dclicd */

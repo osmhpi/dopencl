@@ -173,7 +173,7 @@ void RemoteEvent::synchronize(
         for (auto memoryObject : _memoryObjects) {
             cl::Event acquire; /* Event representing the acquire operation of the current memory object.
                                 * Serves as synchronization point for following commands and other devices */
-            memoryObject->acquire(_context->host(), commandQueue, _event, &acquire);
+            memoryObject->acquire(_context->host(), commandQueue, &_event, &acquire);
             _syncEvents.push_back(acquire);
         }
     }

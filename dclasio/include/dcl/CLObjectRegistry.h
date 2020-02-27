@@ -74,6 +74,7 @@ private:
 class CommandListener;
 class CommandQueueListener;
 class ContextListener;
+class BufferListener;
 class ProgramBuildListener;
 class SynchronizationListener;
 
@@ -88,6 +89,7 @@ class CLObjectRegistry:
         private detail::Registry<CommandListener>,
         private detail::Registry<CommandQueueListener>,
         private detail::Registry<ContextListener>,
+        private detail::Registry<BufferListener>,
         private detail::Registry<ProgramBuildListener>,
         private detail::Registry<SynchronizationListener> {
 public:

@@ -23,9 +23,17 @@ int main(void)
         datavec2[i] = (unsigned char)i * 7;
     }
 
-    cl::Device device = cl::Device::getDefault();
-    cl::Context context = cl::Context::getDefault();
-    cl::CommandQueue queue(context, device);
+    cl::Platform platform;
+    cl::Platform::get(&platform);
+
+    std::vector<cl::Device> devices;
+    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+    if (devices.size() < 1)
+        throw std::runtime_error("Not enough OpenCL devices available");
+
+    cl::Context context(devices[0]);
+
+    cl::CommandQueue queue(context, devices[0]);
     cl::Buffer buf(context, CL_MEM_READ_WRITE, datavec1.size());
 
     for (size_t i = 0; i < 100; i++) {
