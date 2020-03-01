@@ -54,6 +54,7 @@
 
 #include <dclasio/message/CommandMessage.h>
 
+#include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Event.h>
@@ -294,7 +295,8 @@ void CommandQueue::enqueueReadBuffer(
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
         // schedule local data transfer
-        _context->host().sendData(size, ptr, false, mapData)->setCallback(std::bind(
+        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
+        _context->host().sendData(size, ptr, false, mapDataCompletable)->setCallback(std::bind(
                 &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host, such that no
          * 'command complete' message must be sent by the compute node. */
@@ -356,8 +358,9 @@ void CommandQueue::enqueueWriteBuffer(
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
         // schedule local data transfer
-        _context->host().receiveData(size, ptr, false, mapData)->setCallback(std::bind(
-                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
+        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
+        _context->host().receiveData(size, ptr, false, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         // schedule completion message for host
         /* A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -507,8 +510,9 @@ void CommandQueue::enqueueReadBuffer(
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
         // schedule local data transfer
-        _context->host().sendData(size, ptr, false, mapData)->setCallback(std::bind(
-                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
+        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
+        _context->host().sendData(size, ptr, false, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 
@@ -593,8 +597,9 @@ void CommandQueue::enqueueWriteBuffer(
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
         // schedule local data transfer
-        _context->host().receiveData(size, ptr, false, mapData)->setCallback(std::bind(
-                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
+        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
+        _context->host().receiveData(size, ptr, false, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated

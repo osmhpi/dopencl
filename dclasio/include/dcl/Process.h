@@ -49,18 +49,12 @@
 /* TODO Remove message headers from process interface */
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
 #include <cstddef>
 #include <memory>
 #include <string>
-
-#define __CL_ENABLE_EXCEPTIONS
-#ifdef __APPLE__
-#include <OpenCL/cl.hpp>
-#else
-#include <CL/cl.hpp>
-#endif
 
 namespace dcl {
 
@@ -100,7 +94,7 @@ public:
 			size_t      size,
 			const void *ptr,
 			bool skip_compress_step = false,
-			cl::Event trigger_event = cl::Event()) = 0;
+			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
 
 	/*!
 	 * \brief Receive data from host.
@@ -114,7 +108,7 @@ public:
 			size_t  size,
 			void *  ptr,
 			bool skip_compress_step = false,
-			cl::Event trigger_event = cl::Event()) = 0;
+			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
 };
 
 } /* namespace dcl */

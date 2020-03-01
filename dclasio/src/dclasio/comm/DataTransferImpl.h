@@ -44,6 +44,7 @@
 #ifndef DATATRANSFERIMPL_H_
 #define DATATRANSFERIMPL_H_
 
+#include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
 
@@ -51,10 +52,10 @@
 #include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl.h>
 #include <OpenCL/cl_wwu_dcl.h>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl.h>
 #include <CL/cl_wwu_dcl.h>
 #endif
 
@@ -103,7 +104,7 @@ private:
 
 public:
     DataTransferImpl(
-            size_t size, typename Operation::pointer_type ptr, bool skip_compress_step, cl::Event trigger_event) :
+            size_t size, typename Operation::pointer_type ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) :
             _size(size), _ptr(ptr), _skip_compress_step(skip_compress_step), _trigger_event(trigger_event),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
             _status(CL_SUBMITTED) { }
@@ -178,8 +179,8 @@ public:
         return _skip_compress_step;
     }
 
-    cl::Event trigger_event() const {
-        return _trigger_event;
+    Completable *trigger_event() const {
+        return _trigger_event.get();
     }
 
     void onStart() {
@@ -223,7 +224,7 @@ private:
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
 	const bool _skip_compress_step;
-	cl::Event _trigger_event;
+	std::shared_ptr<dcl::Completable> _trigger_event;
 
 	cl_ulong _submit;
 	cl_ulong _start;

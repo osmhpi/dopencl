@@ -52,6 +52,7 @@
 
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
@@ -151,12 +152,12 @@ void ProcessImpl::sendMessage(const message::Message& message) const {
 }
 
 std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(size_t size,
-        const void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+        const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     return getDataStream().write(size, ptr, skip_compress_step, trigger_event);
 }
 
 std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(size_t size,
-        void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+        void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     return getDataStream().read(size, ptr, skip_compress_step, trigger_event);
 }
 

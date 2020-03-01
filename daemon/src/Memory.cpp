@@ -45,6 +45,7 @@
 
 #include "Context.h"
 
+#include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
 #include <dcl/Process.h>
@@ -161,7 +162,8 @@ void Buffer::acquire(
             (mapWaitList.empty() ? nullptr : &mapWaitList), &mapEvent);
 
     /* receive buffer data when mapping is complete */
-    auto recv = process.receiveData(size(), ptr, false, mapEvent);
+    std::shared_ptr<dcl::CLEventCompletable> mapEventCompletable(new dcl::CLEventCompletable(mapEvent));
+    auto recv = process.receiveData(size(), ptr, false, mapEventCompletable);
     recv->setCallback(std::bind(&cl::UserEvent::setStatus, dataReceipt, std::placeholders::_1));
 
     /* unmap buffer when acquire operation is complete */
@@ -199,7 +201,8 @@ void Buffer::release(
     );
 
     /* send buffer data when mapping is complete */
-    auto send = process.sendData(size(), ptr, false, mapEvent);
+    std::shared_ptr<dcl::CLEventCompletable> mapEventCompletable(new dcl::CLEventCompletable(mapEvent));
+    auto send = process.sendData(size(), ptr, false, mapEventCompletable);
     send->setCallback(std::bind(&cl::UserEvent::setStatus, dataSending, std::placeholders::_1));
 
     /* unmap buffer when acquire operation is complete */

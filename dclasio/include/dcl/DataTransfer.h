@@ -52,6 +52,7 @@
 #include <CL/cl.h>
 #endif
 
+#include <dcl/Completable.h>
 #include <functional>
 
 namespace dcl {
@@ -59,16 +60,10 @@ namespace dcl {
 /*!
  * \brief A handle for an asynchronous data transfer.
  */
-class DataTransfer {
+class DataTransfer : public Completable {
 public:
 	virtual ~DataTransfer() { }
 
-	/*!
-	 * \brief Registers a callback which is called upon completion (or failure)
-	 *        of this data transfer.
-	 *
-	 * \param[in]  notify   the callback to register
-	 */
     virtual void setCallback(
             const std::function<void (cl_int)>& notify) = 0;
 

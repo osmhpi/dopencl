@@ -48,6 +48,7 @@
 
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Process.h>
@@ -60,13 +61,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-
-#define __CL_ENABLE_EXCEPTIONS
-#ifdef __APPLE__
-#include <OpenCL/cl.hpp>
-#else
-#include <CL/cl.hpp>
-#endif
 
 namespace dclasio {
 
@@ -162,12 +156,12 @@ public:
             size_t      size,
             const void *ptr,
             bool skip_compress_step = false,
-            cl::Event trigger_event = cl::Event());
+            const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
     std::shared_ptr<dcl::DataTransfer> receiveData(
             size_t  size,
             void *  ptr,
             bool skip_compress_step = false,
-            cl::Event trigger_event = cl::Event());
+            const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
 
     /*!
      * \brief (Un)sets the processes data stream

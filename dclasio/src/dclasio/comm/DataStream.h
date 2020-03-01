@@ -46,6 +46,7 @@
 
 #include "DataTransferImpl.h"
 
+#include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
 #include <boost/asio/ip/tcp.hpp>
@@ -59,13 +60,6 @@
 #include <string>
 #include <thread>
 #include <type_traits>
-
-#define __CL_ENABLE_EXCEPTIONS
-#ifdef __APPLE__
-#include <OpenCL/cl.hpp>
-#else
-#include <CL/cl.hpp>
-#endif
 
 namespace dclasio {
 
@@ -128,7 +122,7 @@ public:
             size_t size,
             void *ptr,
             bool skip_compress_step,
-            cl::Event trigger_event);
+            const std::shared_ptr<dcl::Completable> &trigger_event);
 
     /*!
      * \brief Submits a data sending for this data stream
@@ -141,7 +135,7 @@ public:
             size_t size,
             const void *ptr,
             bool skip_compress_step,
-            cl::Event trigger_event);
+            const std::shared_ptr<dcl::Completable> &trigger_event);
 
 private:
     /*!

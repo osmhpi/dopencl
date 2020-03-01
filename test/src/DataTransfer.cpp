@@ -164,12 +164,12 @@ void validate_data_is_successfully_transferred(const std::vector<std::vector<uin
 
         // Send the data through one of the datastreams
         for (const auto &send_buffer : send_buffers)
-            connected_ds1->write(send_buffer.size(), send_buffer.data(), false, cl::Event());
+            connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
 
         // Read the data through the other end
         std::vector<std::shared_ptr<dclasio::comm::DataReceipt>> recv_handles;
         for (auto &recv_buffer : recv_buffers)
-            recv_handles.push_back(ds2->read(recv_buffer.size(), recv_buffer.data(), false, cl::Event()));
+            recv_handles.push_back(ds2->read(recv_buffer.size(), recv_buffer.data(), false, nullptr));
         for (auto &recv_handle : recv_handles)
             recv_handle->wait();
 
@@ -251,13 +251,13 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
         random_fill(send_buffer.begin() + send_buffer.size()/2, send_buffer.end());
 
         // Send the data through one of the datastreams
-        connected_ds1->write(send_buffer.size(), send_buffer.data(), false, cl::Event());
+        connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
 
         // Read the data through the other end, but request that no decompression happens
         // (set skip_compress_step=true). This means that, if I/O link compression is enabled,
         // intermediate_buffer will contain the data in a compressed form.
         std::vector<uint8_t> intermediate_buffer(send_buffer.size(), 0xff);
-        ds2->read(intermediate_buffer.size(), intermediate_buffer.data(), true, cl::Event())->wait();
+        ds2->read(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr)->wait();
 
         bool intermediate_buffer_equal = std::equal(intermediate_buffer.begin(), intermediate_buffer.end(),
                                                     send_buffer.begin());
@@ -273,9 +273,9 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
         // Now test the opposite case, where we write the compressed data again
         // and request that it it not re-compressed, but read it as usual
         // This will then recover the original buffer we originally sent through the stream
-        connected_ds2->write(intermediate_buffer.size(), intermediate_buffer.data(), true, cl::Event());
+        connected_ds2->write(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr);
         std::vector<uint8_t> recv_buffer(send_buffer.size());
-        ds1->read(recv_buffer.size(), recv_buffer.data(), false, cl::Event())->wait();
+        ds1->read(recv_buffer.size(), recv_buffer.data(), false, nullptr)->wait();
 
         BOOST_CHECK_EQUAL_COLLECTIONS(send_buffer.begin(), send_buffer.end(),
                                       recv_buffer.begin(), recv_buffer.end());

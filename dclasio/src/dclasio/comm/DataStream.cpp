@@ -46,6 +46,7 @@
 #include "DataTransferImpl.h"
 
 #include <dcl/ByteBuffer.h>
+#include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
 #include <dcl/util/Logger.h>
@@ -63,13 +64,6 @@
 #include <memory>
 #include <mutex>
 #include <utility>
-
-#define __CL_ENABLE_EXCEPTIONS
-#ifdef __APPLE__
-#include <OpenCL/cl.hpp>
-#else
-#include <CL/cl.hpp>
-#endif
 
 #ifdef IO_LINK_COMPRESSION
 #define CHUNK_SIZE 16384
@@ -240,7 +234,7 @@ void DataStream::disconnect() {
 }
 
 std::shared_ptr<DataReceipt> DataStream::read(
-        size_t size, void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+        size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_readq_mtx);
@@ -259,7 +253,7 @@ std::shared_ptr<DataReceipt> DataStream::read(
 
 
 std::shared_ptr<DataSending> DataStream::write(
-        size_t size, const void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+        size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_writeq_mtx);
@@ -293,26 +287,14 @@ void DataStream::schedule_read(readq_type *readq) {
     // readq is non-empty now
 
     auto& read = readq->front();
-    if (read->trigger_event()() != nullptr) {
+    if (read->trigger_event() != nullptr) {
         // If a event to wait was given, start the read after the event callback
         // TODOXXX: Handle the case where the event to wait returns an error
         // (the lines deleted when this comment was introduced could serve as a reference)
-
-        // Here we need to pass the class pointer and parameters to a C-style callback
-        // (so, no lambda captures are possible), which requires using a temporary struct
-        struct read_state_t {
-            DataStream &ds;
-            readq_type *readq;
-
-            read_state_t(DataStream &ds, readq_type *readq)
-                    : ds(ds), readq(readq) {}
-        };
-
-        read_state_t *ws = new read_state_t(*this, readq);
-        read->trigger_event().setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
-            std::unique_ptr<read_state_t> state(static_cast<read_state_t *>(user_data));
-            state->ds.start_read(state->readq);
-        }, ws);
+        read->trigger_event()->setCallback([this, readq](cl_int status) {
+            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+            start_read(readq);
+        });
     } else {
         // If no event to wait was given, start the read immediately
         start_read(readq);
@@ -481,28 +463,14 @@ void DataStream::schedule_write(writeq_type *writeq) {
     // writeq is non-empty now
 
     auto& write = writeq->front();
-    if (write->trigger_event()() != nullptr) {
+    if (write->trigger_event() != nullptr) {
         // If a event to wait was given, start the write after the event callback
         // TODOXXX: Handle the case where the event to wait returns an error
         // (the lines deleted when this comment was introduced could serve as a reference)
-
-        // Here we need to pass the class pointer and parameters to a C-style callback
-        // (so, no lambda captures are possible), which requires using a temporary struct
-        struct write_state_t
-        {
-            DataStream &ds;
-            writeq_type *writeq;
-
-            write_state_t(DataStream &ds, writeq_type *writeq)
-                : ds(ds), writeq(writeq) {}
-        };
-
-        write_state_t *ws = new write_state_t(*this, writeq);
-
-        write->trigger_event().setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
-            std::unique_ptr<write_state_t> state(static_cast<write_state_t *>(user_data));
-            state->ds.start_write(state->writeq);
-        }, ws);
+        write->trigger_event()->setCallback([this, writeq](cl_int status) {
+            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+            start_write(writeq);
+        });
     } else {
         // If a event to wait was given, start the write immediately
         start_write(writeq);
