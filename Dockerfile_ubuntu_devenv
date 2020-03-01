@@ -28,3 +28,5 @@ ENV NVIDIA_DRIVER_CAPABILITIES compute,utility
 
 # Copy source files in
 COPY . /tmp/dopencl
+
+WORKDIR /tmp/dopencl
