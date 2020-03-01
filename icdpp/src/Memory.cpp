@@ -366,24 +366,10 @@ bool _cl_mem::isOutput() const {
     return (_flags & (CL_MEM_WRITE_ONLY | CL_MEM_READ_WRITE));
 }
 
-void _cl_mem::onAcquireComplete(dcl::Process& destination, cl_int executionStatus) {
-    assert(executionStatus == CL_COMPLETE || executionStatus < 0);
-
-    if (executionStatus == CL_COMPLETE) {
-        /* forward acquired memory object data to acquiring compute node */
-        try {
-            // See matching receiveData call for why skip_compress_step=true here
-            destination.sendData(_size, _data, true);
-        } catch (const dcl::IOException& e) {
-            dcl::util::Logger << dcl::util::Error
-                    << "(SYN) Acquire failed: " << e.what()
-                    << std::endl;
-        }
-    } else {
-        dcl::util::Logger << dcl::util::Error
-                << "(SYN) Acquire failed: Data receipt failed"
-                << std::endl;
-    }
+void _cl_mem::onAcquireComplete(dcl::Process& destination,
+        const std::shared_ptr<dcl::Completable>& acquireCompletable) {
+    // See matching receiveData call for why skip_compress_step=true here
+    destination.sendData(_size, _data, true, acquireCompletable);
 }
 
 void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
@@ -403,14 +389,7 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
         auto recv = acquire(source);
 
         /* forward memory object data to requesting compute node */
-        // TODOXXX: Is there the possibility of a race here, where another send/receive call
-        // sneaks in between the acquire and receive? If so, consider using the receiveData
-        // overload with a cl::Event, but the problem here is that since we are on the host,
-        // we can't do this since we don't have an actual OpenCL context to use events,
-        // so we'd need to refactor sendData/receiveData to accept a generic "callback"able argument
-        recv->setCallback(
-                std::bind(&_cl_mem::onAcquireComplete, this,
-                        std::ref(destination), std::placeholders::_1));
+        _cl_mem::onAcquireComplete(destination, recv);
     } catch (const dcl::IOException& e) {
         dcl::util::Logger << dcl::util::Error
                 << "(SYN) Acquire failed: " << e.what()

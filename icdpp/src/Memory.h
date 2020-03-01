@@ -118,7 +118,7 @@ public:
 
 
     /**
-     * @brief Callback for a completed acquire operation.
+     * @brief Registers the transfer to execute after a completed acquire operation.
      *
      * NOTE: This method is a work-around for missing node-to-node communication.
      * When an acquire operation is completed which has been performed on behalf
@@ -127,11 +127,11 @@ public:
      *
      * @param[in]  destination      the requesting compute node where the memory
      *                              object has to be send to as an update
-     * @param[in] executionStatus
+     * @param[in] acquireCompletable
      */
     void onAcquireComplete(
-            dcl::Process& destination,
-            cl_int        executionStatus);
+            dcl::Process&                            destination,
+            const std::shared_ptr<dcl::Completable>& acquireCompletable);
 
     /**
      * @brief Callback for acquiring this memory object's data on behalf of a compute node
