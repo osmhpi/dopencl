@@ -64,6 +64,13 @@
 #include <mutex>
 #include <utility>
 
+#define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
+#include <CL/cl.hpp>
+#endif
+
 #ifdef IO_LINK_COMPRESSION
 #define CHUNK_SIZE 16384
 static const uint8_t CHUNK_MAGIC[16] = {
@@ -233,8 +240,8 @@ void DataStream::disconnect() {
 }
 
 std::shared_ptr<DataReceipt> DataStream::read(
-        size_t size, void *ptr, bool skip_compress_step) {
-    auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step));
+        size_t size, void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+    auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_readq_mtx);
     if ((_receiving)) {
@@ -244,15 +251,16 @@ std::shared_ptr<DataReceipt> DataStream::read(
         _receiving = true;
         lock.unlock();
 
-        start_read(new readq_type({ read }));
+        schedule_read(new readq_type({ read }));
     }
 
     return read;
 }
 
+
 std::shared_ptr<DataSending> DataStream::write(
-        size_t size, const void *ptr, bool skip_compress_step) {
-    auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step));
+        size_t size, const void *ptr, bool skip_compress_step, cl::Event trigger_event) {
+    auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_writeq_mtx);
     if (_sending) {
@@ -262,14 +270,13 @@ std::shared_ptr<DataSending> DataStream::write(
         _sending = true;
         lock.unlock();
 
-        start_write(new writeq_type({ write }));
+        schedule_write(new writeq_type({ write }));
     }
 
     return write;
 }
 
-void DataStream::start_read(
-        readq_type *readq) {
+void DataStream::schedule_read(readq_type *readq) {
     /* TODO Pass readq by rvalue reference rather than by pointer
      * This is currently not supported by lambdas (see comment in start_write) */
     assert(readq); // ouch!
@@ -286,12 +293,40 @@ void DataStream::start_read(
     // readq is non-empty now
 
     auto& read = readq->front();
+    if (read->trigger_event()() != nullptr) {
+        // If a event to wait was given, start the read after the event callback
+        // TODOXXX: Handle the case where the event to wait returns an error
+        // (the lines deleted when this comment was introduced could serve as a reference)
+
+        // Here we need to pass the class pointer and parameters to a C-style callback
+        // (so, no lambda captures are possible), which requires using a temporary struct
+        struct read_state_t {
+            DataStream &ds;
+            readq_type *readq;
+
+            read_state_t(DataStream &ds, readq_type *readq)
+                    : ds(ds), readq(readq) {}
+        };
+
+        read_state_t *ws = new read_state_t(*this, readq);
+        read->trigger_event().setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
+            std::unique_ptr<read_state_t> state(static_cast<read_state_t *>(user_data));
+            state->ds.start_read(state->readq);
+        }, ws);
+    } else {
+        // If no event to wait was given, start the read immediately
+        start_read(readq);
+    }
+}
+
+void DataStream::start_read(readq_type *readq) {
+    auto& read = readq->front();
     read->onStart();
 #ifndef IO_LINK_COMPRESSION
     boost_asio_async_read_with_sentinels(
-            *_socket, boost::asio::buffer(read->ptr(), read->size()),
-            [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
-                    handle_read(readq, ec, bytes_transferred); });
+                *_socket, boost::asio::buffer(read->ptr(), read->size()),
+                [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
+                        handle_read(readq, ec, bytes_transferred); });
 #else
     _decompress_working_thread_count = 0;
     _read_io_total_bytes_transferred = 0;
@@ -426,13 +461,12 @@ void DataStream::handle_read(
         // TODO Handle errors
     }
 
-    start_read(readq); // process remaining reads
+    schedule_read(readq); // process remaining reads
 }
 
-void DataStream::start_write(
-        writeq_type *writeq) {
+void DataStream::schedule_write(writeq_type *writeq) {
     /* TODO Pass writeq by rvalue reference rather than by pointer
-     * is currently not supported by lambdas (see comment below) */
+     * is currently not supported by lambdas (see comment in start_write) */
     assert(writeq); // ouch!
     if (writeq->empty()) {
         // pick new writes from the data stream's write queue
@@ -446,6 +480,36 @@ void DataStream::start_write(
     }
     // writeq is non-empty now
 
+    auto& write = writeq->front();
+    if (write->trigger_event()() != nullptr) {
+        // If a event to wait was given, start the write after the event callback
+        // TODOXXX: Handle the case where the event to wait returns an error
+        // (the lines deleted when this comment was introduced could serve as a reference)
+
+        // Here we need to pass the class pointer and parameters to a C-style callback
+        // (so, no lambda captures are possible), which requires using a temporary struct
+        struct write_state_t
+        {
+            DataStream &ds;
+            writeq_type *writeq;
+
+            write_state_t(DataStream &ds, writeq_type *writeq)
+                : ds(ds), writeq(writeq) {}
+        };
+
+        write_state_t *ws = new write_state_t(*this, writeq);
+
+        write->trigger_event().setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
+            std::unique_ptr<write_state_t> state(static_cast<write_state_t *>(user_data));
+            state->ds.start_write(state->writeq);
+        }, ws);
+    } else {
+        // If a event to wait was given, start the write immediately
+        start_write(writeq);
+    }
+}
+
+void DataStream::start_write(writeq_type *writeq) {
     auto& write = writeq->front();
     write->onStart();
     /* TODO *Move* writeq through (i.e., into and out of) lambda capture
@@ -613,7 +677,7 @@ void DataStream::handle_write(
         // TODO Handle errors
     }
 
-    start_write(writeq); // process remaining writes
+    schedule_write(writeq); // process remaining writes
 }
 
 } // namespace comm

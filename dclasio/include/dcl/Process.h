@@ -55,6 +55,13 @@
 #include <memory>
 #include <string>
 
+#define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
+#include <CL/cl.hpp>
+#endif
+
 namespace dcl {
 
 class DataTransfer;
@@ -92,7 +99,8 @@ public:
 	virtual std::shared_ptr<DataTransfer> sendData(
 			size_t      size,
 			const void *ptr,
-			bool skip_compress_step = false) = 0;
+			bool skip_compress_step = false,
+			cl::Event trigger_event = cl::Event()) = 0;
 
 	/*!
 	 * \brief Receive data from host.
@@ -105,7 +113,8 @@ public:
 	virtual std::shared_ptr<DataTransfer> receiveData(
 			size_t  size,
 			void *  ptr,
-			bool skip_compress_step = false) = 0;
+			bool skip_compress_step = false,
+			cl::Event trigger_event = cl::Event()) = 0;
 };
 
 } /* namespace dcl */

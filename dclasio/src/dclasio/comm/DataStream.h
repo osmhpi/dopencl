@@ -60,6 +60,13 @@
 #include <thread>
 #include <type_traits>
 
+#define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
+#include <CL/cl.hpp>
+#endif
+
 namespace dclasio {
 
 namespace comm {
@@ -120,7 +127,8 @@ public:
     std::shared_ptr<DataReceipt> read(
             size_t size,
             void *ptr,
-            bool skip_compress_step);
+            bool skip_compress_step,
+            cl::Event trigger_event);
 
     /*!
      * \brief Submits a data sending for this data stream
@@ -132,16 +140,18 @@ public:
     std::shared_ptr<DataSending> write(
             size_t size,
             const void *ptr,
-            bool skip_compress_step);
+            bool skip_compress_step,
+            cl::Event trigger_event);
 
+private:
     /*!
      * \brief Processes the next data transfer from the read queue.
      *
      * \param[in]  readq    list of incoming data transfers to process
      *             If \c readq is empty, it is filled with data transfers from the stream's internal read queue
      */
-    void start_read(
-            readq_type *readq = new readq_type());
+    void schedule_read(readq_type *readq);
+    void start_read(readq_type *readq);
 
 #ifdef IO_LINK_COMPRESSION
     void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
@@ -159,8 +169,8 @@ public:
      * \param[in]  writeq   list of incoming data transfers to process
      *             If \c writeq is empty, it is filled with data transfers from the stream's internal write queue
      */
-    void start_write(
-            writeq_type *writeq = new writeq_type());
+    void schedule_write(writeq_type *writeq);
+    void start_write(writeq_type *writeq);
 
 #ifdef IO_LINK_COMPRESSION
     void try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);

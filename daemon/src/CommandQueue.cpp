@@ -50,9 +50,11 @@
 #include "Memory.h"
 
 #include "command/Command.h"
-#include "command/CopyDataCommand.h"
 #include "command/SetCompleteCommand.h"
 
+#include <dclasio/message/CommandMessage.h>
+
+#include <dcl/DataTransfer.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Event.h>
 #include <dcl/Kernel.h>
@@ -288,10 +290,12 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
-        // schedule data transfer
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::DeviceToHost>(
-                        _context->host(), commandId, size, ptr, copyData));
+        // schedule data transfer on host
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
+        // schedule local data transfer
+        _context->host().sendData(size, ptr, false, mapData)->setCallback(std::bind(
+                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host, such that no
          * 'command complete' message must be sent by the compute node. */
     } catch (const std::bad_alloc&) {
@@ -348,10 +352,12 @@ void CommandQueue::enqueueWriteBuffer(
 #endif
 
     try {
-        // schedule data transfer
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::HostToDevice>(
-                        _context->host(), commandId, size, ptr, copyData));
+        // schedule data transfer on host
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
+        // schedule local data transfer
+        _context->host().receiveData(size, ptr, false, mapData)->setCallback(std::bind(
+                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         // schedule completion message for host
         /* A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -495,12 +501,14 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
-        /* Schedule data sending
-         * A 'command submitted' message will be sent to the host in order to
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host in order to
          * start data receipt. */
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::DeviceToHost>(
-                        _context->host(), commandId, size, ptr, copyData));
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
+        // schedule local data transfer
+        _context->host().sendData(size, ptr, false, mapData)->setCallback(std::bind(
+                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 
@@ -580,11 +588,13 @@ void CommandQueue::enqueueWriteBuffer(
                     bufferImpl, writeBuffer);
         }
 #else
-        /* Schedule data receipt
-         * A 'command submitted' message will be sent to the host. */
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::HostToDevice>(
-                        _context->host(), commandId, size, ptr, copyData));
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host. */
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
+        // schedule local data transfer
+        _context->host().receiveData(size, ptr, false, mapData)->setCallback(std::bind(
+                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated

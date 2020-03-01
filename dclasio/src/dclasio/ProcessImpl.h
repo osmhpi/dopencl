@@ -61,6 +61,13 @@
 #include <mutex>
 #include <string>
 
+#define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
+#include <CL/cl.hpp>
+#endif
+
 namespace dclasio {
 
 namespace comm {
@@ -154,11 +161,13 @@ public:
     std::shared_ptr<dcl::DataTransfer> sendData(
             size_t      size,
             const void *ptr,
-            bool skip_compress_step = false);
+            bool skip_compress_step = false,
+            cl::Event trigger_event = cl::Event());
     std::shared_ptr<dcl::DataTransfer> receiveData(
             size_t  size,
             void *  ptr,
-            bool skip_compress_step = false);
+            bool skip_compress_step = false,
+            cl::Event trigger_event = cl::Event());
 
     /*!
      * \brief (Un)sets the processes data stream

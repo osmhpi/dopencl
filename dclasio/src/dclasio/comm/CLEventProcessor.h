@@ -146,7 +146,7 @@ private:
 
     void requestBufferTransfer(
             const message::RequestBufferTransfer& notification,
-            dcl::Process& process) const;
+            dcl::Process& process);
 
     const CommunicationManagerImpl& _communicationManager;
     const dcl::CLObjectRegistry& _objectRegistry; //!< Registry for application objects

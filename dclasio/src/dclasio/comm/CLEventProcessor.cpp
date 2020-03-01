@@ -179,9 +179,18 @@ void CLComputeNodeEventProcessor::programBuildComplete(
 
 void CLComputeNodeEventProcessor::requestBufferTransfer(
         const message::RequestBufferTransfer& notification,
-        dcl::Process& process) const {
-    auto buffer = _objectRegistry.lookup<dcl::BufferListener>(notification.bufferId());
-    buffer->onRequestBufferTransfer(process);
+        dcl::Process& process) {
+    auto bufferListener = _objectRegistry.lookup<dcl::BufferListener>(notification.bufferId());
+    if (bufferListener) {
+        // pass function call to worker thread
+        _taskList.push(
+                std::bind(&dcl::BufferListener::onRequestBufferTransfer,
+                          bufferListener, std::ref(process)));
+    } else {
+        dcl::util::Logger << dcl::util::Error
+                          << "Buffer listener not found (ID=" << notification.bufferId()
+                          << ')' << std::endl;
+    }
 }
 
 bool CLComputeNodeEventProcessor::dispatch(
@@ -207,7 +216,6 @@ bool CLComputeNodeEventProcessor::dispatch(
     case message::EventSynchronizationMessage::TYPE:
         dcl::util::Logger << dcl::util::Debug
                 << "Received event synchronization message from compute node" << std::endl;
-
         computeNode = _communicationManager.get_compute_node(pid);
         assert(computeNode && "No host for event");
         if (!computeNode)
