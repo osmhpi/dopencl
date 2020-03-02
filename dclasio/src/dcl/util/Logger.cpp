@@ -139,6 +139,10 @@ int LoggerImpl::LoggerBuffer::sync() {
     return 0;
 }
 
+/* FIXME TODOXXX The act of logging itself is not thread safe!
+ * Neither std::ostream nor the backing std::stringbuf are thread-safe,
+ * which results in log corruption when multiple threads write (regular ocurrence) */
+
 /* FIXME Logger manipulators are not thread-safe
  * While one thread sets _currentSeverity for a message to be logged
  * subsequently, a concurrent thread may change _currentSeverity before the
