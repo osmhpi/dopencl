@@ -191,7 +191,6 @@ private:
     struct decompress_message_decompress {
         std::vector<uint8_t> compressed_data;
         void *destination;
-        bool skip_compress_step;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
         decompress_message_decompress(const decompress_message_decompress &) = delete;

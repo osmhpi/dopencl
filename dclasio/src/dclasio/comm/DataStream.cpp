@@ -327,31 +327,51 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
             assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
 
-            // Read the chunk into the buffer
-            _read_io_buffer.resize(_read_io_buffer_size);
-            boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(_read_io_buffer.data(), _read_io_buffer_size),
-            [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
-                assert(!ec);
-                _read_io_total_bytes_transferred += bytes_transferred;
+            if (_read_io_buffer_size <= COMPRESSIBLE_THRESHOLD && !read->skip_compress_step()) {
+                // Read the compressed chunk into a secondary buffer to be decompressed later
+                _read_io_buffer.resize(_read_io_buffer_size);
+                boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(_read_io_buffer.data(), _read_io_buffer_size),
+                    [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
+                    assert(!ec);
+                    _read_io_total_bytes_transferred += bytes_transferred;
 
-                // Push into the queue for decompression
-                decompress_message_decompress dm = {
-                        .compressed_data = std::move(_read_io_buffer),
-                        .destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset,
-                        .skip_compress_step = read->skip_compress_step()
-                };
-                decompress_message_t msg(std::move(dm));
+                    // Push into the queue for decompression
+                    decompress_message_decompress dm = {
+                            .compressed_data = std::move(_read_io_buffer),
+                            .destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset
+                    };
+                    decompress_message_t msg(std::move(dm));
 
-                {
-                    std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-                    _decompress_queue.push(std::move(msg));
-                    _decompress_queue_available.notify_one();
+                    {
+                        std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
+                        _decompress_queue.push(std::move(msg));
+                        _decompress_queue_available.notify_one();
+                    }
+
+                    _read_io_destination_offset += CHUNK_SIZE;
+
+                    read_next_compressed_chunk(readq, read);
+                });
+            } else {
+                // Read the chunk directly in its final destination in the destination buffer
+                uint8_t *destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset;
+
+                if (_read_io_buffer_size <= COMPRESSIBLE_THRESHOLD && read->skip_compress_step()) {
+                    std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), destination);
+                    *reinterpret_cast<size_t *>((destination + sizeof(CHUNK_MAGIC))) = _read_io_buffer_size;
+                    destination += sizeof(CHUNK_MAGIC) + sizeof(size_t);
+                } else {
+                    assert(_read_io_buffer_size == CHUNK_SIZE); // Chunk is read uncompressed
                 }
+                boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(destination, _read_io_buffer_size),
+                    [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
+                    assert(!ec);
+                    _read_io_total_bytes_transferred += bytes_transferred;
+                    _read_io_destination_offset += CHUNK_SIZE;
 
-                _read_io_destination_offset += CHUNK_SIZE;
-
-                read_next_compressed_chunk(readq, read);
-            });
+                    read_next_compressed_chunk(readq, read);
+                });
+            }
         });
     } else {
         // Always read the last incomplete chunk of the input uncompressed
@@ -400,25 +420,14 @@ void DataStream::loop_decompress_thread() {
             auto chunk = std::move(boost::get<decompress_message_decompress>(chunkVariant));
             auto destination = static_cast<uint8_t *>(chunk.destination);
 
-            if (chunk.compressed_data.size() <= COMPRESSIBLE_THRESHOLD) {
-                if (chunk.skip_compress_step) {
-                    std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), destination);
-                    *reinterpret_cast<size_t *>((destination + sizeof(CHUNK_MAGIC))) = chunk.compressed_data.size();
-                    std::copy(chunk.compressed_data.data(), chunk.compressed_data.data() + chunk.compressed_data.size(),
-                              destination + sizeof(CHUNK_MAGIC) + sizeof(size_t));
-                } else {
-                    size_t uncompressed_size = CHUNK_SIZE;
-                    int ret = lib842_decompress(chunk.compressed_data.data(),
-                                                chunk.compressed_data.size(),
-                                                destination, &uncompressed_size);
-                    assert(ret == 0);
-                    assert(uncompressed_size == CHUNK_SIZE);
-                }
-            } else {
-                assert(chunk.compressed_data.size() == CHUNK_SIZE);
-                std::copy(chunk.compressed_data.data(), chunk.compressed_data.data() + CHUNK_SIZE,
-                          destination);
-            }
+            assert(chunk.compressed_data.size() <= COMPRESSIBLE_THRESHOLD);
+
+            size_t uncompressed_size = CHUNK_SIZE;
+            int ret = lib842_decompress(chunk.compressed_data.data(),
+                                        chunk.compressed_data.size(),
+                                        destination, &uncompressed_size);
+            assert(ret == 0);
+            assert(uncompressed_size == CHUNK_SIZE);
 
             lock.lock();
             _decompress_working_thread_count--;
