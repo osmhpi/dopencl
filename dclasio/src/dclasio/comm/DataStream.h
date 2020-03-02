@@ -193,6 +193,7 @@ private:
         void *destination;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
+        decompress_message_decompress() = default;
         decompress_message_decompress(const decompress_message_decompress &) = delete;
         decompress_message_decompress& operator=(const decompress_message_decompress &) = delete;
         decompress_message_decompress(decompress_message_decompress &&) = default;

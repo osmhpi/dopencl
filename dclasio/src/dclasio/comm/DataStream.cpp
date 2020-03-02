@@ -403,19 +403,61 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
 }
 
 void DataStream::loop_decompress_thread() {
+    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
+    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_FINALIZE = 1;
+    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_QUIT = 2;
+
     while (true) {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
         _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
         auto chunkVariant = std::move(_decompress_queue.front());
         _decompress_queue.pop();
-        if (chunkVariant.which() == 1) { // decompress_message_finalize
+        if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_FINALIZE) {
             auto finalize_message = boost::get<decompress_message_finalize>(chunkVariant);
             handle_read(finalize_message.readq, boost::system::error_code(), _read_io_total_bytes_transferred);
-        } else if (chunkVariant.which() == 2) { // decompress_message_quit
+        } else if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_QUIT) {
             break;
-        } else if (chunkVariant.which() == 0) { // decompress_message_decompress
+        } else if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS) {
             _decompress_working_thread_count++;
+
+#if 0
+            // Tentative code for GPU-based decompression
+            // GPU-based decompression relies on processing multiple chunks in parallel,
+            // so we need to gather a few chunks here and then decompress an entire batch at once
+            static constexpr size_t NUM_PARALLEL_GPU_DECOMPRESS_CHUNKS = 16;
+            std::array<decompress_message_decompress, NUM_PARALLEL_GPU_DECOMPRESS_CHUNKS> chunk_batch;
+            size_t num_chunks = 1;
+            chunk_batch[0] = std::move(boost::get<decompress_message_decompress>(chunkVariant));
+
+            while (num_chunks < chunk_batch.size()) {
+                _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
+                if (_decompress_queue.front().which() != CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS) {
+                    // All read IO operations already finished, and wants us to quit or finalize,
+                    // so finish this batch and then do it
+                    // Possible optimization: Make the read send a otherwise useless "pre-finish"
+                    // message when the last (uncompressed) read begins so we can start earlier here
+                    break;
+                }
+                chunk_batch[num_chunks++] = std::move(boost::get<decompress_message_decompress>(_decompress_queue.front()));
+                _decompress_queue.pop();
+            }
+            lock.unlock();
+
+            // TODOXXX: Uncompress the chunks on the GPU
+            // To be determined: Which command queue to use? I believe we need to create a new one here
+            // just for decompression
+            for (size_t i = 0; i < num_chunks; i++) {
+                assert(chunk_batch[i].compressed_data.size() <= COMPRESSIBLE_THRESHOLD);
+
+                size_t uncompressed_size = CHUNK_SIZE;
+                int ret = lib842_decompress(chunk_batch[i].compressed_data.data(),
+                                            chunk_batch[i].compressed_data.size(),
+                                            static_cast<uint8_t *>(chunk_batch[i].destination), &uncompressed_size);
+                assert(ret == 0);
+                assert(uncompressed_size == CHUNK_SIZE);
+            }
+#else
             lock.unlock();
             auto chunk = std::move(boost::get<decompress_message_decompress>(chunkVariant));
             auto destination = static_cast<uint8_t *>(chunk.destination);
@@ -428,6 +470,7 @@ void DataStream::loop_decompress_thread() {
                                         destination, &uncompressed_size);
             assert(ret == 0);
             assert(uncompressed_size == CHUNK_SIZE);
+#endif
 
             lock.lock();
             _decompress_working_thread_count--;
