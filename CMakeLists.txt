@@ -30,6 +30,9 @@ option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
 option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)
 option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accelerated 842 implementation" OFF)
 
+# Necessary for Boost.Log linking, see https://stackoverflow.com/q/23137637
+add_definitions(-DBOOST_LOG_DYN_LINK)
+
 #
 # dOpenCL version information
 #
