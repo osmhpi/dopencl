@@ -47,7 +47,12 @@
 #include <dcl/CommunicationManager.h>
 #include <dcl/DCLException.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/sinks/text_file_backend.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
 
 #include <cstdlib>
 #include <cstring>
@@ -58,28 +63,28 @@
 
 namespace {
 
-dcl::util::Severity getSeverity() {
+boost::log::trivial::severity_level getSeverity() {
     const char *loglevel = getenv("DCL_LOG_LEVEL");
 
     if (loglevel) {
         if (strcmp(loglevel, "ERROR") == 0) {
-            return dcl::util::Severity::Error;
+            return boost::log::trivial::error;
         } else if (strcmp(loglevel, "WARNING") == 0) {
-            return dcl::util::Severity::Warning;
+            return boost::log::trivial::warning;
         } else if (strcmp(loglevel, "INFO") == 0) {
-            return dcl::util::Severity::Info;
+            return boost::log::trivial::info;
         } else if (strcmp(loglevel, "DEBUG") == 0) {
-            return dcl::util::Severity::Debug;
+            return boost::log::trivial::debug;
         } else if (strcmp(loglevel, "VERBOSE") == 0) {
-            return dcl::util::Severity::Verbose;
+            return boost::log::trivial::trace;
         }
     }
 
     // use default log level
 #ifndef NDEBUG
-    return dcl::util::Severity::Debug;
+    return boost::log::trivial::debug;
 #else
-    return dcl::util::Severity::Info;
+    return boost::log::trivial::info;
 #endif
 }
 
@@ -91,10 +96,14 @@ namespace dcl {
 
 HostCommunicationManager * HostCommunicationManager::create() {
     // set up dOpenCL logger
-    static std::ofstream dclLogFile("dcl_host.log");
-    dcl::util::Logger.setOutput(dclLogFile);
-    dcl::util::Logger.setLoggingLevel(getSeverity());
-    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
+    boost::log::add_file_log
+    (
+        boost::log::keywords::file_name = "dcl_host.log",
+        boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
+    );
+    boost::log::add_file_log("dcl_host.log");
+    boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
+    boost::log::add_common_attributes();
 
     return new dclasio::HostCommunicationManagerImpl();
 }
@@ -121,10 +130,13 @@ ComputeNodeCommunicationManager * ComputeNodeCommunicationManager::create(
         ss >> logFileName;
     }
     // set up dOpenCL logger
-    static std::ofstream dclLogFile(logFileName.c_str());
-    dcl::util::Logger.setOutput(dclLogFile);
-    dcl::util::Logger.setLoggingLevel(getSeverity());
-    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
+    boost::log::add_file_log
+    (
+        boost::log::keywords::file_name = logFileName.c_str(),
+        boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
+    );
+    boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
+    boost::log::add_common_attributes();
 
     return new dclasio::ComputeNodeCommunicationManagerImpl(host, port);
 }

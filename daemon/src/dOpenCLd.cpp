@@ -54,7 +54,7 @@
 #include <dcl/Host.h>
 #include <dcl/Session.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -165,7 +165,7 @@ cl::Platform getPlatform(const std::string *platformName) {
             platform->getInfo(CL_PLATFORM_NAME, &name);
             if ((name.find(*platformName) != std::string::npos)) {
                 if (major < 1 || (major == 1 && minor < 1)) {
-                    dcl::util::Logger << dcl::util::Warning
+                    BOOST_LOG_TRIVIAL(warning)
                             << "Platform '" << name << "' (version "
                             << version << ") does not support OpenCL 1.1 or higher."
                             << std::endl;
@@ -187,7 +187,7 @@ cl::Platform getPlatform(const std::string *platformName) {
 
     if (platform == std::end(platforms)) {
         if (!platforms.empty()) {
-            dcl::util::Logger << dcl::util::Error
+            BOOST_LOG_TRIVIAL(error)
                     << "No OpenCL 1.1 compliant platform found." << std::endl;
         }
         throw cl::Error(CL_PLATFORM_NOT_FOUND_KHR);
@@ -232,7 +232,7 @@ void dOpenCLd::run() {
     _communicationManager->setDaemon();
     _communicationManager->removeConnectionListener(*this);
 
-	dcl::util::Logger << dcl::util::Info
+	BOOST_LOG_TRIVIAL(info)
 	        << "Shutting down dOpenCL daemon ..." << std::endl;
 }
 
@@ -254,15 +254,15 @@ void dOpenCLd::initializeDevices() {
     while (platform != std::end(platforms)) {
     platform->getDevices(CL_DEVICE_TYPE_ALL, &devices);
 
-    dcl::util::Logger << dcl::util::Info
-            << "Using platform '" << platform->getInfo<CL_PLATFORM_NAME>() << "'\n"
-            << "\tfound " << devices.size() << " device(s):\n";
+    std::stringstream deviceNames;
     for (auto device : devices) {
-        dcl::util::Logger << dcl::util::Info
-            << "\t\t" << device.getInfo<CL_DEVICE_NAME>() << '\n';
+        deviceNames << "\t\t" << device.getInfo<CL_DEVICE_NAME>() << '\n';
         _devices.push_back(std::unique_ptr<Device>(new Device(device)));
     }
-    dcl::util::Logger.flush();
+    BOOST_LOG_TRIVIAL(info)
+            << "Using platform '" << platform->getInfo<CL_PLATFORM_NAME>() << "'\n"
+            << "\tfound " << devices.size() << " device(s):\n"
+            << deviceNames.str() << std::flush;
     ++platform;
    }
 }
@@ -298,7 +298,7 @@ bool dOpenCLd::connected(dcl::Host& host) {
 		bool created = _sessions.emplace(
 		        &host, std::unique_ptr<Session>(new Session(_platform))).second;
 		if (created) {
-            dcl::util::Logger << dcl::util::Info
+            BOOST_LOG_TRIVIAL(info)
                     << "Session created (host='" << host.url() << "')" << std::endl;
 		}
 		return created;
@@ -326,7 +326,7 @@ void dOpenCLd::disconnected(dcl::Host& host) {
 	     * events after the application on the client has been terminated. */
 		_sessions.erase(i); // remove session from list
 
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Session destroyed (host='" << host.url() << "')" << std::endl;
 	}
 

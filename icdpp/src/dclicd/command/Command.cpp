@@ -55,7 +55,7 @@
 #include <dcl/Remote.h>
 #include <dcl/ComputeNode.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -153,7 +153,7 @@ void Command::onExecutionStatusChanged(cl_int executionStatus) {
 		 * operation in method submit */
 		if (executionStatus < _executionStatus) {
 			_executionStatus = executionStatus;
-            dcl::util::Logger << dcl::util::Debug
+            BOOST_LOG_TRIVIAL(debug)
                     << "Changed command execution status (ID=" << _id
                     << ", status=" << _executionStatus << ')'
                     << std::endl;

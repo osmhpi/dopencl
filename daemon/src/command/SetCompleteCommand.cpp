@@ -51,7 +51,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Host.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -84,13 +84,13 @@ void SetCompleteCommand::execute(cl_int errcode) {
 
         _host.sendMessage(message);
 
-        dcl::util::Logger << dcl::util::Debug
+        BOOST_LOG_TRIVIAL(debug)
                 << "Sent update of command execution status to host (ID=" << _commandId
                 << ", status=" << errcode
                 << ')' << std::endl;
     } catch (const dcl::IOException& err) {
         errcode = CL_IO_ERROR_WWU;
-        dcl::util::Logger << dcl::util::Error
+        BOOST_LOG_TRIVIAL(error)
                 << "Failed to send update of command execution status to host (ID=" << _commandId
                 << ", status=" << errcode << ')'
                 << ", error: " << err.what()

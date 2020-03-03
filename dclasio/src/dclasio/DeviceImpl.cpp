@@ -55,7 +55,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -82,7 +82,7 @@ void DeviceImpl::getInfo(cl_device_info param_name, dcl::Binary& param) const {
 					_computeNode.executeCommand(request, message::InfoResponse::TYPE).release()));
 	param = response->param();
 
-    dcl::util::Logger << dcl::util::Info
+    BOOST_LOG_TRIVIAL(info)
             << "Got device info (ID=" << _id
             << ')' << std::endl;
 }

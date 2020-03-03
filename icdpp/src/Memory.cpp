@@ -67,7 +67,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -292,7 +292,7 @@ void _cl_mem::destroy() {
 	try {
 		dclasio::message::DeleteMemory request(_id);
 		dcl::executeCommand(_context->computeNodes(), request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Memory object deleted (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -373,7 +373,7 @@ void _cl_mem::onAcquireComplete(dcl::Process& destination,
 }
 
 void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
-    dcl::util::Logger << dcl::util::Debug
+    BOOST_LOG_TRIVIAL(debug)
             << "(SYN) Acquiring memory object from compute node '" << source.url()
             << "' on behalf of compute node '" << destination.url()
             << " (ID=" << remoteId() << ')'
@@ -391,7 +391,7 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
         /* forward memory object data to requesting compute node */
         _cl_mem::onAcquireComplete(destination, recv);
     } catch (const dcl::IOException& e) {
-        dcl::util::Logger << dcl::util::Error
+        BOOST_LOG_TRIVIAL(error)
                 << "(SYN) Acquire failed: " << e.what()
                 << std::endl;
     }

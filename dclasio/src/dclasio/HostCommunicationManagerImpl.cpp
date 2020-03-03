@@ -57,7 +57,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #include <cassert>
 #include <iterator>
@@ -161,7 +161,7 @@ void HostCommunicationManagerImpl::message_received(
     if (response && _clResponseProcessor->dispatch(*response, pid))
         return;
 
-    dcl::util::Logger << dcl::util::Error
+    BOOST_LOG_TRIVIAL(error)
             << "Received unknown message" << std::endl;
 }
 

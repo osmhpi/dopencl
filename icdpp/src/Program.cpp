@@ -66,7 +66,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -157,7 +157,7 @@ _cl_program::_cl_program(cl_context context, const Sources& sources) :
 			/* TODO Receive responses from *all* compute nodes, i.e., do not stop receipt on first failure */
 		}
 
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Program created from source (ID=" << _id << ')'
 				<< std::endl;
 	} catch (const dcl::CLError& err) {
@@ -217,7 +217,7 @@ void _cl_program::destroy() {
 	try {
 		dclasio::message::DeleteProgram request(_id);
 		dcl::executeCommand(_context->computeNodes(), request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Program deleted (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);

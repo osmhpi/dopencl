@@ -56,7 +56,7 @@
 
 #include <dcl/DCLTypes.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #include <cassert>
 #include <memory>
@@ -119,7 +119,7 @@ bool CLResponseProcessor::dispatch(
     if (response) {
         // move response into the response buffer associated with sender
         computeNode->responseBuffer().put(std::move(response));
-        dcl::util::Logger << dcl::util::Verbose
+        BOOST_LOG_TRIVIAL(trace)
                 << "Received response from compute node" << std::endl;
     }
 

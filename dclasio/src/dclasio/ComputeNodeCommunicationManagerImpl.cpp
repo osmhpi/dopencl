@@ -60,7 +60,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #include <cassert>
 #include <condition_variable>
@@ -219,7 +219,7 @@ void ComputeNodeCommunicationManagerImpl::host_connected(
     }
 
     if (accepted) {
-        dcl::util::Logger << dcl::util::Debug
+        BOOST_LOG_TRIVIAL(debug)
                 << "Accepted connection from host '" << host->url() << '\'' << std::endl;
         // add host to list
         {
@@ -228,7 +228,7 @@ void ComputeNodeCommunicationManagerImpl::host_connected(
             assert(inserted && "Could not add host to list"); // assert insertion of host into list
         }
     } else {
-        dcl::util::Logger << dcl::util::Warning
+        BOOST_LOG_TRIVIAL(warning)
                 << "Rejected connection from host '" << host->url() << '\'' << std::endl;
     }
 }
@@ -251,7 +251,7 @@ void ComputeNodeCommunicationManagerImpl::compute_node_connected(
     }
 
     if (accepted) {
-        dcl::util::Logger << dcl::util::Debug
+        BOOST_LOG_TRIVIAL(debug)
                 << "Accepted connection from compute node '" << computeNode->url() << '\'' << std::endl;
         // add compute node to list
         {
@@ -260,7 +260,7 @@ void ComputeNodeCommunicationManagerImpl::compute_node_connected(
             assert(inserted && "Could not add compute node to list"); // assert insertion of compute node into list
         }
     } else {
-        dcl::util::Logger << dcl::util::Warning
+        BOOST_LOG_TRIVIAL(warning)
                 << "Rejected connection from compute node '" << computeNode->url() << '\'' << std::endl;
     }
 }
@@ -283,7 +283,7 @@ void ComputeNodeCommunicationManagerImpl::message_queue_connected(
         ProcessImpl::Type process_type,
         dcl::process_id pid) {
     /* TODO Log node type ('host' or 'compute node') */
-    dcl::util::Logger << dcl::util::Info
+    BOOST_LOG_TRIVIAL(info)
             << "Incoming message queue connection"
             << std::endl;
 
@@ -357,7 +357,7 @@ void ComputeNodeCommunicationManagerImpl::message_received(
         return;
 
     // unknown message
-    dcl::util::Logger << dcl::util::Error
+    BOOST_LOG_TRIVIAL(error)
             << "Received unknown message" << std::endl;
 }
 

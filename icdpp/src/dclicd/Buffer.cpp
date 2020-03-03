@@ -64,7 +64,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -111,7 +111,7 @@ Buffer::Buffer(
         dclasio::message::CreateBuffer request(_id, _context->remoteId(), flags, size);
         dcl::executeCommand(_context->computeNodes(), request);
 
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Buffer created (ID=" << _id << ')' << std::endl;
     } catch (const dcl::CLError& err) {
         throw Error(err);

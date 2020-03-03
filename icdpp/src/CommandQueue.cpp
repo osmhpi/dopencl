@@ -87,7 +87,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -125,7 +125,7 @@ _cl_command_queue::_cl_command_queue(cl_context context, cl_device_id device,
 		dclasio::message::CreateCommandQueue request(_context->remoteId(),
 				_device->remote().getId(), _id, properties);
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Command queue created (ID=" << _id << ')' << std::endl;
 
         /* Register command queue as command queue listener listener */
@@ -163,7 +163,7 @@ void _cl_command_queue::destroy() {
         /* Remove this command queue from list of command queue listeners */
         _context->getPlatform()->remote().objectRegistry().unbind<dcl::CommandQueueListener>(_id);
 
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Command queue deleted (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -226,7 +226,7 @@ void _cl_command_queue::finish() {
 	/* TODO Make compute node call _cl_command_queue::onFinish */
 	onFinish();
 
-    dcl::util::Logger << dcl::util::Info
+    BOOST_LOG_TRIVIAL(info)
             << "Finished command queue (ID=" << _id << ')' << std::endl;
 }
 
@@ -238,7 +238,7 @@ void _cl_command_queue::flush() {
 	try {
 		dclasio::message::FlushRequest request(_id);
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Flushed command queue (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -288,7 +288,7 @@ void _cl_command_queue::finishLocally() {
     }
 
     /* Wait until all pending commands have finished */
-    dcl::util::Logger << dcl::util::Debug
+    BOOST_LOG_TRIVIAL(debug)
             << "Waiting for " << commands.size() << " commands in queue (ID=" << _id << ')'
             << std::endl;
     for (auto command : commands) {
@@ -327,7 +327,7 @@ void _cl_command_queue::enqueueWaitForEvents(
 	try {
 		dclasio::message::EnqueueWaitForEvents request(_id, eventIds);
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued wait for events (command queue ID=" << _id << ')'
 				<< std::endl;
 	} catch (const dcl::CLError& err) {
@@ -363,7 +363,7 @@ void _cl_command_queue::enqueueMarker(
         dclasio::message::EnqueueMarker request(_id, (event ? (*event)->remoteId() : 0),
                 &eventIds, (event != nullptr));
         _device->remote().getComputeNode().executeCommand(request);
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Enqueued marker (command queue ID=" << _id
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
                 << ')' << std::endl;
@@ -396,7 +396,7 @@ void _cl_command_queue::enqueueBarrier(
         dclasio::message::EnqueueBarrier request(_id, (event ? (*event)->remoteId() : 0),
                 &eventIds, (event != nullptr));
         _device->remote().getComputeNode().executeCommand(request);
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Enqueued barrier (command queue ID=" << _id
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
                 << ')' << std::endl;
@@ -443,7 +443,7 @@ void _cl_command_queue::enqueueRead(
 				buffer->remoteId(), blocking_read, offset, cb, &eventIds,
 				(event != nullptr));
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued data download from buffer (command queue ID="
 				<< _id << ", buffer ID=" << buffer->remoteId()
 				<< ", size=" << cb
@@ -498,7 +498,7 @@ void _cl_command_queue::enqueueWrite(
 				writeBuffer->remoteId(), buffer->remoteId(), blocking_write,
 				offset, cb, &eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(enqueueWriteBuffer);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued data upload to buffer (command queue ID=" << _id
 				<< ", buffer ID=" << buffer->remoteId()
 				<< ", size=" << cb
@@ -554,7 +554,7 @@ void _cl_command_queue::enqueueCopy(
 				src->remoteId(), dst->remoteId(), src_offset, dst_offset, cb,
 				&eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued copy buffer (command queue ID=" << _id
 				<< ", src buffer ID=" << src->remoteId()
 				<< ", dst buffer ID=" << dst->remoteId()
@@ -610,7 +610,7 @@ void * _cl_command_queue::enqueueMap(
                 offset, cb,
                 &eventIds, (event != nullptr));
         _device->remote().getComputeNode().executeCommand(request);
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Enqueued map buffer (command queue ID=" << _id
                 << ", buffer ID=" << buffer->remoteId()
                 << ", command ID=" << mapBuffer->remoteId()
@@ -700,7 +700,7 @@ void _cl_command_queue::enqueueUnmap(
             // no break
         }
 
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Enqueued unmapping memory object (command queue ID=" << _id
                 << ", memory object ID=" << memobj->remoteId()
                 << ", command ID=" << unmapMemory->remoteId()
@@ -756,7 +756,7 @@ void _cl_command_queue::enqueueNDRangeKernel(
 				_id, (event ? (*event)->remoteId() : 0), kernel->remoteId(),
 				offset, global, local, &eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued ND range kernel (command queue ID=" << _id
 				<< ", kernel ID=" << kernel->remoteId()
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
@@ -803,7 +803,7 @@ void _cl_command_queue::enqueueTask(
                 std::vector<size_t>(), std::vector<size_t>(1, 1), std::vector<size_t>(1, 1),
                 &eventIds, (event != nullptr));
         _device->remote().getComputeNode().executeCommand(request);
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Enqueued task (command queue ID=" << _id
                 << ", kernel ID=" << kernel->remoteId()
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
@@ -920,7 +920,7 @@ void _cl_command_queue::enqueueBroadcast(
             /* TODO Receive responses from *all* compute nodes, i.e. do not stop receipt on first failure */
         }
 
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued broadcast buffer (src buffer ID=" << src->remoteId()
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
 				<< ')' << std::endl;
@@ -993,7 +993,7 @@ void _cl_command_queue::enqueueReduce(
 				kernel->remoteId(), offset, global, local,
 				&eventIds, (event != nullptr));
 		executeCommand(context->computeNodes(), request);
-		dcl::util::Logger << dcl::util::Info
+		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued reduce buffer (dst buffer ID=" << dst->remoteId()
                 << ", command ID=" << (event ? (*event)->remoteId() : 0)
 				<< ')' << std::endl;

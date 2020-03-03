@@ -60,7 +60,7 @@
 #include <dcl/ProgramBuildListener.h>
 #include <dcl/Remote.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -238,7 +238,7 @@ void ProgramBuild::submit() {
 //        _buildStatus = CL_BUILD_IN_PROGRESS;
         _buildStatus = CL_BUILD_SUCCESS;
 
-        dcl::util::Logger << dcl::util::Info
+        BOOST_LOG_TRIVIAL(info)
                 << "Program build submitted (program ID=" << _program->remoteId()
                 << ", build ID=" << _id
                 << ')' << std::endl;

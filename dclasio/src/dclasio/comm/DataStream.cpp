@@ -49,7 +49,7 @@
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/read.hpp>
@@ -211,7 +211,7 @@ dcl::process_id DataStream::connect(
     dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(0) << uint8_t(0);
     boost::asio::write(*_socket, boost::asio::buffer(buf.data(), buf.size()));
-    dcl::util::Logger << dcl::util::Verbose
+    BOOST_LOG_TRIVIAL(trace)
             << "Sent process identification message for data stream (pid=" << pid << ')'
             << std::endl;
 
@@ -220,7 +220,7 @@ dcl::process_id DataStream::connect(
     buf.resize(sizeof(dcl::process_id));
     boost::asio::read(*_socket, boost::asio::buffer(buf.data(), buf.size()));
     buf >> pid;
-    dcl::util::Logger << dcl::util::Verbose
+    BOOST_LOG_TRIVIAL(trace)
             << "Received identification message response (pid=" << pid << ')'
             << std::endl;
 #endif

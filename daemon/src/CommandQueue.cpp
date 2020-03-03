@@ -61,7 +61,7 @@
 #include <dcl/Kernel.h>
 #include <dcl/Memory.h>
 
-#include <dcl/util/Logger.h>
+#include <boost/log/trivial.hpp>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -111,7 +111,7 @@ void logEventProfilingInfo(cl_event object_, cl_int execution_status, void *user
         event.getProfilingInfo(CL_PROFILING_COMMAND_START, &start);
         event.getProfilingInfo(CL_PROFILING_COMMAND_END, &end);
 
-        dcl::util::Logger << dcl::util::Debug
+        BOOST_LOG_TRIVIAL(debug)
                 << "Command completed (" << (str ? *str : "") << ")\n"
                 << "\tqueued =" << queued << '\n'
                 << "\tsubmit =" << submit << '\n'
@@ -120,7 +120,7 @@ void logEventProfilingInfo(cl_event object_, cl_int execution_status, void *user
                 << "\tdurance=" << (static_cast<double>(end - start) / 1000000000.0) << " sec"
                 << std::endl;
     } catch (const cl::Error& err) {
-        dcl::util::Logger << dcl::util::Error
+        BOOST_LOG_TRIVIAL(error)
                 << "OpenCL error (ID=" << err.err() << "): " << err.what()
                 << std::endl;
     }
@@ -204,7 +204,7 @@ void CommandQueue::synchronize(
 
     if (eventWaitList != nullptr) {
         if (!eventWaitList->empty()) {
-            dcl::util::Logger << dcl::util::Debug
+            BOOST_LOG_TRIVIAL(debug)
                               << "Synchronizing event wait list with " << eventWaitList->size()
                               << " event(s)" << std::endl;
         }
@@ -876,7 +876,7 @@ void CommandQueue::enqueueWaitForEvents(
 
 	assert(!eventList.empty()); // event list must no be empty
 
-    dcl::util::Logger << dcl::util::Debug
+    BOOST_LOG_TRIVIAL(debug)
             << "Synchronizing event list with " << eventList.size() << " event(s)"
             << std::endl;
 

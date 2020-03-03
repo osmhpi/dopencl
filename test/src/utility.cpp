@@ -43,6 +43,10 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #include <OpenCL/cl_wwu_dcl.h>
@@ -195,3 +199,11 @@ cl_mem createRWBuffer(cl_context context, size_t cb) {
 }
 
 } // namespace dcltest
+
+
+struct SetTestLogLevel {
+    SetTestLogLevel() {
+        boost::log::core::get()->set_filter(boost::log::trivial::severity >= boost::log::trivial::warning);
+    }
+};
+BOOST_GLOBAL_FIXTURE( SetTestLogLevel );
