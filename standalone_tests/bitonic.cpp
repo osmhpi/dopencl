@@ -152,25 +152,25 @@ int main(void) {
                     &eventVector, &events[0]);
             }
 
-            kernel.setArg(1, array.size());
-            kernel.setArg(2, phase);
-            kernel.setArg(3, subphase);
+            kernel.setArg(1, static_cast<cl_ulong>(array.size()));
+            kernel.setArg(2, static_cast<cl_ulong>(phase));
+            kernel.setArg(3, static_cast<cl_ulong>(subphase));
 
             if (NUM_DEVICES == 1 || needGatherScatter) {
                 kernel.setArg(0, devinfo[0].buf);
-                kernel.setArg(4, 0);
+                kernel.setArg(4, static_cast<cl_ulong>(0));
                 std::vector<cl::Event> eventVector0 = {events[0]};
                 devinfo[0].queue.enqueueNDRangeKernel(kernel, cl::NullRange,
                     array.size(), cl::NullRange, &eventVector0, &events[0]);
             } else {
                 kernel.setArg(0, devinfo[0].buf);
-                kernel.setArg(4, 0);
+                kernel.setArg(4, static_cast<cl_ulong>(0));
                 std::vector<cl::Event> eventVector0 = {events[0]};
                 devinfo[0].queue.enqueueNDRangeKernel(kernel, cl::NullRange,
                     array.size()/2, cl::NullRange, &eventVector0, &events[0]);
 
                 kernel.setArg(0, devinfo[1].buf);
-                kernel.setArg(4, array.size()/2); // NB: For correct swap direction
+                kernel.setArg(4, static_cast<cl_ulong>(array.size()/2)); // NB: For correct swap direction
                 std::vector<cl::Event> eventVector1 = {events[1]};
                 devinfo[1].queue.enqueueNDRangeKernel(kernel, cl::NullRange,
                     array.size()/2, cl::NullRange, &eventVector1, &events[1]);
