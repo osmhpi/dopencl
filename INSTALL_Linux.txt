@@ -20,7 +20,7 @@ Requirements
   The OpenCL headers and C++ binding have to be installed in the system's
   default include directories
 * Boost (>=1.41.0)
-  required libraries: Boost.Asio, Boost.Program_options, Boost.Test (optional)
+  required libraries: Boost.Asio, Boost.Log, Boost.Program_options, Boost.Test (optional)
   http://www.boost.org
 * CMake (>=2.6)
   http://www.cmake.org

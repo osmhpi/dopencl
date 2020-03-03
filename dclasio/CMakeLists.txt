@@ -4,7 +4,7 @@ project(dOpenCLlib)
 
 option(BUILD_SHARED_LIBS "Build shared library" ON)
 
-# search for Boost System Library (required by Boost.Asio)
+# search for Boost System Library (required by Boost.Asio) & Boost Log Library
 find_package(Boost 1.35.0 COMPONENTS system log log_setup REQUIRED)
 
 # search for Doxygen
