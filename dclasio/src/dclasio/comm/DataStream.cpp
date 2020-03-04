@@ -66,11 +66,14 @@
 #include <utility>
 
 #ifdef IO_LINK_COMPRESSION
-#define CHUNK_SIZE 16384
+
+// TODOXXX: Those constants must be synchronized with the constants in lib842 (cl842).
+//          Create a header for them in lib842? Or just include cl842 directly
+#define CHUNK_SIZE 1024
 static const uint8_t CHUNK_MAGIC[16] = {
         0xbe, 0x5a, 0x46, 0xbf, 0x97, 0xe5, 0x2d, 0xd7, 0xb2, 0x7c, 0x94, 0x1a, 0xee, 0xd6, 0x70, 0x76
 };
-#define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(size_t)))
+#define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(uint64_t)))
 
 #include <queue>
 
@@ -358,8 +361,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
 
                 if (_read_io_buffer_size <= COMPRESSIBLE_THRESHOLD && read->skip_compress_step()) {
                     std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), destination);
-                    *reinterpret_cast<size_t *>((destination + sizeof(CHUNK_MAGIC))) = _read_io_buffer_size;
-                    destination += sizeof(CHUNK_MAGIC) + sizeof(size_t);
+                    *reinterpret_cast<uint64_t *>((destination + sizeof(CHUNK_MAGIC))) = _read_io_buffer_size;
+                    destination += CHUNK_SIZE - _read_io_buffer_size; // Write compressed data at the end
                 } else {
                     assert(_read_io_buffer_size == CHUNK_SIZE); // Chunk is read uncompressed
                 }
@@ -638,12 +641,12 @@ void DataStream::loop_compress_thread() {
             if (write->skip_compress_step()) {
                 auto is_compressed = std::equal(source,source + sizeof(CHUNK_MAGIC), CHUNK_MAGIC);
 
-                auto chunk_buffer = is_compressed
-                        ? source + sizeof(CHUNK_MAGIC) + sizeof(size_t)
-                        : source;
                 auto chunk_buffer_size = is_compressed
-                        ? *reinterpret_cast<const size_t *>((source + sizeof(CHUNK_MAGIC)))
-                        : CHUNK_SIZE;
+                                         ? *reinterpret_cast<const uint64_t *>((source + sizeof(CHUNK_MAGIC)))
+                                         : CHUNK_SIZE;
+                auto chunk_buffer = is_compressed
+                        ? source + CHUNK_SIZE - chunk_buffer_size
+                        : source;
 
                 write_chunk chunk {
                     .data = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
