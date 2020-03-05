@@ -187,5 +187,6 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 // TODOXXX(U) make symmetrical method for sending data
 // TODOXXX(U) is this the right site?
 // TODOXXX(U) add macro to enable/disable this behaviour?
+// TODOXXX(U) should overallocate buffer for lookahead? how does this work?
 
 } /* namespace dcld */
