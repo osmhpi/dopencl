@@ -63,6 +63,9 @@
 #include <string>
 #include <vector>
 
+#include <dcl/CLEventCompletable.h>
+#include <dcl/DataTransfer.h>
+
 namespace {
 
 /*!
@@ -111,6 +114,11 @@ Context::Context(
 
 	_context = cl::Context(nativeDevices, properties, &onContextError, _listener.get());
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
+
+#ifdef IO_LINK_COMPRESSION
+    _cl842DeviceDecompressor = std::make_shared<CL842DeviceDecompressor>(
+            _context, nativeDevices, CL842_CHUNK_SIZE,false, true);
+#endif
 }
 
 Context::~Context() { }
@@ -130,5 +138,54 @@ const cl::CommandQueue& Context::ioCommandQueue() const {
 const std::vector<dcl::ComputeNode *>& Context::computeNodes() const {
 	return _computeNodes;
 }
+
+void Context::receiveBufferFromProcess(dcl::Process &process,
+                                       const cl::CommandQueue &commandQueue,
+                                       const cl::Buffer &buffer,
+                                       size_t offset,
+                                       size_t size,
+                                       const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                       cl::Event *startEvent,
+                                       cl::Event *endEvent) {
+    cl::UserEvent copyData(_context);
+    cl::Event unmapData;
+#ifdef IO_LINK_COMPRESSION
+    cl::Event decompressData;
+    const bool skip_decompress_step = true;
+#else
+    const bool skip_decompress_step = false;
+#endif
+
+    /* Enqueue map buffer */
+    void *ptr = commandQueue.enqueueMapBuffer(
+            buffer,
+            CL_FALSE,     // non-blocking map
+            CL_MAP_WRITE, // map for writing
+            offset, size,
+            eventWaitList, startEvent);
+    // schedule local data transfer
+    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
+    process.receiveData(size, ptr, skip_decompress_step, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
+    /* Enqueue unmap buffer (implicit upload) */
+    VECTOR_CLASS<cl::Event> unmapWaitList = {copyData};
+    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, &unmapData);
+#ifdef IO_LINK_COMPRESSION
+    // decompress data
+    // TODOXXX(U) handle offset parameter here! must add & pass to lib842
+    size_t bufferSize = buffer.getInfo<CL_MEM_SIZE>();
+    assert(offset == 0 && size == bufferSize);
+    //printf("OFFSET: %zu SIZE: %zu TOTALSIZE: %zu\n", offset, size, buffer.getInfo<CL_MEM_SIZE>());
+    VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
+    _cl842DeviceDecompressor->decompress(commandQueue, buffer, size, buffer, size,
+                                                  &decompressWaitList, endEvent);
+#else
+    *endEvent = unmapData;
+#endif
+}
+
+// TODOXXX(U) make symmetrical method for sending data
+// TODOXXX(U) is this the right site?
+// TODOXXX(U) add macro to enable/disable this behaviour?
 
 } /* namespace dcld */

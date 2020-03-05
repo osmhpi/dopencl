@@ -57,6 +57,10 @@
 #include <CL/cl.hpp>
 #endif
 
+#ifdef IO_LINK_COMPRESSION
+#include <cl842.hpp>
+#endif
+
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -88,6 +92,15 @@ public:
     const cl::CommandQueue& ioCommandQueue() const;
     const std::vector<dcl::ComputeNode *>& computeNodes() const;
 
+    void receiveBufferFromProcess(dcl::Process &process,
+                                  const cl::CommandQueue &commandQueue,
+                                  const cl::Buffer &buffer,
+                                  size_t offset,
+                                  size_t size,
+                                  const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                  cl::Event *startEvent,
+                                  cl::Event *endEvent);
+
 private:
     /* Contexts must be non-copyable */
     Context(
@@ -109,6 +122,10 @@ private:
     cl::CommandQueue _ioCommandQueue;
 
     std::shared_ptr<dcl::ContextListener> _listener;
+
+#ifdef IO_LINK_COMPRESSION
+        std::shared_ptr<CL842DeviceDecompressor> _cl842DeviceDecompressor;
+#endif
 };
 
 } /* namespace dcld */

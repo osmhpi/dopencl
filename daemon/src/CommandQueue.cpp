@@ -313,35 +313,11 @@ void CommandQueue::enqueueWriteBuffer(
         const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId,
         cl::Event& mapData, cl::Event& unmapData) {
-    cl::UserEvent copyData(*_context);
-
-    // enqueue map buffer
-    /* !!! WARNING !!!
-     * NVIDIA only: the reference count of events in wait list is *not*
-     * increased by clEnqueueMapBuffer. This may be a bug, if the event is not
-     * retained by other means than its reference count.
-     * !!!!!!!!!!!!!!! */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *buffer,
-            CL_FALSE,     // non-blocking map
-            CL_MAP_WRITE, // map for writing
-            offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList),
-            &mapData);
-    // enqueue unmap buffer (implicit upload)
-    VECTOR_CLASS<cl::Event> unmapEventWaitList(1, copyData);
-    /* !!! WARNING !!!
-     * NVIDIA only: the reference count of copyData is *not* increased by
-     * clEnqueueUnmapMemObject. This may be a bug, if the event is not retained
-     * by other means than its reference count.
-     * !!!!!!!!!!!!!!! */
-//    std::cout << "!!! before unmap copyData refCount=" << copyData.getInfo<CL_EVENT_REFERENCE_COUNT>() << std::endl;
-//    ::clRetainEvent(copyData()); // tentative fix for NVIDIA
-    _commandQueue.enqueueUnmapMemObject(
-            *buffer,
-            ptr,
-            &unmapEventWaitList, &unmapData);
-//    std::cout << "!!! after unmap copyData refCount=" << copyData.getInfo<CL_EVENT_REFERENCE_COUNT>() << std::endl;
+    /* enqueue data transfer to buffer */
+    _context->receiveBufferFromProcess(
+            _context->host(), _commandQueue,
+            *buffer, offset, size,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
     unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
 #endif
@@ -357,10 +333,6 @@ void CommandQueue::enqueueWriteBuffer(
         // schedule data transfer on host
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
-        // schedule local data transfer
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
-        _context->host().receiveData(size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         // schedule completion message for host
         /* A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -542,7 +514,6 @@ void CommandQueue::enqueueWriteBuffer(
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
     VECTOR_CLASS<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
-    cl::UserEvent copyData(*_context);
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
@@ -550,19 +521,11 @@ void CommandQueue::enqueueWriteBuffer(
     std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
     synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
-    /* Enqueue map buffer */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *bufferImpl,
-            CL_FALSE,     // non-blocking map
-            CL_MAP_WRITE, // map for writing
-            offset, size,
-            &nativeEventWaitList, &mapData);
-    /* Enqueue unmap buffer (implicit upload) */
-    nativeEventWaitList.assign(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *bufferImpl,
-            ptr,
-            &nativeEventWaitList, &unmapData);
+    /* enqueue data transfer to buffer */
+    _context->receiveBufferFromProcess(
+            _context->host(), _commandQueue,
+            *bufferImpl, offset, size,
+            &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
 #else
@@ -596,10 +559,6 @@ void CommandQueue::enqueueWriteBuffer(
         /* A 'command submitted' message will be sent to the host. */
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
-        // schedule local data transfer
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
-        _context->host().receiveData(size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated

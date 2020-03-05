@@ -144,34 +144,19 @@ void Buffer::acquire(
         cl::Event *releaseEvent,
         cl::Event *acquireEvent) {
     cl::Event mapEvent;
-    cl::UserEvent dataReceipt(*_context);
 
     BOOST_LOG_TRIVIAL(debug)
             << "(SYN) Acquiring buffer from process '" << process.url() << '\''
             << std::endl;
 
     /* map buffer to host memory when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> mapWaitList;
+    VECTOR_CLASS<cl::Event> receiveWaitList;
     if (releaseEvent != nullptr)
-        mapWaitList.push_back(*releaseEvent);
-    void *ptr = commandQueue.enqueueMapBuffer(
-            _buffer,
-            CL_FALSE,
-            CL_MAP_WRITE,
-            0, size(),
-            (mapWaitList.empty() ? nullptr : &mapWaitList), &mapEvent);
+        receiveWaitList.push_back(*releaseEvent);
 
-    /* receive buffer data when mapping is complete */
-    std::shared_ptr<dcl::CLEventCompletable> mapEventCompletable(new dcl::CLEventCompletable(mapEvent));
-    auto recv = process.receiveData(size(), ptr, false, mapEventCompletable);
-    recv->setCallback(std::bind(&cl::UserEvent::setStatus, dataReceipt, std::placeholders::_1));
-
-    /* unmap buffer when acquire operation is complete */
-    VECTOR_CLASS<cl::Event> unmapWaitList(1, dataReceipt);
-    commandQueue.enqueueUnmapMemObject(
-            _buffer,
-            ptr,
-            &unmapWaitList, acquireEvent);
+    _context->receiveBufferFromProcess(process, commandQueue,
+            _buffer, 0, size(),
+            (receiveWaitList.empty() ? nullptr : &receiveWaitList), &mapEvent, acquireEvent);
 
     // Mark the buffer as needing no synchronization with the data
     // given to clCreateBuffer, since we have just acquired either
