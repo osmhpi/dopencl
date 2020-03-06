@@ -4,6 +4,7 @@
 #include <cassert>
 #include <queue>
 #include <tuple>
+#include <chrono>
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
 
@@ -99,6 +100,8 @@ int main(void) {
     // -------------------------
     // COPY DATA HOST -> DEVICES
     // -------------------------
+    auto start_time = std::chrono::steady_clock::now();
+
     std::vector<cl::Event> events(NUM_DEVICES);
 
     for (size_t d = 0; d < NUM_DEVICES; d++) {
@@ -201,5 +204,14 @@ int main(void) {
 
     cl::Event::waitForEvents(events);
 
-    std::cout << "RESULT: " << (array == expectedArray ? "OK" : "KO") << "\n";
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    // ----------------
+    // VALIDATE RESULTS
+    // ----------------
+    auto test_is_ok = array == expectedArray;
+    std::cout << "Time:     " << duration_ms << " ms\n";
+    std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
+    return test_is_ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

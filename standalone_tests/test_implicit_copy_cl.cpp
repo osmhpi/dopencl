@@ -5,6 +5,7 @@
 #include <string>
 #include <algorithm>
 #include <stdexcept>
+#include <chrono>
 
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
@@ -67,6 +68,8 @@ int main(void)
     // --------------
     // BUFFER FILLING
     // --------------
+    auto start_time = std::chrono::steady_clock::now();
+    
     // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
     // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
     // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
@@ -102,11 +105,21 @@ int main(void)
                                        0, buf_start.size(), &buf_start[0]);
     devinfo[0].queue.enqueueReadBuffer(buf, CL_TRUE,
                                        BUF_SIZE - buf_end.size(), buf_end.size(), &buf_end[0]);
-    std::cout << "Buffer: " << buf_start << "..." << buf_end << "\n";
 
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    // ----------------
+    // VALIDATE RESULTS
+    // ----------------
     std::string expected_start(8, 'A' + (NUM_DEVICES * NUM_BOUNCES) % 26),
                 expected_end(8, 'A' + (NUM_DEVICES * NUM_BOUNCES) % 26);
-    std::cout << "Expected: " << expected_start << "..." << expected_end << "\n";
+    auto test_is_ok = buf_start == expected_start && buf_end == expected_end;
 
-    return (buf_start == expected_start && buf_end == expected_end) ? EXIT_SUCCESS : EXIT_FAILURE;
+    std::cout << "Buffer:   " << buf_start << "..." << buf_end << "\n";
+    std::cout << "Expected: " << expected_start << "..." << expected_end << "\n";
+    std::cout << "Time:     " << duration_ms << " ms\n";
+    std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
+
+    return test_is_ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

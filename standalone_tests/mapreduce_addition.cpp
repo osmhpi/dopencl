@@ -129,12 +129,11 @@ int main(void)
     std::uint32_t expected_sum = 0;
     for (auto v : initial_buf)
         expected_sum += v;
+    auto test_is_ok = expected_sum == actual_sum;
 
     std::cout << "Expected: " << expected_sum << "\n";
     std::cout << "Actual:   " << actual_sum << "\n";
     std::cout << "Time:     " << duration_ms << " ms\n";
-    std::cout << "Result:   " << (expected_sum == actual_sum ? "OK" : "KO") << "\n";
-
-
-    return (expected_sum == actual_sum) ? EXIT_SUCCESS : EXIT_FAILURE;
+    std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
+    return (test_is_ok) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

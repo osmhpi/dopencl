@@ -4,6 +4,7 @@
 #include <string>
 #include <algorithm>
 #include <stdexcept>
+#include <chrono>
 
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
@@ -35,6 +36,8 @@ int main(void)
     // --------------
     // BUFFER FILLING
     // --------------
+    auto start_time = std::chrono::steady_clock::now();
+
     // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
     // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
     // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
@@ -62,5 +65,16 @@ int main(void)
     }
     cl::Event::waitForEvents(events);
 
-    return EXIT_SUCCESS;
+    auto end_time = std::chrono::steady_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    // ----------------
+    // VALIDATE RESULTS
+    // ----------------
+    auto test_is_ok = true; // This tests a crash condition so if it reaches this point, it has passed
+
+    std::cout << "Time:     " << duration_ms << " ms\n";
+    std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
+
+    return test_is_ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
