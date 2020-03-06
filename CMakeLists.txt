@@ -66,6 +66,7 @@ if(BUILD_UNIT_TESTS)
 	# 'make test' will not work correctly
 	enable_testing ()
 	add_subdirectory (test)
+	add_subdirectory (standalone_test)
 endif(BUILD_UNIT_TESTS)
 
 # TODO Export targets from installation rather than build tree
