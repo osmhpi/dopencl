@@ -137,7 +137,7 @@ int main(void) {
     size_t log2N = log2(array.size());
 
     for (size_t phase = 0; phase < log2N; phase++) {
-        static_assert(NUM_DEVICES == 1 || NUM_DEVICES == 2); 
+        static_assert(NUM_DEVICES == 1 || NUM_DEVICES == 2, "Only 1 or 2 devices are supported");
 
         for (size_t subphase = 0; subphase <= phase; subphase++) {
             //std::cout << "phase=" << phase << ", subphase=" << subphase << std::endl;
