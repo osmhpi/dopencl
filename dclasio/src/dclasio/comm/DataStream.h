@@ -224,6 +224,8 @@ private:
     // ** Variables related to the current asynchronous I/O read operation **
     // Total bytes transferred through the network by current read (for statistical purposes)
     size_t _read_io_total_bytes_transferred;
+    // Number of full chunks remaining to transfer
+    size_t _read_io_num_chunks_remaining;
     // Offset into the destination buffer where the data associated
     // with the current read operation will go (after decompression)
     size_t _read_io_destination_offset;

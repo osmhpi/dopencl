@@ -315,7 +315,7 @@ void DataStream::start_read(readq_type *readq) {
 #else
     _decompress_working_thread_count = 0;
     _read_io_total_bytes_transferred = 0;
-    _read_io_destination_offset = 0;
+    _read_io_num_chunks_remaining = read->size() / CHUNK_SIZE;
 
     read_next_compressed_chunk(readq, read);
 #endif
@@ -323,11 +323,16 @@ void DataStream::start_read(readq_type *readq) {
 
 #ifdef IO_LINK_COMPRESSION
 void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read) {
-    if (read->size() - _read_io_destination_offset >= CHUNK_SIZE) {
-        // Read header containing the size of the current chunk
-        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(&_read_io_buffer_size, sizeof(size_t)),
+    if (_read_io_num_chunks_remaining > 0) {
+        // Read header containing the offset and size of the current chunk
+        std::array<boost::asio::mutable_buffer, 2> buffers = {
+                boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
+                boost::asio::buffer(&_read_io_buffer_size, sizeof(size_t))
+        };
+        boost_asio_async_read_with_sentinels(*_socket, buffers,
                 [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred){
             assert(!ec);
+            assert(_read_io_destination_offset <= read->size() - CHUNK_SIZE);
             _read_io_total_bytes_transferred += bytes_transferred;
 
             if (_read_io_buffer_size <= COMPRESSIBLE_THRESHOLD && !read->skip_compress_step()) {
@@ -351,7 +356,7 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                         _decompress_queue_available.notify_one();
                     }
 
-                    _read_io_destination_offset += CHUNK_SIZE;
+                    _read_io_num_chunks_remaining--;
 
                     read_next_compressed_chunk(readq, read);
                 });
@@ -370,7 +375,7 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                     [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
                     assert(!ec);
                     _read_io_total_bytes_transferred += bytes_transferred;
-                    _read_io_destination_offset += CHUNK_SIZE;
+                    _read_io_num_chunks_remaining--;
 
                     read_next_compressed_chunk(readq, read);
                 });
@@ -378,7 +383,10 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
         });
     } else {
         // Always read the last incomplete chunk of the input uncompressed
-        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset, read->size() - _read_io_destination_offset),
+        auto last_chunk_destination_ptr =  static_cast<uint8_t *>(read->ptr()) + (read->size() & ~(CHUNK_SIZE - 1));
+        auto last_chunk_size = read->size() & (CHUNK_SIZE - 1);
+
+        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_chunk_destination_ptr, last_chunk_size),
                                 [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
             assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
@@ -393,8 +401,6 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
             }
             _decompress_queue_available.notify_one();
             lock.unlock();
-
-            _read_io_destination_offset = readq->size();
 
             // Otherwise, if all decompression threads finished as well,
             // finalize the entire operation as soon as possible here
@@ -582,7 +588,8 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
         lock.unlock();
 
         // Chunk I/O
-        std::array<boost::asio::const_buffer, 2> buffers = {
+        std::array<boost::asio::const_buffer, 3> buffers = {
+                boost::asio::buffer(&_write_io_source_offset, sizeof(size_t)),
                 boost::asio::buffer(&chunk.size, sizeof(size_t)),
                 boost::asio::buffer(chunk.data.get(), chunk.size),
         };
