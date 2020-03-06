@@ -51,6 +51,7 @@
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/variant.hpp>
+#include <boost/thread/barrier.hpp>
 
 #include <cstddef>
 #include <list>
@@ -60,6 +61,7 @@
 #include <string>
 #include <thread>
 #include <type_traits>
+#include <atomic>
 
 namespace dclasio {
 
@@ -168,7 +170,8 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     void try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
-    void loop_compress_thread();
+    void start_compress_threads();
+    void loop_compress_thread(size_t thread_id);
 #endif
 
     void handle_write(
@@ -241,7 +244,7 @@ private:
     class ConditionalOwnerDeleter {
         bool is_owner;
     public:
-        ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
+        explicit ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
         void operator()(const uint8_t *ptr)
         {
             if (is_owner) {
@@ -260,7 +263,7 @@ private:
 
     // ** Variables related to the compression thread (associated to writes) **
     // Instance of the compression thread
-    std::thread _compress_thread;
+    std::vector<std::thread> _compress_threads;
     // Mutex for protecting concurrent accesses to
     // (_compress_trigger, _compress_quit)
     std::mutex _compress_trigger_mutex;
@@ -273,6 +276,13 @@ private:
     // Necessary data for triggering an asynchronous I/O write operation from the compression thread
     writeq_type *_compress_current_writeq;
     std::shared_ptr<DataSending> _compress_current_write;
+    std::atomic<std::size_t> _compress_current_offset;
+    // Barrier for starting compression, necessary for ensuring that all compression
+    // threads have seen the trigger to start compressing before unsetting it
+    boost::barrier _compress_start_barrier;
+    // Barrier for finishing compression, necessary for ensuring that resources
+    // are not released until all threads have finished
+    boost::barrier _compress_finish_barrier;
 
     // ** Variables related to the current asynchronous I/O write operation **
     // Total bytes transferred through the network by current write (for statistical purposes)

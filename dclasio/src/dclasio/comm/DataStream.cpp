@@ -75,6 +75,8 @@ static const uint8_t CHUNK_MAGIC[16] = {
 };
 #define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(uint64_t)))
 
+#define NUM_COMPRESS_THREADS 4
+
 #include <queue>
 
 #ifndef USE_HW_IO_LINK_COMPRESSION
@@ -164,25 +166,27 @@ namespace comm {
 
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
-        _socket(socket), _receiving(false), _sending(false) {
+        _socket(socket), _receiving(false), _sending(false),
+        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1) {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
     _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
-    _compress_thread = std::thread{&DataStream::loop_compress_thread, this};
+    start_compress_threads();
 #endif
 }
 
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
-        _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false) {
+        _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false),
+        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1) {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
     _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
-    _compress_thread = std::thread{&DataStream::loop_compress_thread, this};
+    start_compress_threads();
 #endif
 }
 
@@ -199,9 +203,10 @@ DataStream::~DataStream() {
         std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
         _compress_trigger = true;
         _compress_quit = true;
-        _compress_trigger_changed.notify_one();
+        _compress_trigger_changed.notify_all();
     }
-    _compress_thread.join();
+    for (auto &t : _compress_threads)
+        t.join();
 #endif
 }
 
@@ -557,13 +562,16 @@ void DataStream::start_write(writeq_type *writeq) {
     _write_io_channel_busy = false;
     _write_io_total_bytes_transferred = 0;
     _write_io_num_chunks_remaining = write->size() / CHUNK_SIZE;
-    _compress_current_writeq = writeq;
-    _compress_current_write = write;
 
-    std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-    _compress_trigger = true;
-    _compress_trigger_changed.notify_one();
-    lock.unlock();
+    if (write->size() >= CHUNK_SIZE) {
+        _compress_current_writeq = writeq;
+        _compress_current_write = write;
+        _compress_current_offset = 0;
+
+        std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
+        _compress_trigger = true;
+        _compress_trigger_changed.notify_all();
+    }
 
     try_write_next_compressed_chunk(writeq, write);
 #endif
@@ -626,25 +634,46 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
 
              _write_io_total_bytes_transferred += bytes_transferred;
 
+             // The data transfer thread also joins the final barrier for the compression
+             // threads before finishing the write, to ensure resources are not released
+             // while a compression thread still hasn't realized all work is finished
+             if (write->size() >= CHUNK_SIZE) {
+                _compress_finish_barrier.wait();
+             }
+
              handle_write(writeq, boost::system::error_code(), _write_io_total_bytes_transferred);
          });
     }
 }
 
-void DataStream::loop_compress_thread() {
+void DataStream::start_compress_threads() {
+    for (size_t i = 0; i < NUM_COMPRESS_THREADS; i++) {
+        _compress_threads.emplace_back(&DataStream::loop_compress_thread, this, i);
+    }
+}
+
+void DataStream::loop_compress_thread(size_t thread_id) {
     while (true) {
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
             _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
-            _compress_trigger = false;
             if (_compress_quit)
                 return;
         }
 
+        _compress_start_barrier.wait();
+        _compress_trigger = false;
+
         auto writeq = _compress_current_writeq;
         auto write = _compress_current_write;
+        auto last_valid_offset = write->size() & ~(CHUNK_SIZE-1);
 
-        for (size_t offset = 0; (write->size() - offset) >= CHUNK_SIZE; offset += CHUNK_SIZE) {
+        while (true) {
+            size_t offset = _compress_current_offset.fetch_add(CHUNK_SIZE);
+            if (offset >= last_valid_offset) {
+                break;
+            }
+
             auto source = static_cast<const uint8_t *>(write->ptr()) + offset;
 
             if (write->skip_compress_step()) {
@@ -694,6 +723,8 @@ void DataStream::loop_compress_thread() {
 
             try_write_next_compressed_chunk(writeq, write);
         }
+
+        _compress_finish_barrier.wait();
     }
 }
 #endif
