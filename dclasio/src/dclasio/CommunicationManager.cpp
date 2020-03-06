@@ -101,7 +101,6 @@ HostCommunicationManager * HostCommunicationManager::create() {
         boost::log::keywords::file_name = "dcl_host.log",
         boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
     );
-    boost::log::add_file_log("dcl_host.log");
     boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
     boost::log::add_common_attributes();
 
