@@ -556,7 +556,7 @@ void DataStream::start_write(writeq_type *writeq) {
 #else
     _write_io_channel_busy = false;
     _write_io_total_bytes_transferred = 0;
-    _write_io_source_offset = 0;
+    _write_io_num_chunks_remaining = write->size() / CHUNK_SIZE;
     _compress_current_writeq = writeq;
     _compress_current_write = write;
 
@@ -577,7 +577,7 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
         return;
     }
 
-    if ((write->size() - _write_io_source_offset) >= CHUNK_SIZE) {
+    if (_write_io_num_chunks_remaining > 0) {
         if (_write_io_queue.empty()) {
             // No compressed chunk is yet available
             return;
@@ -589,7 +589,7 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
 
         // Chunk I/O
         std::array<boost::asio::const_buffer, 3> buffers = {
-                boost::asio::buffer(&_write_io_source_offset, sizeof(size_t)),
+                boost::asio::buffer(&chunk.source_offset, sizeof(size_t)),
                 boost::asio::buffer(&chunk.size, sizeof(size_t)),
                 boost::asio::buffer(chunk.data.get(), chunk.size),
         };
@@ -603,7 +603,7 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
              lock.unlock();
 
              _write_io_total_bytes_transferred += bytes_transferred;
-             _write_io_source_offset += CHUNK_SIZE;
+             _write_io_num_chunks_remaining--;
 
              try_write_next_compressed_chunk(writeq, write);
          });
@@ -612,8 +612,11 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
         _write_io_channel_busy = true;
         lock.unlock();
 
+        auto last_chunk_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(CHUNK_SIZE - 1));
+        auto last_chunk_size = write->size() & (CHUNK_SIZE - 1);
+
         boost_asio_async_write_with_sentinels(*_socket,
-                boost::asio::buffer(static_cast<const uint8_t *>(write->ptr()) + _write_io_source_offset, write->size() - _write_io_source_offset),
+                boost::asio::buffer(last_chunk_source_ptr, last_chunk_size),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              assert(!ec);
 
@@ -622,7 +625,6 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
              lock.unlock();
 
              _write_io_total_bytes_transferred += bytes_transferred;
-             _write_io_source_offset = writeq->size();
 
              handle_write(writeq, boost::system::error_code(), _write_io_total_bytes_transferred);
          });
@@ -658,6 +660,7 @@ void DataStream::loop_compress_thread() {
                 write_chunk chunk {
                     .data = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
                             chunk_buffer, ConditionalOwnerDeleter(false)),
+                    .source_offset = offset,
                     .size = chunk_buffer_size
                 };
 
@@ -681,6 +684,7 @@ void DataStream::loop_compress_thread() {
                     .data = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
                             compressible ? compress_buffer.release() : source,
                             ConditionalOwnerDeleter(compressible)),
+                    .source_offset = offset,
                     .size = compressible ? compressed_size : CHUNK_SIZE
                 };
 

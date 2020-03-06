@@ -252,6 +252,9 @@ private:
 
     struct write_chunk {
         std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter> data;
+        // Offset into the source buffer where the data associated with the chunk comes from
+        size_t source_offset;
+        // (Possibly compressed) chunk size
         size_t size;
     };
 
@@ -274,9 +277,8 @@ private:
     // ** Variables related to the current asynchronous I/O write operation **
     // Total bytes transferred through the network by current write (for statistical purposes)
     size_t _write_io_total_bytes_transferred;
-    // Offset into the source buffer where the data associated
-    // with the current write operation comes from (before compression)
-    size_t _write_io_source_offset;
+    // Number of full chunks remaining to transfer
+    size_t _write_io_num_chunks_remaining;
     // Mutex for protecting concurrent accesses to
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
