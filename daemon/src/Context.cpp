@@ -66,6 +66,8 @@
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 
+#include <boost/log/trivial.hpp>
+
 namespace {
 
 /*!
@@ -153,10 +155,18 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     if (startEvent == nullptr)
         startEvent = &myStartEvent;
 
-#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
-    const bool skip_decompress_step = true;
-#else
-    const bool skip_decompress_step = false;
+    bool can_use_cl_io_link_compression = false;
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+    if (offset == 0) {
+        can_use_cl_io_link_compression = true;
+    } else {
+        // TODOXXX It should be possible to handle nonzero offset cases here by passing this
+        //         information to lib842, at least for 8-byte aligned cases
+        BOOST_LOG_TRIVIAL(warning)
+                            << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
+                            << std::endl;
+    }
 #endif
 
     /* Enqueue map buffer */
@@ -167,25 +177,24 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             offset, size,
             eventWaitList, startEvent);
     // schedule local data transfer
+    // if can_use_cl_io_link_compression = true then ask for compressed data
+    // (skip_decompress_step = true) so the post-receive kernel can uncompress it later
     std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-    process.receiveData(size, ptr, skip_decompress_step, mapDataCompletable)
+    process.receiveData(size, ptr, can_use_cl_io_link_compression, mapDataCompletable)
             ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveData, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
     VECTOR_CLASS<cl::Event> unmapWaitList = {receiveData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, &unmapData);
-#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
-    // decompress data
-    // TODOXXX(U) handle offset parameter here! must add & pass to lib842
-    //printf("OFFSET: %zu SIZE: %zu\n", offset, size);
-    assert(offset == 0);
-    size_t chunksSize = size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed)
-    VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
-    _cl842DeviceDecompressor->decompress(commandQueue, buffer, chunksSize, buffer, chunksSize,
-                                                  &decompressWaitList, endEvent);
-#else
-    if (endEvent != nullptr)
-        *endEvent = unmapData;
+    if (can_use_cl_io_link_compression) {
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+        size_t chunksSize = size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed by DataStream)
+        VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
+        _cl842DeviceDecompressor->decompress(commandQueue, buffer, chunksSize, buffer, chunksSize,
+                                                      &decompressWaitList, endEvent);
 #endif
+    } else if (endEvent != nullptr) {
+        *endEvent = unmapData;
+    }
 }
 
 void Context::sendBufferToProcess(dcl::Process &process,

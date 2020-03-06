@@ -166,4 +166,38 @@ BOOST_AUTO_TEST_CASE( CreateBufferUseHostPtr )
     clReleaseMemObject(buffer);
 }
 
+// Tries to write and read back data from a window on a buffer with uneven offset and sizes,
+// to try to trigger edge cases related to buffer alignment
+BOOST_AUTO_TEST_CASE( ReadWriteBufferUnalignedWindow )
+{
+    const size_t VEC_SIZE = 1234567;
+    std::vector<cl_uchar> vec1(VEC_SIZE, 0), vec2(VEC_SIZE, 1);
+
+    cl_int err = CL_SUCCESS;
+
+    dcltest::fillVector(vec1, static_cast<cl_uchar>(1), static_cast<cl_uchar>(1)); // initialize input data
+
+    // create buffer
+    cl_mem buffer = clCreateBuffer(context, CL_MEM_READ_WRITE, VEC_SIZE + 31 * 2, nullptr, &err);
+    BOOST_REQUIRE_EQUAL(err, CL_SUCCESS);
+
+    // write data to the buffer
+    err = clEnqueueWriteBuffer(
+            commandQueue, buffer, CL_TRUE,
+            31, VEC_SIZE, &vec1.front(),
+            0, nullptr, nullptr);
+
+    // read data from buffer
+    err = clEnqueueReadBuffer(
+            commandQueue, buffer, CL_TRUE,
+            31, VEC_SIZE, &vec2.front(),
+            0, nullptr, nullptr);
+    BOOST_REQUIRE_EQUAL(err, CL_SUCCESS);
+
+    BOOST_CHECK_MESSAGE(vec1 == vec2, "Input and output buffers differ"); // compare input and output data
+
+    // clean up
+    clReleaseMemObject(buffer);
+}
+
 BOOST_AUTO_TEST_SUITE_END() // Buffer test suite

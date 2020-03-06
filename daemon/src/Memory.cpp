@@ -67,7 +67,7 @@
 #include <ostream>
 #include <dclasio/message/RequestBufferTransfer.h>
 
-#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 // When using in-place OpenCL-based compression, we need to over-allocate some space
 // at the end of the buffer to allow the lookahead to read a bit past the bufer
 #include <cl842.hpp>
