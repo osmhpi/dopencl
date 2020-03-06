@@ -67,6 +67,15 @@
 #include <ostream>
 #include <dclasio/message/RequestBufferTransfer.h>
 
+#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
+// When using in-place OpenCL-based compression, we need to over-allocate some space
+// at the end of the buffer to allow the lookahead to read a bit past the bufer
+#include <cl842.hpp>
+#define BUFFER_OVERALLOCATE_AMOUNT (CL842_CHUNK_SIZE/8)
+#else
+#define BUFFER_OVERALLOCATE_AMOUNT 0
+#endif
+
 /* ****************************************************************************/
 
 namespace dcld {
@@ -82,7 +91,7 @@ Memory::Memory(const std::shared_ptr<Context>& context) :
 Memory::~Memory() { }
 
 size_t Memory::size() const {
-    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>();
+    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>() - BUFFER_OVERALLOCATE_AMOUNT;
 }
 
 bool Memory::isInput() const{
@@ -118,7 +127,7 @@ Buffer::Buffer(
      * pinned memory to ensure optimal performance for frequent data transfers.
      */
 
-    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
+    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size + BUFFER_OVERALLOCATE_AMOUNT);
 
     cl_mem_flags hostPtrFlags = flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
     // If the buffer has been created with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR,
@@ -154,6 +163,7 @@ void Buffer::acquire(
     if (releaseEvent != nullptr)
         receiveWaitList.push_back(*releaseEvent);
 
+    /* enqueue data transfer to buffer */
     _context->receiveBufferFromProcess(process, commandQueue,
             _buffer, 0, size(),
             (receiveWaitList.empty() ? nullptr : &receiveWaitList), &mapEvent, acquireEvent);
@@ -168,34 +178,16 @@ void Buffer::release(
         dcl::Process& process,
         const cl::CommandQueue& commandQueue,
         const cl::Event& releaseEvent) const {
-    cl::Event mapEvent;
-    cl::UserEvent dataSending(*_context);
+    cl::Event mapEvent, unmapEvent;
 
     BOOST_LOG_TRIVIAL(debug)
             << "(SYN) Releasing buffer to process '" << process.url() << '\''
             << std::endl;
 
-    /* map buffer when releaseEvent is complete */
+    /* enqueue data transfer from buffer when releaseEvent is complete */
     VECTOR_CLASS<cl::Event> mapWaitList(1, releaseEvent);
-    void *ptr = commandQueue.enqueueMapBuffer(
-            _buffer,
-            CL_FALSE,
-            CL_MAP_READ,
-            0, size(),
-            &mapWaitList, &mapEvent
-    );
-
-    /* send buffer data when mapping is complete */
-    std::shared_ptr<dcl::CLEventCompletable> mapEventCompletable(new dcl::CLEventCompletable(mapEvent));
-    auto send = process.sendData(size(), ptr, false, mapEventCompletable);
-    send->setCallback(std::bind(&cl::UserEvent::setStatus, dataSending, std::placeholders::_1));
-
-    /* unmap buffer when acquire operation is complete */
-    VECTOR_CLASS<cl::Event> unmapWaitList(1, dataSending);
-    commandQueue.enqueueUnmapMemObject(
-            _buffer,
-            ptr,
-            &unmapWaitList, nullptr);
+    _context->sendBufferToProcess(process, commandQueue, _buffer, 0, size(),
+            &mapWaitList, &mapEvent, &unmapEvent);
 }
 
 bool Buffer::_checkCreateBufferInitialSync(dcl::Process&           process,

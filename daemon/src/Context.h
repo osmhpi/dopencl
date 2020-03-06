@@ -101,6 +101,15 @@ public:
                                   cl::Event *startEvent,
                                   cl::Event *endEvent);
 
+    void sendBufferToProcess(dcl::Process &process,
+                             const cl::CommandQueue &commandQueue,
+                             const cl::Buffer &buffer,
+                             size_t offset,
+                             size_t size,
+                             const VECTOR_CLASS<cl::Event> *eventWaitList,
+                             cl::Event *startEvent,
+                             cl::Event *endEvent);
+
 private:
     /* Contexts must be non-copyable */
     Context(

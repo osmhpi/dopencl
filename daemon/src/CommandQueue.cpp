@@ -263,25 +263,12 @@ void CommandQueue::enqueueReadBuffer(
         const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId,
         cl::Event& mapData, cl::Event& unmapData) {
-    cl::UserEvent copyData(*_context);
-
-    // enqueue map buffer (implicit download)
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *buffer,
-            CL_FALSE,    // non-blocking map
-            CL_MAP_READ, // map for reading
-            offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList),
-            &mapData);
+    /* enqueue data transfer from buffer */
+    _context->sendBufferToProcess(_context->host(), _commandQueue, *buffer, offset, size,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
     mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
 #endif
-    // enqueue unmap buffer
-    VECTOR_CLASS<cl::Event> unmapEventWaitList(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *buffer,
-            ptr,
-            &unmapEventWaitList, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
 #else
@@ -294,10 +281,6 @@ void CommandQueue::enqueueReadBuffer(
         // schedule data transfer on host
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
-        // schedule local data transfer
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
-        _context->host().sendData(size, ptr, false, mapDataCompletable)->setCallback(std::bind(
-                &cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host, such that no
          * 'command complete' message must be sent by the compute node. */
     } catch (const std::bad_alloc&) {
@@ -444,7 +427,6 @@ void CommandQueue::enqueueReadBuffer(
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
     VECTOR_CLASS<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
-    cl::UserEvent copyData(*_context);
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
@@ -452,21 +434,9 @@ void CommandQueue::enqueueReadBuffer(
     std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
     synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
-    /* Enqueue map buffer (implicit download) */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *bufferImpl,
-            CL_FALSE,    // non-blocking map
-            CL_MAP_READ, // map for reading
-            offset, size,
-            &nativeEventWaitList, &mapData);
-    /* Enqueue unmap buffer
-     * Only create a native event for unmapping, if an event should be
-     * associated with this read buffer command */
-    nativeEventWaitList.assign(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *bufferImpl,
-            ptr,
-            &nativeEventWaitList, event ? &unmapData : nullptr);
+    /* enqueue data transfer from buffer */
+    _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, offset, size,
+            &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
 #else
@@ -481,10 +451,6 @@ void CommandQueue::enqueueReadBuffer(
          * start data receipt. */
         dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
         _context->host().sendMessage(message);
-        // schedule local data transfer
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapData));
-        _context->host().sendData(size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 

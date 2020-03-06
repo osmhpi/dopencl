@@ -147,10 +147,13 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                        const VECTOR_CLASS<cl::Event> *eventWaitList,
                                        cl::Event *startEvent,
                                        cl::Event *endEvent) {
-    cl::UserEvent copyData(_context);
-    cl::Event unmapData;
-#ifdef IO_LINK_COMPRESSION
-    cl::Event decompressData;
+    cl::UserEvent receiveData(_context);
+    cl::Event myStartEvent, unmapData;
+
+    if (startEvent == nullptr)
+        startEvent = &myStartEvent;
+
+#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
     const bool skip_decompress_step = true;
 #else
     const bool skip_decompress_step = false;
@@ -166,27 +169,53 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     // schedule local data transfer
     std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
     process.receiveData(size, ptr, skip_decompress_step, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, copyData, std::placeholders::_1));
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveData, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
-    VECTOR_CLASS<cl::Event> unmapWaitList = {copyData};
+    VECTOR_CLASS<cl::Event> unmapWaitList = {receiveData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, &unmapData);
-#ifdef IO_LINK_COMPRESSION
+#ifdef USE_CL_IO_LINK_COMPRESSION_INPLACE
     // decompress data
     // TODOXXX(U) handle offset parameter here! must add & pass to lib842
-    size_t bufferSize = buffer.getInfo<CL_MEM_SIZE>();
-    assert(offset == 0 && size == bufferSize);
-    //printf("OFFSET: %zu SIZE: %zu TOTALSIZE: %zu\n", offset, size, buffer.getInfo<CL_MEM_SIZE>());
+    //printf("OFFSET: %zu SIZE: %zu\n", offset, size);
+    assert(offset == 0);
+    size_t chunksSize = size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed)
     VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
-    _cl842DeviceDecompressor->decompress(commandQueue, buffer, size, buffer, size,
+    _cl842DeviceDecompressor->decompress(commandQueue, buffer, chunksSize, buffer, chunksSize,
                                                   &decompressWaitList, endEvent);
 #else
-    *endEvent = unmapData;
+    if (endEvent != nullptr)
+        *endEvent = unmapData;
 #endif
 }
 
-// TODOXXX(U) make symmetrical method for sending data
-// TODOXXX(U) is this the right site?
-// TODOXXX(U) add macro to enable/disable this behaviour?
-// TODOXXX(U) should overallocate buffer for lookahead? how does this work?
+void Context::sendBufferToProcess(dcl::Process &process,
+                                  const cl::CommandQueue &commandQueue,
+                                  const cl::Buffer &buffer,
+                                  size_t offset,
+                                  size_t size,
+                                  const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                  cl::Event *startEvent,
+                                  cl::Event *endEvent) {
+    cl::Event myStartEvent;
+    if (startEvent == nullptr)
+        startEvent = &myStartEvent;
+
+    cl::UserEvent sendData(_context);
+
+    /* Enqueue map buffer */
+    void *ptr = commandQueue.enqueueMapBuffer(
+            buffer,
+            CL_FALSE,     // non-blocking map
+            CL_MAP_READ, // map for reading
+            offset, size,
+            eventWaitList, startEvent);
+    // schedule local data transfer
+    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
+    process.sendData(size, ptr, false, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, sendData, std::placeholders::_1));
+    /* Enqueue unmap buffer (implicit upload) */
+    VECTOR_CLASS<cl::Event> unmapWaitList = {sendData};
+    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
+}
 
 } /* namespace dcld */
