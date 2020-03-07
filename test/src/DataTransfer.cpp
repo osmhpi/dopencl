@@ -51,6 +51,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstdlib>
+#include <iostream>
 
 #include "../../dclasio/src/dclasio/comm/ConnectionListener.h"
 #include "../../dclasio/src/dclasio/comm/DataDispatcher.h"
