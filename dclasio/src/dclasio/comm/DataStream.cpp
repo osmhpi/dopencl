@@ -76,6 +76,7 @@ static const uint8_t CHUNK_MAGIC[16] = {
 #define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(uint64_t)))
 
 #define NUM_COMPRESS_THREADS 4
+#define NUM_DECOMPRESS_THREADS 4
 
 #include <queue>
 
@@ -167,12 +168,13 @@ namespace comm {
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
         _socket(socket), _receiving(false), _sending(false),
-        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1) {
+        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1),
+        _decompress_finish_barrier(NUM_DECOMPRESS_THREADS) {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
-    _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
+    start_decompress_threads();
     start_compress_threads();
 #endif
 }
@@ -181,11 +183,12 @@ DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false),
-        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1) {
+        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1),
+        _decompress_finish_barrier(NUM_DECOMPRESS_THREADS) {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
-    _decompress_thread = std::thread{&DataStream::loop_decompress_thread, this};
+    start_decompress_threads();
     start_compress_threads();
 #endif
 }
@@ -195,9 +198,10 @@ DataStream::~DataStream() {
     {
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
         _decompress_queue.push(decompress_message_quit());
-        _decompress_queue_available.notify_one();
+        _decompress_queue_available.notify_all();
     }
-    _decompress_thread.join();
+    for (auto &t : _decompress_threads)
+        t.join();
 
     {
         std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
@@ -403,8 +407,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
             // In this case, transfer the responsability of finalizing to the decompression threads
             if (!done) {
                 _decompress_queue.push(decompress_message_finalize{.readq = readq});
+                _decompress_queue_available.notify_all();
             }
-            _decompress_queue_available.notify_one();
             lock.unlock();
 
             // Otherwise, if all decompression threads finished as well,
@@ -416,7 +420,13 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
     }
 }
 
-void DataStream::loop_decompress_thread() {
+void DataStream::start_decompress_threads() {
+    for (size_t i = 0; i < NUM_DECOMPRESS_THREADS; i++) {
+        _decompress_threads.emplace_back(&DataStream::loop_decompress_thread, this, i);
+    }
+}
+
+void DataStream::loop_decompress_thread(size_t thread_id) {
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_FINALIZE = 1;
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_QUIT = 2;
@@ -425,14 +435,26 @@ void DataStream::loop_decompress_thread() {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
         _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
-        auto chunkVariant = std::move(_decompress_queue.front());
-        _decompress_queue.pop();
-        if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_FINALIZE) {
-            auto finalize_message = boost::get<decompress_message_finalize>(chunkVariant);
-            handle_read(finalize_message.readq, boost::system::error_code(), _read_io_total_bytes_transferred);
-        } else if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_QUIT) {
+        if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_FINALIZE) {
+            lock.unlock();
+
+            // Wait until all threads have got the "finalize" message
+            _decompress_finish_barrier.wait();
+
+            // "Leader" thread finalizes the write and pops the message from the queue
+            if (thread_id == 0) {
+                auto finalize_message = boost::get<decompress_message_finalize>(_decompress_queue.front());
+                _decompress_queue.pop();
+                handle_read(finalize_message.readq, boost::system::error_code(), _read_io_total_bytes_transferred);
+            }
+
+            // Once write is finalized, wait again
+            _decompress_finish_barrier.wait();
+        } else if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_QUIT) {
             break;
-        } else if (chunkVariant.which() == CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS) {
+        } else if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS) {
+            auto chunkVariant = std::move(_decompress_queue.front());
+            _decompress_queue.pop();
             _decompress_working_thread_count++;
 
 #if 0

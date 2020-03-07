@@ -151,7 +151,8 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
-    void loop_decompress_thread();
+    void start_decompress_threads();
+    void loop_decompress_thread(size_t thread_id);
 #endif
 
     void handle_read(
@@ -212,7 +213,7 @@ private:
 
     // ** Variables related to the decompression thread (associated to reads) **
     // Instance of the decompression thread
-    std::thread _decompress_thread;
+    std::vector<std::thread> _decompress_threads;
     // Mutex for protecting concurrent accesses to
     // (_decompress_queue, _decompress_working_thread_count)
     std::mutex _decompress_queue_mutex;
@@ -223,6 +224,9 @@ private:
     std::condition_variable _decompress_queue_available;
     // Number of threads currently running decompression operations
     unsigned _decompress_working_thread_count;
+    // Barrier for finishing decompression, necessary for ensuring that resources
+    // are not released until all threads have finished
+    boost::barrier _decompress_finish_barrier;
 
     // ** Variables related to the current asynchronous I/O read operation **
     // Total bytes transferred through the network by current read (for statistical purposes)
