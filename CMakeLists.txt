@@ -1,30 +1,16 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.1)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_MODULE_PATH})
-include(solar-cmake/TargetArch)
 
 project(dOpenCL)
 
-target_architecture(CMAKE_TARGET_ARCHITECTURES)
-message(STATUS "Target architectures: ${CMAKE_TARGET_ARCHITECTURES}")
-
-# The following code snippet for enabling C++11 support for GCC has been taken from:
-# http://stackoverflow.com/questions/12715005/add-c0x-support-in-cmake
-# For other compilers, C++11 support has to enabled manually
-# NOTE: Modification of CMAKE_CXX_FLAGS is not shown in ncurses UI
-if(CMAKE_COMPILER_IS_GNUCXX)
-	execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GNUCXX_VERSION)
-	if(GNUCXX_VERSION VERSION_EQUAL 4.6)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
-	elseif(GNUCXX_VERSION VERSION_GREATER 4.6)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-	else()
-		message(SEND_ERROR "Compiler does not support C++11")
-	endif()
-
-	if(CMAKE_TARGET_ARCHITECTURES STREQUAL ppc64)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mno-altivec")
-	endif()
-endif(CMAKE_COMPILER_IS_GNUCXX)
+# Enable C++11 support
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Keep GNU extensions enabled (default), in order to simplify the build on
+# PowerPC due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58241.
+# An alternative is to disable Altivec (-mno-altivec), check the history of
+# this file in version control for details
+#set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
 option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)

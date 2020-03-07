@@ -1,6 +1,3 @@
-[submodule "solar-cmake"]
-	path = solar-cmake
-	url = https://github.com/axr/solar-cmake.git
 [submodule "lib842"]
 	path = lib842
 	url = https://github.com/joanbm/lib842.git
