@@ -46,6 +46,11 @@
 #define BOOST_TEST_MODULE DataTransfer
 #include <boost/test/unit_test.hpp>
 #include <algorithm>
+#include <fstream>
+#include <vector>
+#include <cstdint>
+#include <chrono>
+#include <cstdlib>
 
 #include "../../dclasio/src/dclasio/comm/ConnectionListener.h"
 #include "../../dclasio/src/dclasio/comm/DataDispatcher.h"
@@ -242,9 +247,7 @@ BOOST_AUTO_TEST_CASE( DataTransfer_Multi_Uncompressible )
         random_fill(send_buffer.begin(), send_buffer.end());
     validate_data_is_successfully_transferred(send_buffers);
 }
-/*!
- * \brief Tests
- */
+
 BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
 {
     DataStreamPair dsp;
@@ -282,4 +285,99 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
 
     BOOST_CHECK_EQUAL_COLLECTIONS(send_buffer.begin(), send_buffer.end(),
                                   recv_buffer.begin(), recv_buffer.end());
+}
+
+// ----------
+// BENCHMARKS
+// ----------
+
+static constexpr const char *BENCHMARK_DATASET_PATH_ENV = "DATATRANSFER_BENCHMARK_DATASET_PATH";
+
+static std::vector<uint8_t> load_benchmark_dataset_to_memory()
+{
+    const char *file_name = std::getenv(BENCHMARK_DATASET_PATH_ENV);
+    if (file_name == nullptr) {
+        std::cout
+            << "'" << BENCHMARK_DATASET_PATH_ENV
+            << "' environment variable not set, skipping test.\n";
+        return std::vector<uint8_t>();
+    }
+
+    std::ifstream file(file_name, std::ifstream::ate | std::ifstream::binary);
+    file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+
+    assert(file.tellg() < SIZE_MAX);
+    size_t size = static_cast<size_t>(file.tellg());
+    file.seekg(0);
+
+    std::vector<uint8_t> file_data(size);
+    file.read(reinterpret_cast<char *>(file_data.data()), file_data.size());
+    return file_data;
+}
+
+class DataTransferBenchmarkClock {
+    const char *test_name;
+    size_t data_amount;
+    std::chrono::time_point<std::chrono::steady_clock> start_time;
+
+public:
+    DataTransferBenchmarkClock(const char *test_name, size_t data_amount)
+        : test_name(test_name), data_amount(data_amount),
+          start_time(std::chrono::steady_clock::now())
+    {}
+
+    ~DataTransferBenchmarkClock() {
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        auto data_amount_mb = static_cast<double>(data_amount) / 1048576.0;
+        auto duration_s = static_cast<double>(duration_ms) / 1000.0;
+        auto bandwidth_mbps = data_amount_mb / duration_s;
+
+        std::cout
+            << test_name << "\n"
+            << "---\n"
+            << "Duration: " << duration_ms << " ms\n"
+            << "Bandwidth: " << bandwidth_mbps << " MB/s\n"
+            << "\n";
+    }
+};
+
+BOOST_AUTO_TEST_CASE( DataTransfer_Benchmark )
+{
+    auto dataset = load_benchmark_dataset_to_memory();
+    if (dataset.empty())
+        return;
+    std::vector<uint8_t> dataset_compressed(dataset.size(), 0xFF);
+
+    DataStreamPair dsp;
+
+    {
+        DataTransferBenchmarkClock clock("COMPRESS", dataset.size());
+        // Send uncompressed, receive compressed
+        dsp.connected_ds1->write(dataset.size(), dataset.data(), false, nullptr);
+        dsp.ds2->read(dataset_compressed.size(), dataset_compressed.data(), true, nullptr)->wait();
+    }
+
+    std::vector<uint8_t> dataset_recompressed(dataset.size(), 0xFF);
+    {
+        DataTransferBenchmarkClock clock("PROXY", dataset_compressed.size());
+        // Send compressed, receive compressed
+        dsp.connected_ds1->write(dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
+        dsp.ds2->read(dataset_recompressed.size(), dataset_recompressed.data(), true, nullptr)->wait();
+    }
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(dataset_compressed.begin(), dataset_compressed.end(),
+                                  dataset_recompressed.begin(), dataset_recompressed.end());
+
+    std::vector<uint8_t> dataset_uncompressed(dataset.size(), 0xFF);
+    {
+        DataTransferBenchmarkClock clock("DECOMPRESS", dataset.size());
+        // Send compressed, receive uncompressed
+        dsp.connected_ds1->write(dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
+        dsp.ds2->read(dataset_uncompressed.size(), dataset_uncompressed.data(), false, nullptr)->wait();
+    }
+
+    BOOST_CHECK_EQUAL_COLLECTIONS(dataset.begin(), dataset.end(),
+                                  dataset_uncompressed.begin(), dataset_uncompressed.end());
 }

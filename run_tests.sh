@@ -9,12 +9,13 @@ cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Wno-ignored-attributes -DBUI
 make -j"$(nproc)"
 
 TEMPDIR="testdir" && rm -Rf "$TEMPDIR" && mkdir -p "$TEMPDIR"
-trap 'pkill dcld; pkill -9 dcld;' EXIT
-
 cd "$TEMPDIR"
+
+#../test/DataTransfer --run_test=DataTransfer_Benchmark && exit 0
 
 # Start OpenCL daemons
 export DCL_LOG_LEVEL=VERBOSE
+trap 'pkill dcld; pkill -9 dcld;' EXIT
 (mkdir -p n1 && cd n1 && ../../daemon/dcld 127.0.0.1:30000) &
 (mkdir -p n2 && cd n2 && ../../daemon/dcld 127.0.0.1:30001) &
 sleep 1 # TODO: Find a better way to wait for dcld startup
