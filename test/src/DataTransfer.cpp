@@ -105,80 +105,85 @@ private:
  * \brief Sets up two pairs of remotely connected DataStreams, which simulates
  *        two different dOpenCL processes communicating with one another.
  */
-void set_up_datastream_pair(std::function<void(dclasio::comm::DataStream *ds1,
-                                               dclasio::comm::DataStream *ds2,
-                                               dclasio::comm::DataStream *connected_ds1,
-                                               dclasio::comm::DataStream *connected_ds2)> callback) {
-    // Set up two DataStreams connected to each other
+class DataStreamPair {
+public:
     test_connection_listener listener1;
     test_connection_listener listener2;
+    boost::asio::ip::tcp::endpoint ep1;
+    boost::asio::ip::tcp::endpoint ep2;
+    dcl::process_id process_id1;
+    dcl::process_id process_id2;
+    dclasio::comm::DataDispatcher dd1;
+    dclasio::comm::DataDispatcher dd2;
+    dclasio::comm::DataStream *ds1;
+    dclasio::comm::DataStream *ds2;
+    dclasio::comm::DataStream *connected_ds1;
+    dclasio::comm::DataStream *connected_ds2;
 
-    boost::asio::ip::tcp::endpoint ep1(boost::asio::ip::address_v4::loopback(), 22222);
-    boost::asio::ip::tcp::endpoint ep2(boost::asio::ip::address_v4::loopback(), 55555);
-    dcl::process_id process_id1 = { 1 ,1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 }; // UUID
-    dcl::process_id process_id2 = { 2 ,2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2 }; // UUID
+    DataStreamPair() :
+        listener1(),
+        listener2(),
+        ep1(boost::asio::ip::address_v4::loopback(), 22222),
+        ep2(boost::asio::ip::address_v4::loopback(), 55555),
+        dd1(process_id1),
+        dd2(process_id2) {
+        // Set up two DataStreams connected to each other
+        dd1.add_connection_listener(listener1);
+        dd2.add_connection_listener(listener2);
 
-    dclasio::comm::DataDispatcher dd1(process_id1);
-    dclasio::comm::DataDispatcher dd2(process_id2);
+        dd1.bind(ep1);
+        dd2.bind(ep2);
 
-    dd1.add_connection_listener(listener1);
-    dd2.add_connection_listener(listener2);
+        dd1.start();
+        dd2.start();
 
-    dd1.bind(ep1);
-    dd2.bind(ep2);
+        ds1 = dd1.create_data_stream(ep2);
+        ds2 = dd2.create_data_stream(ep1);
 
-    dd1.start();
-    dd2.start();
+        ds1->connect(process_id1);
+        ds2->connect(process_id2);
 
-    dclasio::comm::DataStream *ds1 = dd1.create_data_stream(ep2);
-    dclasio::comm::DataStream *ds2 = dd2.create_data_stream(ep1);
+        connected_ds1 = listener1.wait_for_datastream_connected();
+        connected_ds2 = listener2.wait_for_datastream_connected();
+    }
 
-    ds1->connect(process_id1);
-    ds2->connect(process_id2);
+    ~DataStreamPair() {
+        dd1.destroy_data_stream(ds1);
+        dd2.destroy_data_stream(ds2);
+        dd2.stop();
+        dd2.stop();
+    }
+};
 
-    auto connected_ds1 = listener1.wait_for_datastream_connected();
-    auto connected_ds2 = listener2.wait_for_datastream_connected();
-
-    callback(ds1, ds2, connected_ds1, connected_ds2);
-
-    // Clean up
-    dd1.destroy_data_stream(ds1);
-    dd2.destroy_data_stream(ds2);
-    dd2.stop();
-    dd2.stop();
-}
 
 /*!
  * \brief Transfers the specified list of buffers from one DataStream to another,
  *        and validates that the data received from the other end is correct.
  */
 void validate_data_is_successfully_transferred(const std::vector<std::vector<uint8_t>> &send_buffers) {
-    set_up_datastream_pair([&send_buffers](dclasio::comm::DataStream *ds1,
-                                           dclasio::comm::DataStream *ds2,
-                                           dclasio::comm::DataStream *connected_ds1,
-                                           dclasio::comm::DataStream *connected_ds2) {
-        std::vector<std::vector<uint8_t>> recv_buffers(send_buffers.size());
-        for (size_t i = 0; i < send_buffers.size(); i++) {
-            recv_buffers[i].resize(send_buffers[i].size(), 0xFF);
-        }
+    DataStreamPair dsp;
 
-        // Send the data through one of the datastreams
-        for (const auto &send_buffer : send_buffers)
-            connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
+    std::vector<std::vector<uint8_t>> recv_buffers(send_buffers.size());
+    for (size_t i = 0; i < send_buffers.size(); i++) {
+        recv_buffers[i].resize(send_buffers[i].size(), 0xFF);
+    }
 
-        // Read the data through the other end
-        std::vector<std::shared_ptr<dclasio::comm::DataReceipt>> recv_handles;
-        for (auto &recv_buffer : recv_buffers)
-            recv_handles.push_back(ds2->read(recv_buffer.size(), recv_buffer.data(), false, nullptr));
-        for (auto &recv_handle : recv_handles)
-            recv_handle->wait();
+    // Send the data through one of the datastreams
+    for (const auto &send_buffer : send_buffers)
+        dsp.connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
 
-        // Assert that the received data is equal to the sent data
-        for (size_t i = 0; i < send_buffers.size(); i++) {
-            BOOST_CHECK_EQUAL_COLLECTIONS(recv_buffers[i].begin(), recv_buffers[i].end(),
-                                          send_buffers[i].begin(), send_buffers[i].end());
-        }
-    });
+    // Read the data through the other end
+    std::vector<std::shared_ptr<dclasio::comm::DataReceipt>> recv_handles;
+    for (auto &recv_buffer : recv_buffers)
+        recv_handles.push_back(dsp.ds2->read(recv_buffer.size(), recv_buffer.data(), false, nullptr));
+    for (auto &recv_handle : recv_handles)
+        recv_handle->wait();
+
+    // Assert that the received data is equal to the sent data
+    for (size_t i = 0; i < send_buffers.size(); i++) {
+        BOOST_CHECK_EQUAL_COLLECTIONS(recv_buffers[i].begin(), recv_buffers[i].end(),
+                                      send_buffers[i].begin(), send_buffers[i].end());
+    }
 }
 
 /*!
@@ -242,43 +247,39 @@ BOOST_AUTO_TEST_CASE( DataTransfer_Multi_Uncompressible )
  */
 BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
 {
-    set_up_datastream_pair([](dclasio::comm::DataStream *ds1,
-                              dclasio::comm::DataStream *ds2,
-                              dclasio::comm::DataStream *connected_ds1,
-                              dclasio::comm::DataStream *connected_ds2) {
-        std::vector<uint8_t> send_buffer(32 * 1024 * 1024);
-        pattern_fill(send_buffer.begin(), send_buffer.begin() + send_buffer.size()/2);
-        random_fill(send_buffer.begin() + send_buffer.size()/2, send_buffer.end());
+    DataStreamPair dsp;
 
-        // Send the data through one of the datastreams
-        connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
+    std::vector<uint8_t> send_buffer(32 * 1024 * 1024);
+    pattern_fill(send_buffer.begin(), send_buffer.begin() + send_buffer.size()/2);
+    random_fill(send_buffer.begin() + send_buffer.size()/2, send_buffer.end());
 
-        // Read the data through the other end, but request that no decompression happens
-        // (set skip_compress_step=true). This means that, if I/O link compression is enabled,
-        // intermediate_buffer will contain the data in a compressed form.
-        std::vector<uint8_t> intermediate_buffer(send_buffer.size(), 0xff);
-        ds2->read(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr)->wait();
+    // Send the data through one of the datastreams
+    dsp.connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
 
-        bool intermediate_buffer_equal = std::equal(intermediate_buffer.begin(), intermediate_buffer.end(),
-                                                    send_buffer.begin());
-        #ifdef IO_LINK_COMPRESSION
-        // If I/O link compression is enabled, intermediate_buffer will contain the data
-        // in a compressed form, so it will NOT be equal to the source data
-        BOOST_CHECK(!intermediate_buffer_equal);
-        #else
-        // Otherwise, the data is just sent as usual (skip_compress_step=true is a no-op)
-        BOOST_CHECK(intermediate_buffer_equal);
-        #endif
+    // Read the data through the other end, but request that no decompression happens
+    // (set skip_compress_step=true). This means that, if I/O link compression is enabled,
+    // intermediate_buffer will contain the data in a compressed form.
+    std::vector<uint8_t> intermediate_buffer(send_buffer.size(), 0xff);
+    dsp.ds2->read(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr)->wait();
 
-        // Now test the opposite case, where we write the compressed data again
-        // and request that it it not re-compressed, but read it as usual
-        // This will then recover the original buffer we originally sent through the stream
-        connected_ds2->write(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr);
-        std::vector<uint8_t> recv_buffer(send_buffer.size());
-        ds1->read(recv_buffer.size(), recv_buffer.data(), false, nullptr)->wait();
+    bool intermediate_buffer_equal = std::equal(intermediate_buffer.begin(), intermediate_buffer.end(),
+                                                send_buffer.begin());
+    #ifdef IO_LINK_COMPRESSION
+    // If I/O link compression is enabled, intermediate_buffer will contain the data
+    // in a compressed form, so it will NOT be equal to the source data
+    BOOST_CHECK(!intermediate_buffer_equal);
+    #else
+    // Otherwise, the data is just sent as usual (skip_compress_step=true is a no-op)
+    BOOST_CHECK(intermediate_buffer_equal);
+    #endif
 
-        BOOST_CHECK_EQUAL_COLLECTIONS(send_buffer.begin(), send_buffer.end(),
-                                      recv_buffer.begin(), recv_buffer.end());
+    // Now test the opposite case, where we write the compressed data again
+    // and request that it it not re-compressed, but read it as usual
+    // This will then recover the original buffer we originally sent through the stream
+    dsp.connected_ds2->write(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr);
+    std::vector<uint8_t> recv_buffer(send_buffer.size());
+    dsp.ds1->read(recv_buffer.size(), recv_buffer.data(), false, nullptr)->wait();
 
-    });
+    BOOST_CHECK_EQUAL_COLLECTIONS(send_buffer.begin(), send_buffer.end(),
+                                  recv_buffer.begin(), recv_buffer.end());
 }
