@@ -65,14 +65,14 @@ namespace dclicd {
 namespace command {
 
 ReadMemoryCommand::ReadMemoryCommand(cl_command_type type,
-		cl_command_queue commandQueue, size_t cb, void *ptr) :
-	Command(type, commandQueue), _cb(cb), _ptr(ptr) {
+		cl_command_queue commandQueue, size_t cb, void *ptr, bool skip_compress_step) :
+	Command(type, commandQueue), _cb(cb), _ptr(ptr), _skip_compress_step(skip_compress_step) {
 }
 
 cl_int ReadMemoryCommand::submit() {
 	// start data receipt
 	std::shared_ptr<dcl::DataTransfer> receipt(
-			_commandQueue->computeNode().receiveData(_cb, _ptr));
+			_commandQueue->computeNode().receiveData(_cb, _ptr, _skip_compress_step));
 	// register callback to complete ReadMemoryCommand
 	receipt->setCallback(std::bind(
 	        &ReadMemoryCommand::onExecutionStatusChanged, this, std::placeholders::_1));
@@ -83,13 +83,13 @@ cl_int ReadMemoryCommand::submit() {
 /* ****************************************************************************/
 
 WriteMemoryCommand::WriteMemoryCommand(cl_command_type type,
-		cl_command_queue commandQueue, size_t cb, const void *ptr) :
-	Command(type, commandQueue), _cb(cb), _ptr(ptr) {
+		cl_command_queue commandQueue, size_t cb, const void *ptr, bool skip_compress_step) :
+	Command(type, commandQueue), _cb(cb), _ptr(ptr), _skip_compress_step(skip_compress_step) {
 }
 
 cl_int WriteMemoryCommand::submit() {
     // start data sending
-	_commandQueue->computeNode().sendData(_cb, _ptr);
+	_commandQueue->computeNode().sendData(_cb, _ptr, _skip_compress_step);
 	
     // WriteMemoryCommand will be completed by compute node
 

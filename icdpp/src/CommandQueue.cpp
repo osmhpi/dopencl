@@ -112,6 +112,20 @@
 #include <utility>
 #include <vector>
 
+#ifdef IO_LINK_COMPRESSION
+// If the 'size' parameter of a clEnqueue(Read|Write)Buffer has the highest bit set,
+// the I/O link compression step is skipped.
+// (For clEnqueueReadBuffer, this means that the data that is written to the host
+//  buffer is the compressed version of the data.
+//  For clEnqueueWriteBuffer, this means that the data that is provided by the host
+//  buffer should be a compressed version of the data,
+//  normally one obtained by a previous clEnqueueReadBuffer call)
+// NOTE: This does not currently work for other OpenCL APIs such as
+//       clCreateBuffer with host_ptr, clEnqueueMapBuffer, etc.
+static constexpr const size_t BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT =
+        (static_cast<size_t>(1) << (sizeof(size_t)*8-1));
+#endif
+
 
 _cl_command_queue::_cl_command_queue(cl_context context, cl_device_id device,
 		cl_command_queue_properties properties) :
@@ -428,8 +442,15 @@ void _cl_command_queue::enqueueRead(
 	createEventIdWaitList(event_wait_list, eventIds);
 
 	// Enqueue read buffer command locally
+	auto skip_compress_step = false;
+#ifdef IO_LINK_COMPRESSION
+	if ((cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
+		skip_compress_step = true;
+		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;
+	}
+#endif
 	readBuffer = std::make_shared<dclicd::command::ReadMemoryCommand>(
-            CL_COMMAND_READ_BUFFER, this, cb, ptr);
+            CL_COMMAND_READ_BUFFER, this, cb, ptr, skip_compress_step);
 	enqueueCommand(readBuffer);
 
 	// Create event
@@ -483,8 +504,15 @@ void _cl_command_queue::enqueueWrite(
 	createEventIdWaitList(event_wait_list, eventIds);
 
 	// Enqueue write buffer command locally
+	auto skip_compress_step = false;
+#ifdef IO_LINK_COMPRESSION
+	if ((cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
+		skip_compress_step = true;
+		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;
+	}
+#endif
 	writeBuffer = std::make_shared<dclicd::command::WriteMemoryCommand>(
-            CL_COMMAND_WRITE_BUFFER, this, cb, ptr);
+            CL_COMMAND_WRITE_BUFFER, this, cb, ptr, skip_compress_step);
 	enqueueCommand(writeBuffer);
 
 	// Create event

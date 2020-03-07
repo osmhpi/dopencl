@@ -293,16 +293,7 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
 
 static constexpr const char *BENCHMARK_DATASET_PATH_ENV = "DATATRANSFER_BENCHMARK_DATASET_PATH";
 
-static std::vector<uint8_t> load_benchmark_dataset_to_memory()
-{
-    const char *file_name = std::getenv(BENCHMARK_DATASET_PATH_ENV);
-    if (file_name == nullptr) {
-        std::cout
-            << "'" << BENCHMARK_DATASET_PATH_ENV
-            << "' environment variable not set, skipping test.\n";
-        return std::vector<uint8_t>();
-    }
-
+static std::vector<uint8_t> load_file_to_vector(const char *file_name) {
     std::ifstream file(file_name, std::ifstream::ate | std::ifstream::binary);
     file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
@@ -313,6 +304,18 @@ static std::vector<uint8_t> load_benchmark_dataset_to_memory()
     std::vector<uint8_t> file_data(size);
     file.read(reinterpret_cast<char *>(file_data.data()), file_data.size());
     return file_data;
+}
+
+static std::vector<uint8_t> load_benchmark_dataset() {
+    const char *file_name = std::getenv(BENCHMARK_DATASET_PATH_ENV);
+    if (file_name == nullptr) {
+        std::cout
+            << "'" << BENCHMARK_DATASET_PATH_ENV
+            << "' environment variable not set, skipping test.\n";
+        return std::vector<uint8_t>();
+    }
+
+    return load_file_to_vector(file_name);
 }
 
 class DataTransferBenchmarkClock {
@@ -345,7 +348,7 @@ public:
 
 BOOST_AUTO_TEST_CASE( DataTransfer_Benchmark )
 {
-    auto dataset = load_benchmark_dataset_to_memory();
+    auto dataset = load_benchmark_dataset();
     if (dataset.empty())
         return;
     std::vector<uint8_t> dataset_compressed(dataset.size(), 0xFF);
