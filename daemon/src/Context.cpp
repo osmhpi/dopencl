@@ -62,11 +62,30 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <chrono>
 
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 
 #include <boost/log/trivial.hpp>
+
+#ifdef USE_CL_IO_LINK_COMPRESSION
+#error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
+#endif
+
+#define PROFILE_SEND_RECEIVE_BUFFER
+
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+struct profile_send_receive_buffer_times {
+    size_t transfer_size;
+    std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
+    std::chrono::time_point<std::chrono::steady_clock> map_time;
+    std::chrono::time_point<std::chrono::steady_clock> unmap_time;
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+    std::chrono::time_point<std::chrono::steady_clock> decompress_time;
+#endif
+};
+#endif
 
 namespace {
 
@@ -169,6 +188,12 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     }
 #endif
 
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
+    profile_times->transfer_size = size;
+    profile_times->enqueue_time = std::chrono::steady_clock::now();
+#endif
+
     /* Enqueue map buffer */
     void *ptr = commandQueue.enqueueMapBuffer(
             buffer,
@@ -180,6 +205,16 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 #endif
             offset, size,
             eventWaitList, startEvent);
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+        profile_times->map_time = std::chrono::steady_clock::now();
+        BOOST_LOG_TRIVIAL(debug)
+            << "(PROFILE) Receive of size " << profile_times->transfer_size
+            << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
+    }, profile_times);
+#endif
     // schedule local data transfer
     // if can_use_cl_io_link_compression = true then ask for compressed data
     // (skip_decompress_step = true) so the post-receive kernel can uncompress it later
@@ -189,12 +224,32 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     /* Enqueue unmap buffer (implicit upload) */
     VECTOR_CLASS<cl::Event> unmapWaitList = {receiveData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, &unmapData);
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    unmapData.setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+        profile_times->unmap_time = std::chrono::steady_clock::now();
+        BOOST_LOG_TRIVIAL(debug)
+            << "(PROFILE) Receive of size " << profile_times->transfer_size
+            << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    profile_times->unmap_time - profile_times->map_time).count() << std::endl;
+    }, profile_times);
+#endif
     if (can_use_cl_io_link_compression) {
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
         size_t chunksSize = size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed by DataStream)
         VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
         _cl842DeviceDecompressor->decompress(commandQueue, buffer, chunksSize, buffer, chunksSize,
                                                       &decompressWaitList, endEvent);
+        #ifdef PROFILE_SEND_RECEIVE_BUFFER
+        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+            profile_times->decompress_time = std::chrono::steady_clock::now();
+            BOOST_LOG_TRIVIAL(debug)
+                << "(PROFILE) Receive of size " << profile_times->transfer_size
+                << " decompressed (UNMAP -> DECOMPRESS) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                        profile_times->decompress_time - profile_times->unmap_time).count() << std::endl;
+        }, profile_times);
+        #endif
 #endif
     } else if (endEvent != nullptr) {
         *endEvent = unmapData;
@@ -215,6 +270,12 @@ void Context::sendBufferToProcess(dcl::Process &process,
 
     cl::UserEvent sendData(_context);
 
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
+    profile_times->transfer_size = size;
+    profile_times->enqueue_time = std::chrono::steady_clock::now();
+#endif
+
     /* Enqueue map buffer */
     void *ptr = commandQueue.enqueueMapBuffer(
             buffer,
@@ -222,6 +283,16 @@ void Context::sendBufferToProcess(dcl::Process &process,
             CL_MAP_READ, // map for reading
             offset, size,
             eventWaitList, startEvent);
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+        profile_times->map_time = std::chrono::steady_clock::now();
+        BOOST_LOG_TRIVIAL(debug)
+            << "(PROFILE) Send of size " << profile_times->transfer_size
+            << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
+    }, profile_times);
+#endif
     // schedule local data transfer
     std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
     process.sendData(size, ptr, false, mapDataCompletable)
@@ -229,6 +300,16 @@ void Context::sendBufferToProcess(dcl::Process &process,
     /* Enqueue unmap buffer (implicit upload) */
     VECTOR_CLASS<cl::Event> unmapWaitList = {sendData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
+#ifdef PROFILE_SEND_RECEIVE_BUFFER
+    endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+        profile_times->unmap_time = std::chrono::steady_clock::now();
+        BOOST_LOG_TRIVIAL(debug)
+            << "(PROFILE) Send of size " << profile_times->transfer_size
+            << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                    profile_times->unmap_time - profile_times->map_time).count() << std::endl;
+    }, profile_times);
+#endif
 }
 
 } /* namespace dcld */
