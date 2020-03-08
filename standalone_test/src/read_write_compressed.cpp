@@ -14,6 +14,8 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
 
+#define NUM_MEASUREMENTS 3
+
 static constexpr const size_t BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT =
         (static_cast<size_t>(1) << (sizeof(size_t)*8-1));
 
@@ -72,29 +74,36 @@ int main(int argc, char *argv[])
     // -----------------
     // DATA WRITE / READ
     // -----------------
-    std::chrono::time_point<std::chrono::steady_clock> start_time, middle_time, end_time;
-    start_time = std::chrono::steady_clock::now();
-    queue.enqueueWriteBuffer(buf, CL_TRUE,
-            0, file_data.size() | (!is_compress ? BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT : 0),
-            file_data.data());
-    middle_time = std::chrono::steady_clock::now();
-    queue.enqueueReadBuffer(buf, CL_TRUE,
-            0, file_data.size() | (is_compress ? BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT : 0),
-            file_data.data());
-    end_time = std::chrono::steady_clock::now();
+    // "Warm up" the buffer (otherwise the first transfer takes abnormally long)
+    std::vector<std::uint8_t> init(file_data.size(), 0);
+    queue.enqueueWriteBuffer(buf, CL_TRUE, 0, init.size(), init.data());
 
-    auto write_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(middle_time - start_time).count();
-    auto read_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - middle_time).count();
-    auto total_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    std::chrono::time_point<std::chrono::steady_clock> start_time, end_time;
+    if (is_compress) {
+        queue.enqueueWriteBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+        start_time = std::chrono::steady_clock::now();
+        for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
+            queue.enqueueReadBuffer(buf, CL_TRUE, 0,
+                file_data.size() | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT, file_data.data());
+        }
+        end_time = std::chrono::steady_clock::now();
+    } else {
+        start_time = std::chrono::steady_clock::now();
+        for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
+            queue.enqueueWriteBuffer(buf, CL_TRUE, 0,
+                file_data.size() | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT, file_data.data());
+        }
+        end_time = std::chrono::steady_clock::now();
+        queue.enqueueReadBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+    }
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / NUM_MEASUREMENTS;
 
     // ----------------
     // VALIDATE RESULTS
     // ----------------
     write_file_from_vector(output_file_name, file_data);
 
-    std::cout << "Time (write, relevant for 'decompress'): " << write_duration_ms << " ms\n";
-    std::cout << "Time (read, relevant for 'compress'):    " << read_duration_ms << " ms\n";
-    std::cout << "Time (total):                            " << total_duration_ms << " ms\n";
+    std::cout << "Time:  " << duration_ms << " ms (average over " << NUM_MEASUREMENTS << " runs)\n";
 
     return EXIT_SUCCESS;
 }
