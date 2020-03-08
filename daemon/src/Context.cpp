@@ -173,7 +173,11 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     void *ptr = commandQueue.enqueueMapBuffer(
             buffer,
             CL_FALSE,     // non-blocking map
+#if defined(CL_VERSION_1_2)
+            CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
+#else
             CL_MAP_WRITE, // map for writing
+#endif
             offset, size,
             eventWaitList, startEvent);
     // schedule local data transfer
