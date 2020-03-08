@@ -142,6 +142,9 @@ If no log level is specified, the default log level is selected.
 Note that the log files are deleted each time the daemon or application is
 restarted.
 
+If the DCL_LOG_TO_CONSOLE environment variable is set, the log is output
+to the console, instead of written to a file.
+
 
 -----------------
 Project structure

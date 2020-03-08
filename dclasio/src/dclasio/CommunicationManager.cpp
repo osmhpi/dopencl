@@ -96,11 +96,13 @@ namespace dcl {
 
 HostCommunicationManager * HostCommunicationManager::create() {
     // set up dOpenCL logger
-    boost::log::add_file_log
-    (
-        boost::log::keywords::file_name = "dcl_host.log",
-        boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
-    );
+    if (std::getenv("DCL_LOG_TO_CONSOLE") == nullptr) {
+        boost::log::add_file_log
+        (
+            boost::log::keywords::file_name = "dcl_host.log",
+            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
+        );
+    }
     boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
     boost::log::add_common_attributes();
 
@@ -119,21 +121,23 @@ ComputeNodeCommunicationManager * ComputeNodeCommunicationManager::create(
     }
 
     // generate name of dOpenCL log file
-    std::string logFileName;
-    {
-        std::stringstream ss;
+    if (std::getenv("DCL_LOG_TO_CONSOLE") == nullptr) {
+        std::string logFileName;
+        {
+            std::stringstream ss;
 
-        /* TODO Log to system default location of files
-         * Log to /var/log/dcld */
-        ss << "dcl_" << host << ".log";
-        ss >> logFileName;
+            /* TODO Log to system default location of files
+             * Log to /var/log/dcld */
+            ss << "dcl_" << host << ".log";
+            ss >> logFileName;
+        }
+        // set up dOpenCL logger
+        boost::log::add_file_log
+        (
+            boost::log::keywords::file_name = logFileName.c_str(),
+            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
+        );
     }
-    // set up dOpenCL logger
-    boost::log::add_file_log
-    (
-        boost::log::keywords::file_name = logFileName.c_str(),
-        boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
-    );
     boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
     boost::log::add_common_attributes();
 
