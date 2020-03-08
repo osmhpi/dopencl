@@ -52,6 +52,7 @@
 #include <boost/log/expressions.hpp>
 #include <boost/log/sinks/text_file_backend.hpp>
 #include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/console.hpp>
 #include <boost/log/utility/setup/common_attributes.hpp>
 
 #include <cstdlib>
@@ -94,18 +95,24 @@ boost::log::trivial::severity_level getSeverity() {
 
 namespace dcl {
 
-HostCommunicationManager * HostCommunicationManager::create() {
+static void setup_log(const char *file_name) {
     // set up dOpenCL logger
     if (std::getenv("DCL_LOG_TO_CONSOLE") == nullptr) {
         boost::log::add_file_log
         (
-            boost::log::keywords::file_name = "dcl_host.log",
+            boost::log::keywords::file_name = file_name,
             boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
         );
+    } else {
+        boost::log::add_console_log(std::cout,
+            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%");
     }
     boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
     boost::log::add_common_attributes();
+}
 
+HostCommunicationManager * HostCommunicationManager::create() {
+    setup_log("dcl_host.log");
     return new dclasio::HostCommunicationManagerImpl();
 }
 
@@ -121,25 +128,16 @@ ComputeNodeCommunicationManager * ComputeNodeCommunicationManager::create(
     }
 
     // generate name of dOpenCL log file
-    if (std::getenv("DCL_LOG_TO_CONSOLE") == nullptr) {
-        std::string logFileName;
-        {
-            std::stringstream ss;
+    std::string logFileName;
+    {
+        std::stringstream ss;
 
-            /* TODO Log to system default location of files
-             * Log to /var/log/dcld */
-            ss << "dcl_" << host << ".log";
-            ss >> logFileName;
-        }
-        // set up dOpenCL logger
-        boost::log::add_file_log
-        (
-            boost::log::keywords::file_name = logFileName.c_str(),
-            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
-        );
+        /* TODO Log to system default location of files
+         * Log to /var/log/dcld */
+        ss << "dcl_" << host << ".log";
+        ss >> logFileName;
     }
-    boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
-    boost::log::add_common_attributes();
+    setup_log(logFileName.c_str());
 
     return new dclasio::ComputeNodeCommunicationManagerImpl(host, port);
 }
