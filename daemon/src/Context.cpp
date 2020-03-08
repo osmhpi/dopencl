@@ -212,7 +212,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
         size_t chunksSize = size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed by DataStream)
         VECTOR_CLASS<cl::Event> decompressWaitList = {unmapData};
-        _cl842DeviceDecompressor->decompress(commandQueue, buffer, chunksSize, buffer, chunksSize,
+        _cl842DeviceDecompressor->decompress(commandQueue, buffer, 0, chunksSize, buffer, 0, chunksSize,
                                                       &decompressWaitList, endEvent);
 #endif
     } else if (endEvent != nullptr) {
