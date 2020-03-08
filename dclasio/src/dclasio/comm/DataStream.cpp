@@ -67,13 +67,12 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-// TODOXXX: Those constants must be synchronized with the constants in lib842 (cl842).
-//          Create a header for them in lib842? Or just include cl842 directly
-#define CHUNK_SIZE 1024
-static const uint8_t CHUNK_MAGIC[16] = {
-        0xbe, 0x5a, 0x46, 0xbf, 0x97, 0xe5, 0x2d, 0xd7, 0xb2, 0x7c, 0x94, 0x1a, 0xee, 0xd6, 0x70, 0x76
-};
-#define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(CHUNK_MAGIC) - sizeof(uint64_t)))
+// Those constants must be synchronized with the constants in lib842 (cl842)
+// for the integration with OpenCL-based decompression to work
+#include <cl842.hpp>
+#define CHUNK_SIZE CL842_CHUNK_SIZE
+#define COMPRESSED_CHUNK_MAGIC CL842_COMPRESSED_CHUNK_MAGIC
+#define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)))
 
 #define NUM_COMPRESS_THREADS 4
 #define NUM_DECOMPRESS_THREADS 4
@@ -374,8 +373,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
                 uint8_t *destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset;
 
                 if (_read_io_buffer_size <= COMPRESSIBLE_THRESHOLD && read->skip_compress_step()) {
-                    std::copy(CHUNK_MAGIC, CHUNK_MAGIC + sizeof(CHUNK_MAGIC), destination);
-                    *reinterpret_cast<uint64_t *>((destination + sizeof(CHUNK_MAGIC))) = _read_io_buffer_size;
+                    std::copy(COMPRESSED_CHUNK_MAGIC, COMPRESSED_CHUNK_MAGIC + sizeof(COMPRESSED_CHUNK_MAGIC), destination);
+                    *reinterpret_cast<uint64_t *>((destination + sizeof(COMPRESSED_CHUNK_MAGIC))) = _read_io_buffer_size;
                     destination += CHUNK_SIZE - _read_io_buffer_size; // Write compressed data at the end
                 } else {
                     assert(_read_io_buffer_size == CHUNK_SIZE); // Chunk is read uncompressed
@@ -699,10 +698,10 @@ void DataStream::loop_compress_thread(size_t thread_id) {
             auto source = static_cast<const uint8_t *>(write->ptr()) + offset;
 
             if (write->skip_compress_step()) {
-                auto is_compressed = std::equal(source,source + sizeof(CHUNK_MAGIC), CHUNK_MAGIC);
+                auto is_compressed = std::equal(source,source + sizeof(COMPRESSED_CHUNK_MAGIC), COMPRESSED_CHUNK_MAGIC);
 
                 auto chunk_buffer_size = is_compressed
-                                         ? *reinterpret_cast<const uint64_t *>((source + sizeof(CHUNK_MAGIC)))
+                                         ? *reinterpret_cast<const uint64_t *>((source + sizeof(COMPRESSED_CHUNK_MAGIC)))
                                          : CHUNK_SIZE;
                 auto chunk_buffer = is_compressed
                         ? source + CHUNK_SIZE - chunk_buffer_size
