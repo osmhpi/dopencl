@@ -40,7 +40,10 @@ static void write_file_from_vector(const char *file_name, const std::vector<uint
 
 int main(int argc, char *argv[])
 {
-    if (argc != 4 || (strcmp(argv[1], "compress") != 0 && strcmp(argv[1], "decompress") != 0)) {
+    if (argc != 4 || (strcmp(argv[1], "compress") != 0 &&
+                      strcmp(argv[1], "decompress") != 0 &&
+                      strcmp(argv[1], "send") != 0 &&
+                      strcmp(argv[1], "receive") != 0)) {
         const char *program_name = argc > 0 ? argv[0] : "???";
         std::cout
             << "Usage:\n"
@@ -49,7 +52,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    auto is_compress = strcmp(argv[1], "compress") == 0;
+    auto mode = argv[1];
     auto input_file_name = argv[2];
     auto output_file_name = argv[3];
 
@@ -79,7 +82,7 @@ int main(int argc, char *argv[])
     queue.enqueueWriteBuffer(buf, CL_TRUE, 0, init.size(), init.data());
 
     std::chrono::time_point<std::chrono::steady_clock> start_time, end_time;
-    if (is_compress) {
+    if (strcmp(mode, "compress") == 0) {
         queue.enqueueWriteBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
         start_time = std::chrono::steady_clock::now();
         for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
@@ -87,7 +90,7 @@ int main(int argc, char *argv[])
                 file_data.size() | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT, file_data.data());
         }
         end_time = std::chrono::steady_clock::now();
-    } else {
+    } else if (strcmp(mode, "decompress") == 0) {
         start_time = std::chrono::steady_clock::now();
         for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
             queue.enqueueWriteBuffer(buf, CL_TRUE, 0,
@@ -95,6 +98,20 @@ int main(int argc, char *argv[])
         }
         end_time = std::chrono::steady_clock::now();
         queue.enqueueReadBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+    } else if (strcmp(mode, "send") == 0) {
+        start_time = std::chrono::steady_clock::now();
+        for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
+            queue.enqueueWriteBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+        }
+        end_time = std::chrono::steady_clock::now();
+        queue.enqueueReadBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+    } else if (strcmp(mode, "receive") == 0) {
+        queue.enqueueWriteBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+        start_time = std::chrono::steady_clock::now();
+        for (size_t i = 0; i < NUM_MEASUREMENTS; i++) {
+            queue.enqueueReadBuffer(buf, CL_TRUE, 0, file_data.size(), file_data.data());
+        }
+        end_time = std::chrono::steady_clock::now();
     }
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / NUM_MEASUREMENTS;
 
