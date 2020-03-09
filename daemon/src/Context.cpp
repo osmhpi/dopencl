@@ -62,7 +62,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <chrono>
 
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
@@ -76,7 +75,13 @@
 #define PROFILE_SEND_RECEIVE_BUFFER
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
+#include <chrono>
+#include <atomic>
+
+std::atomic<unsigned> profile_next_id;
+
 struct profile_send_receive_buffer_times {
+    unsigned id;
     size_t transfer_size;
     std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
     std::chrono::time_point<std::chrono::steady_clock> map_time;
@@ -221,6 +226,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
     auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
+    profile_times->id = profile_next_id++;
     profile_times->transfer_size = size;
     profile_times->enqueue_time = std::chrono::steady_clock::now();
 
@@ -228,7 +234,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->map_time = std::chrono::steady_clock::now();
         BOOST_LOG_TRIVIAL(debug)
-            << "(PROFILE) Receive of size " << profile_times->transfer_size
+            << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
     }, profile_times);
@@ -237,7 +243,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->unmap_time = std::chrono::steady_clock::now();
         BOOST_LOG_TRIVIAL(debug)
-            << "(PROFILE) Receive of size " << profile_times->transfer_size
+            << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->unmap_time - profile_times->map_time).count() << std::endl;
     }, profile_times);
@@ -247,7 +253,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             auto profile_times = ((profile_send_receive_buffer_times *)user_data);
             profile_times->decompress_time = std::chrono::steady_clock::now();
             BOOST_LOG_TRIVIAL(debug)
-                << "(PROFILE) Receive of size " << profile_times->transfer_size
+                << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
                 << " decompressed (UNMAP -> DECOMPRESS) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                         profile_times->decompress_time - profile_times->unmap_time).count() << std::endl;
         }, profile_times);
@@ -286,6 +292,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
     auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
+    profile_times->id = profile_next_id++;
     profile_times->transfer_size = size;
     profile_times->enqueue_time = std::chrono::steady_clock::now();
 
@@ -293,7 +300,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->map_time = std::chrono::steady_clock::now();
         BOOST_LOG_TRIVIAL(debug)
-            << "(PROFILE) Send of size " << profile_times->transfer_size
+            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
     }, profile_times);
@@ -302,7 +309,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->unmap_time = std::chrono::steady_clock::now();
         BOOST_LOG_TRIVIAL(debug)
-            << "(PROFILE) Send of size " << profile_times->transfer_size
+            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->unmap_time - profile_times->map_time).count() << std::endl;
     }, profile_times);
