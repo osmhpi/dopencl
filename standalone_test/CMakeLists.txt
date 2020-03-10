@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.1)
 
 project(dOpenCLstandalonetest)
 
+find_package(TIFF REQUIRED)
+include_directories(${TIFF_INCLUDE_DIRS})
+link_directories(${TIFF_LIBRARY_DIRS})
+
 foreach(test bitonic
              mapreduce_addition
              test_createbuffer_ptr
@@ -9,8 +13,9 @@ foreach(test bitonic
              test_createbuffer_ptr_race
              test_explicit_copy_cl
              test_implicit_copy_cl
-             read_write_compressed)
+             read_write_compressed
+             downsize_tiff)
 	add_executable(${test} src/${test}.cpp)
-	target_link_libraries(${test} OpenCL)
+	target_link_libraries(${test} OpenCL ${TIFF_LIBRARIES})
 	set_target_properties(${test} PROPERTIES COMPILE_DEFINITIONS "CL_HPP_TARGET_OPENCL_VERSION=120")
 endforeach(test)
