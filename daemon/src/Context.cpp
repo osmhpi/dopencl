@@ -142,8 +142,10 @@ Context::Context(
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
 
 #ifdef IO_LINK_COMPRESSION
+    // TODOXXX: This should not really be a shared_ptr,
+    // but how should we initialize this at the beginning of the constructor instead?
     _cl842DeviceDecompressor = std::make_shared<CL842DeviceDecompressor>(
-            _context, nativeDevices, CL842_CHUNK_SIZE,false, true);
+            _context, nativeDevices, CL842_CHUNK_SIZE, CL842InputFormat::INPLACE_COMPRESSED_CHUNKS);
 #endif
 }
 
