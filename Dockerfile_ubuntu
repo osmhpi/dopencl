@@ -21,7 +21,7 @@ COPY . /tmp/dopencl
 # Build
 RUN mkdir /tmp/dopencl/build \
  && cd /tmp/dopencl/build \
- && cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/opt/dopencl -DCMAKE_CXX_FLAGS=-Wno-ignored-attributes .. \
+ && cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/opt/dopencl .. \
  && make -j$(nproc) \
  && make install \
  && install -D -m755 /tmp/dopencl/dopenclenv.sh /etc/profile.d/dopenclenv.sh

@@ -4,8 +4,7 @@ set -euo pipefail
 # Build
 mkdir -p build_tests
 cd build_tests
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Wno-ignored-attributes -DBUILD_UNIT_TESTS=ON \
-    -DENABLE_IO_LINK_COMPRESSION=ON -DUSE_OPTIMIZED_SERIAL_IMPLEMENTATION=ON -DUSE_CL_IO_LINK_COMPRESSION_INPLACE=ON ..
+cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_UNIT_TESTS=ON ..
 make -j"$(nproc)"
 
 TEMPDIR="testdir" && rm -Rf "$TEMPDIR" && mkdir -p "$TEMPDIR"

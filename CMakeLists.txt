@@ -12,9 +12,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # this file in version control for details
 #set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Avoid 'ignoring attributes on template argument' spam because of types such as std::vector<cl_int>
+# See https://github.com/KhronosGroup/OpenCL-CLHPP/issues/37 for more information
+if (CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 6.0)
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-ignored-attributes")
+endif()
+
 option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
 option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)
-option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accelerated 842 implementation" OFF)
+option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accelerated 842 implementation (WIP)" OFF)
+option(USE_CL_IO_LINK_COMPRESSION "Use OpenCL GPU-accelerated 842 implementation implementation (WIP)" OFF)
+option(USE_CL_IO_LINK_COMPRESSION_INPLACE "Use OpenCL GPU-accelerated, in-place 842 implementation implementation" ON)
 
 # Necessary for Boost.Log linking, see https://stackoverflow.com/q/23137637
 add_definitions(-DBOOST_LOG_DYN_LINK)
