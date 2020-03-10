@@ -170,7 +170,7 @@ index d54a19e..5f697d8 100644
 -            << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                    profile_times->unmap_time - profile_times->map_time).count() << std::endl;
 +            << " decompressed (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-+                    profile_times->end_time - profile_times->end_time).count() << std::endl;
++                    profile_times->end_time - profile_times->start_time).count() << std::endl;
      }, profile_times);
 -
 -    if (can_use_cl_io_link_compression) {
