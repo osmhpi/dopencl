@@ -249,6 +249,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     }, profile_times);
 
     if (can_use_cl_io_link_compression) {
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
         endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
             auto profile_times = ((profile_send_receive_buffer_times *)user_data);
             profile_times->decompress_time = std::chrono::steady_clock::now();
@@ -257,6 +258,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                 << " decompressed (UNMAP -> DECOMPRESS) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                         profile_times->decompress_time - profile_times->unmap_time).count() << std::endl;
         }, profile_times);
+#endif
     }
 #endif
 }
