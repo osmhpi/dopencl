@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
         dev.file_data_size = std::min((d + 1) * size_blocks / devices.size(),
                                       file_data.size()) - dev.file_data_offset;
         dev.queue = cl::CommandQueue(context, devices[d]);
-        dev.buf = cl::Buffer(context, CL_MEM_READ_WRITE, file_data.size());
+        dev.buf = cl::Buffer(context, CL_MEM_READ_WRITE, dev.file_data_size);
     }
 
     // -----------------
