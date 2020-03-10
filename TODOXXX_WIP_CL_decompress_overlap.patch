@@ -1,17 +1,17 @@
 diff --git a/daemon/src/Context.cpp b/daemon/src/Context.cpp
-index 2235a55..468a9d3 100644
+index d54a19e..5f697d8 100644
 --- a/daemon/src/Context.cpp
 +++ b/daemon/src/Context.cpp
-@@ -63,6 +63,7 @@
+@@ -62,6 +62,7 @@
+ #include <memory>
  #include <string>
  #include <vector>
- #include <chrono>
 +#include <algorithm>
  
  #include <dcl/CLEventCompletable.h>
  #include <dcl/DataTransfer.h>
-@@ -79,11 +80,8 @@
- struct profile_send_receive_buffer_times {
+@@ -84,11 +85,8 @@ struct profile_send_receive_buffer_times {
+     unsigned id;
      size_t transfer_size;
      std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
 -    std::chrono::time_point<std::chrono::steady_clock> map_time;
@@ -24,7 +24,7 @@ index 2235a55..468a9d3 100644
  };
  #endif
  
-@@ -168,16 +166,17 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
+@@ -175,16 +173,17 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                         const VECTOR_CLASS<cl::Event> *eventWaitList,
                                         cl::Event *startEvent,
                                         cl::Event *endEvent) {
@@ -45,7 +45,7 @@ index 2235a55..468a9d3 100644
          can_use_cl_io_link_compression = true;
      } else {
          // TODOXXX It should be possible to handle nonzero offset cases here by passing this
-@@ -188,10 +187,63 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
+@@ -195,10 +194,63 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
      }
  #endif
  
@@ -113,7 +113,7 @@ index 2235a55..468a9d3 100644
  #if defined(CL_VERSION_1_2)
              CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
  #else
-@@ -199,24 +251,14 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
+@@ -206,24 +258,14 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
  #endif
              offset, size,
              eventWaitList, startEvent);
@@ -146,14 +146,14 @@ index 2235a55..468a9d3 100644
      }
  
  #ifdef PROFILE_SEND_RECEIVE_BUFFER
-@@ -226,32 +268,21 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
+@@ -234,34 +276,21 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
  
      startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
          auto profile_times = ((profile_send_receive_buffer_times *)user_data);
 -        profile_times->map_time = std::chrono::steady_clock::now();
 +        profile_times->start_time = std::chrono::steady_clock::now();
          BOOST_LOG_TRIVIAL(debug)
-             << "(PROFILE) Receive of size " << profile_times->transfer_size
+             << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
 -            << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                    profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
 +            << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -166,34 +166,36 @@ index 2235a55..468a9d3 100644
 -        profile_times->unmap_time = std::chrono::steady_clock::now();
 +        profile_times->end_time = std::chrono::steady_clock::now();
          BOOST_LOG_TRIVIAL(debug)
-             << "(PROFILE) Receive of size " << profile_times->transfer_size
+             << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
 -            << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                    profile_times->unmap_time - profile_times->map_time).count() << std::endl;
-+            << " ended (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-+                    profile_times->end_time - profile_times->start_time).count() << std::endl;
++            << " decompressed (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
++                    profile_times->end_time - profile_times->end_time).count() << std::endl;
      }, profile_times);
 -
 -    if (can_use_cl_io_link_compression) {
+-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 -        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
 -            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
 -            profile_times->decompress_time = std::chrono::steady_clock::now();
 -            BOOST_LOG_TRIVIAL(debug)
--                << "(PROFILE) Receive of size " << profile_times->transfer_size
+-                << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
 -                << " decompressed (UNMAP -> DECOMPRESS) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                        profile_times->decompress_time - profile_times->unmap_time).count() << std::endl;
 -        }, profile_times);
+-#endif
 -    }
  #endif
  }
  
-@@ -291,20 +322,20 @@ void Context::sendBufferToProcess(dcl::Process &process,
+@@ -302,20 +331,20 @@ void Context::sendBufferToProcess(dcl::Process &process,
  
      startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
          auto profile_times = ((profile_send_receive_buffer_times *)user_data);
 -        profile_times->map_time = std::chrono::steady_clock::now();
 +        profile_times->start_time = std::chrono::steady_clock::now();
          BOOST_LOG_TRIVIAL(debug)
-             << "(PROFILE) Send of size " << profile_times->transfer_size
+             << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
 -            << " started (ENQUEUE -> MAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                    profile_times->map_time - profile_times->enqueue_time).count() << std::endl;
 +            << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -205,19 +207,19 @@ index 2235a55..468a9d3 100644
 -        profile_times->unmap_time = std::chrono::steady_clock::now();
 +        profile_times->end_time = std::chrono::steady_clock::now();
          BOOST_LOG_TRIVIAL(debug)
-             << "(PROFILE) Send of size " << profile_times->transfer_size
+             << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
 -            << " uploaded (MAP -> UNMAP) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 -                    profile_times->unmap_time - profile_times->map_time).count() << std::endl;
-+            << " ended (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
++            << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
 +                    profile_times->end_time - profile_times->start_time).count() << std::endl;
      }, profile_times);
  #endif
  }
 diff --git a/dclasio/src/dclasio/comm/DataStream.cpp b/dclasio/src/dclasio/comm/DataStream.cpp
-index b4800dd..f4e3c23 100644
+index 9c078a4..e1c4ac7 100644
 --- a/dclasio/src/dclasio/comm/DataStream.cpp
 +++ b/dclasio/src/dclasio/comm/DataStream.cpp
-@@ -246,6 +246,22 @@ void DataStream::disconnect() {
+@@ -283,6 +283,22 @@ void DataStream::disconnect() {
  
  std::shared_ptr<DataReceipt> DataStream::read(
          size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
@@ -240,7 +242,7 @@ index b4800dd..f4e3c23 100644
      auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
  
      std::unique_lock<std::mutex> lock(_readq_mtx);
-@@ -265,6 +281,22 @@ std::shared_ptr<DataReceipt> DataStream::read(
+@@ -302,6 +318,22 @@ std::shared_ptr<DataReceipt> DataStream::read(
  
  std::shared_ptr<DataSending> DataStream::write(
          size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
