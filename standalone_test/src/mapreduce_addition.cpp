@@ -50,9 +50,15 @@ typedef struct device_opencl
 
 int main(void)
 {
-    std::vector<std::uint32_t> initial_buf(BUF_SIZE);
-    for (size_t i = 0; i < BUF_SIZE; i++)
-        initial_buf[i] = i;
+    std::vector<std::uint32_t> initial_buf(BUF_SIZE, 0);
+
+    // Fill the buffer with a sequence with some redundacy
+    // number of proper divisors of n (https://oeis.org/A032741)
+    for (size_t i = 2; i < initial_buf.size(); i++) {
+        for (size_t k = i; k < initial_buf.size(); k += i) {
+            initial_buf[k]++;
+        }
+    }
 
     // ---------------------
     // OPENCL INITIALIZATION
