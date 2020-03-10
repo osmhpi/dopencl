@@ -223,7 +223,7 @@ private:
     // Wakes up the decompression threads when new operations have been added to the queue
     std::condition_variable _decompress_queue_available;
     // Number of threads currently running decompression operations
-    unsigned _decompress_working_thread_count;
+    unsigned int _decompress_working_thread_count;
     // Barrier for finishing decompression, necessary for ensuring that resources
     // are not released until all threads have finished
     boost::barrier _decompress_finish_barrier;
@@ -272,11 +272,11 @@ private:
     // (_compress_trigger, _compress_quit)
     std::mutex _compress_trigger_mutex;
     // true if a new operation must be started in the compression thread
-    bool _compress_trigger = false;
+    bool _compress_trigger;
     // Wakes up the compression thread when a new operation must be started
     std::condition_variable _compress_trigger_changed;
     // If set to true, causes the compression to quit (for cleanup)
-    bool _compress_quit = false;
+    bool _compress_quit;
     // Necessary data for triggering an asynchronous I/O write operation from the compression thread
     writeq_type *_compress_current_writeq;
     std::shared_ptr<DataSending> _compress_current_write;

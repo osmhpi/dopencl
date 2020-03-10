@@ -65,6 +65,14 @@
 #include <mutex>
 #include <utility>
 
+// TODOXXX: This class has grown way too large and has way too many responsabilities
+// It should be split into multiple files/classes like:
+// * Receiving DataStream
+// * Sending DataStream
+// * Decompression pool
+// * Compression pool
+// * Boost.Asio sentinel helper
+
 #ifdef IO_LINK_COMPRESSION
 
 // Those constants must be synchronized with the constants in lib842 (cl842)
@@ -74,8 +82,25 @@
 #define COMPRESSED_CHUNK_MAGIC CL842_COMPRESSED_CHUNK_MAGIC
 #define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)))
 
-#define NUM_COMPRESS_THREADS 4
-#define NUM_DECOMPRESS_THREADS 4
+// Configuration for the number of threads to use for compression or decompression
+// If the value is 0, the hardware concurrency level (~= number of logical cores) is used
+static constexpr unsigned int DEFAULT_NUM_COMPRESS_THREADS = 0;
+static constexpr unsigned int DEFAULT_NUM_DECOMPRESS_THREADS = 0;
+
+static unsigned int determine_num_threads(unsigned int preferred_num_threads) {
+    if (preferred_num_threads != 0)
+        return preferred_num_threads;
+
+    static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
+    if (hardware_concurrency == 0) {
+        BOOST_LOG_TRIVIAL(warning) << __func__ << ": "
+            << "std::thread::hardware_concurrency() returned 0, using 1 thread"
+            << std::endl;
+        return 1;
+    }
+
+    return hardware_concurrency;
+}
 
 #include <queue>
 
@@ -167,8 +192,14 @@ namespace comm {
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
         _socket(socket), _receiving(false), _sending(false),
-        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1),
-        _decompress_finish_barrier(NUM_DECOMPRESS_THREADS) {
+
+        _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        _compress_trigger(false), _compress_quit(false),
+        _compress_start_barrier(_compress_threads.size()),
+        _compress_finish_barrier(_compress_threads.size()+1),
+
+        _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
+        _decompress_finish_barrier(_decompress_threads.size()) {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
 
@@ -182,8 +213,14 @@ DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false),
-        _compress_start_barrier(NUM_COMPRESS_THREADS), _compress_finish_barrier(NUM_COMPRESS_THREADS+1),
-        _decompress_finish_barrier(NUM_DECOMPRESS_THREADS) {
+
+        _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        _compress_trigger(false), _compress_quit(false),
+        _compress_start_barrier(_compress_threads.size()),
+        _compress_finish_barrier(_compress_threads.size()+1),
+
+        _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
+        _decompress_finish_barrier(_decompress_threads.size()) {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
@@ -420,8 +457,8 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
 }
 
 void DataStream::start_decompress_threads() {
-    for (size_t i = 0; i < NUM_DECOMPRESS_THREADS; i++) {
-        _decompress_threads.emplace_back(&DataStream::loop_decompress_thread, this, i);
+    for (size_t i = 0; i < _decompress_threads.size(); i++) {
+        _decompress_threads[i] = std::thread{&DataStream::loop_decompress_thread, this, i};
     }
 }
 
@@ -668,8 +705,8 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
 }
 
 void DataStream::start_compress_threads() {
-    for (size_t i = 0; i < NUM_COMPRESS_THREADS; i++) {
-        _compress_threads.emplace_back(&DataStream::loop_compress_thread, this, i);
+    for (size_t i = 0; i < _compress_threads.size(); i++) {
+        _compress_threads[i] = std::thread{&DataStream::loop_compress_thread, this, i};
     }
 }
 
