@@ -94,9 +94,9 @@ int main(void)
 
     queue.enqueueNDRangeKernel(kernel, cl::NullRange, BUF_SIZE, cl::NullRange, nullptr, &event);
 
-    // ---------------------
-    // PRINT BUFFER (AFTER)
-    // ---------------------
+    // --------------
+    // GATHER RESULTS
+    // --------------
     std::cout << "**AFTER KERNELS**\n";
     std::string buf_start(8, '*'), buf_end(8, '*');
     queue.enqueueReadBuffer(result, CL_TRUE, 0, buf_start.size(), &buf_start[0]);

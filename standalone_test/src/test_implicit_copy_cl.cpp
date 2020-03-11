@@ -96,9 +96,9 @@ int main(void)
         }
     }
 
-    // ---------------------
-    // PRINT BUFFER (AFTER)
-    // ---------------------
+    // --------------
+    // GATHER RESULTS
+    // --------------
     std::cout << "**AFTER KERNELS**\n";
     std::string buf_start(8, '*'), buf_end(8, '*');
     devinfo[0].queue.enqueueReadBuffer(buf, CL_TRUE,

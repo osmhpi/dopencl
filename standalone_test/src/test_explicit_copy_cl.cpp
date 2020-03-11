@@ -78,9 +78,9 @@ int main(void)
                                         0, 0, BUF_SIZE, &eventVector, &event);
     }
 
-    // --------------------
-    // PRINT BUFFER (AFTER)
-    // --------------------
+    // --------------
+    // GATHER RESULTS
+    // --------------
     std::cout << "**AFTER COPY**\n";
     std::string buf_start(8, '*'), buf_end(8, '*');
     size_t lastDev = NUM_COPIES % NUM_DEVICES;
