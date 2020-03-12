@@ -12,6 +12,15 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
 
+typedef struct device_opencl
+{
+    std::uint32_t first_row;
+    std::uint32_t num_rows;
+    cl::CommandQueue queue;
+    cl::Buffer raster_buf;
+    cl::Buffer reduced_raster_buf;
+} device_opencl;
+
 #define REDUCTION_FACTOR 16
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
@@ -124,7 +133,7 @@ int main(int argc, char *argv[])
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
     if (devices.size() < 1)
         throw std::runtime_error("No OpenCL devices available");
-    devices.resize(1);
+    std::cout << "(Using " << devices.size() << " devices)\n";
 
     cl::Context context(devices);
     
@@ -134,36 +143,55 @@ int main(int argc, char *argv[])
     program.build(devices, options.str().c_str());
     cl::Kernel kernel(program, "reduce_image");
 
-    cl::CommandQueue queue(context, devices[0]);
-    cl::Buffer raster_buf(context, CL_MEM_READ_ONLY, raster.size() * sizeof(std::uint32_t));
-    cl::Buffer reduced_raster_buf(context, CL_MEM_READ_ONLY, reduced_raster.size() * sizeof(std::uint32_t));
+    std::vector<device_opencl> devinfo(devices.size());
+    for (cl_uint d = 0; d < devices.size(); d++) {
+        device_opencl &dev = devinfo[d];
+        dev.first_row = (d * reduced_height / devices.size()) * REDUCTION_FACTOR;
+        dev.num_rows = (d < (devices.size() - 1)
+            ? ((d + 1) * reduced_height / devices.size()) * REDUCTION_FACTOR
+            : height) - dev.first_row;
+        dev.queue = cl::CommandQueue(context, devices[d]);
+        dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, raster.size() * sizeof(std::uint32_t));
+        dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_raster.size() * sizeof(std::uint32_t));
+    }
 
     // ------------------------
     // TRANSFER DATA TO DEVICES
     // ------------------------
     auto start_time = std::chrono::steady_clock::now();
 
-    queue.enqueueWriteBuffer(raster_buf, CL_FALSE, 0,
-        raster.size() * sizeof(std::uint32_t), raster.data());
+    for (cl_uint d = 0; d < devinfo.size(); d++) {
+        devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
+            devinfo[d].num_rows * width * sizeof(std::uint32_t),
+            raster.data() + devinfo[d].first_row * width);
+    }
 
     // --------------
     // SUMS ON DEVICE
     // --------------
-    kernel.setArg(0, raster_buf);
-    kernel.setArg(1, reduced_raster_buf);
-    kernel.setArg(2, static_cast<cl_uint>(width));
-    kernel.setArg(3, static_cast<cl_uint>(height));
+    for (cl_uint d = 0; d < devinfo.size(); d++) {
+        kernel.setArg(0, devinfo[d].raster_buf);
+        kernel.setArg(1, devinfo[d].reduced_raster_buf);
+        kernel.setArg(2, static_cast<cl_uint>(width));
+        kernel.setArg(3, static_cast<cl_uint>(devinfo[d].num_rows));
 
-    cl::NDRange localRange(16, 16);
-    cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
-                            (reduced_height + localRange[1] - 1) & ~(localRange[1] - 1));
-    queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
+        cl::NDRange localRange(16, 16);
+        std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+        cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
+                                (reduced_num_rows + localRange[1] - 1) & ~(localRange[1] - 1));
+        devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
+    }
 
     // ------------------------------
     // GATHER AND REDUCE PARTIAL SUMS
     // ------------------------------
-    queue.enqueueReadBuffer(reduced_raster_buf, CL_TRUE, 0,
-        reduced_raster.size() * sizeof(std::uint32_t), reduced_raster.data());
+    for (cl_uint d = 0; d < devinfo.size(); d++) {
+        std::uint32_t reduced_first_row = devinfo[d].first_row / REDUCTION_FACTOR;
+        std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+        devinfo[d].queue.enqueueReadBuffer(devinfo[d].reduced_raster_buf, CL_TRUE, 0,
+            reduced_num_rows * reduced_width * sizeof(std::uint32_t),
+            reduced_raster.data() + reduced_first_row * reduced_width);
+    }
 
     auto end_time = std::chrono::steady_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
