@@ -283,6 +283,22 @@ void DataStream::disconnect() {
 
 std::shared_ptr<DataReceipt> DataStream::read(
         size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
+    // START UBER HACK
+    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    if (size > SUPERBLOCK_MAX_SIZE) {
+        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+        std::shared_ptr<DataReceipt> callback;
+
+        for (size_t i = 0; i < num_superblocks; i++) {
+            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+            callback = read(superblock_size, static_cast<uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+        }
+
+        return callback;
+    }
+    // END UBER HACK
+
     auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_readq_mtx);
@@ -302,6 +318,22 @@ std::shared_ptr<DataReceipt> DataStream::read(
 
 std::shared_ptr<DataSending> DataStream::write(
         size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
+    // START UBER HACK
+    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    if (size > SUPERBLOCK_MAX_SIZE) {
+        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+        std::shared_ptr<DataSending> callback;
+
+        for (size_t i = 0; i < num_superblocks; i++) {
+            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+            callback = write(superblock_size, static_cast<const uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+        }
+
+        return callback;
+    }
+    // END UBER HACK
+
     auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step, trigger_event));
 
     std::unique_lock<std::mutex> lock(_writeq_mtx);
