@@ -191,15 +191,17 @@ namespace comm {
 
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
-        _socket(socket), _receiving(false), _sending(false),
-
-        _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        _socket(socket), _receiving(false), _sending(false)
+#ifdef IO_LINK_COMPRESSION
+        , _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
         _compress_finish_barrier(_compress_threads.size()+1),
 
         _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
-        _decompress_finish_barrier(_decompress_threads.size()) {
+        _decompress_finish_barrier(_decompress_threads.size())
+#endif
+{
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
 
@@ -212,15 +214,17 @@ DataStream::DataStream(
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
-        _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false),
-
-        _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false)
+#ifdef IO_LINK_COMPRESSION
+        , _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
         _compress_finish_barrier(_compress_threads.size()+1),
 
         _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
-        _decompress_finish_barrier(_decompress_threads.size()) {
+        _decompress_finish_barrier(_decompress_threads.size())
+#endif
+{
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
