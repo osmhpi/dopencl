@@ -150,14 +150,33 @@ int main(int argc, char *argv[])
         dev.num_rows = (d < (devices.size() - 1)
             ? ((d + 1) * reduced_height / devices.size()) * REDUCTION_FACTOR
             : height) - dev.first_row;
+        std::uint32_t reduced_num_rows = (dev.num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+
         dev.queue = cl::CommandQueue(context, devices[d]);
-        dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, raster.size() * sizeof(std::uint32_t));
-        dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_raster.size() * sizeof(std::uint32_t));
+        dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.num_rows * width * sizeof(std::uint32_t));
+        dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_num_rows * reduced_width * sizeof(std::uint32_t));
     }
 
     // ------------------------
     // TRANSFER DATA TO DEVICES
     // ------------------------
+    {
+        auto max_device_rows = std::max_element(devinfo.begin(), devinfo.end(),
+            [] (const device_opencl &lhs, const device_opencl &rhs) {
+                return lhs.num_rows < rhs.num_rows;
+        })->num_rows;
+        std::vector<std::uint32_t> zeros(max_device_rows * width, 0);
+        for (cl_uint d = 0; d < devinfo.size(); d++) {
+            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
+                devinfo[d].num_rows * width * sizeof(std::uint32_t),
+                zeros.data());
+        }
+        for (cl_uint d = 0; d < devinfo.size(); d++) {
+            devinfo[d].queue.finish();
+        }
+    }
+
+
     auto start_time = std::chrono::steady_clock::now();
 
     for (cl_uint d = 0; d < devinfo.size(); d++) {
