@@ -61,6 +61,7 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -206,8 +207,10 @@ DataStream::DataStream(
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
-    start_decompress_threads();
-    start_compress_threads();
+    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        start_decompress_threads();
+        start_compress_threads();
+    }
 #endif
 }
 
@@ -228,29 +231,33 @@ DataStream::DataStream(
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
-    start_decompress_threads();
-    start_compress_threads();
+    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        start_decompress_threads();
+        start_compress_threads();
+    }
 #endif
 }
 
 DataStream::~DataStream() {
 #ifdef IO_LINK_COMPRESSION
-    {
-        std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_queue.push(decompress_message_quit());
-        _decompress_queue_available.notify_all();
-    }
-    for (auto &t : _decompress_threads)
-        t.join();
+    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        {
+            std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
+            _decompress_queue.push(decompress_message_quit());
+            _decompress_queue_available.notify_all();
+        }
+        for (auto &t : _decompress_threads)
+            t.join();
 
-    {
-        std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-        _compress_trigger = true;
-        _compress_quit = true;
-        _compress_trigger_changed.notify_all();
+        {
+            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
+            _compress_trigger = true;
+            _compress_quit = true;
+            _compress_trigger_changed.notify_all();
+        }
+        for (auto &t : _compress_threads)
+            t.join();
     }
-    for (auto &t : _compress_threads)
-        t.join();
 #endif
 }
 
@@ -388,18 +395,28 @@ void DataStream::schedule_read(readq_type *readq) {
 void DataStream::start_read(readq_type *readq) {
     auto& read = readq->front();
     read->onStart();
-#ifndef IO_LINK_COMPRESSION
-    boost_asio_async_read_with_sentinels(
-                *_socket, boost::asio::buffer(read->ptr(), read->size()),
-                [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
-                        handle_read(readq, ec, bytes_transferred); });
-#else
-    _decompress_working_thread_count = 0;
-    _read_io_total_bytes_transferred = 0;
-    _read_io_num_chunks_remaining = read->size() / CHUNK_SIZE;
 
-    read_next_compressed_chunk(readq, read);
+    bool can_use_io_link_compression = false;
+#ifdef IO_LINK_COMPRESSION
+    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        can_use_io_link_compression = true;
+    }
 #endif
+
+    if (!can_use_io_link_compression) {
+        boost_asio_async_read_with_sentinels(
+                    *_socket, boost::asio::buffer(read->ptr(), read->size()),
+                    [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
+                            handle_read(readq, ec, bytes_transferred); });
+    } else {
+        #ifdef IO_LINK_COMPRESSION
+        _decompress_working_thread_count = 0;
+        _read_io_total_bytes_transferred = 0;
+        _read_io_num_chunks_remaining = read->size() / CHUNK_SIZE;
+
+        read_next_compressed_chunk(readq, read);
+        #endif
+    }
 }
 
 #ifdef IO_LINK_COMPRESSION
@@ -647,28 +664,38 @@ void DataStream::start_write(writeq_type *writeq) {
             [this, writeq{std::move(writeq)}](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(std::move(writeq), ec, bytes_transferred); });
      */
-#ifndef IO_LINK_COMPRESSION
-    boost_asio_async_write_with_sentinels(
-            *_socket, boost::asio::buffer(write->ptr(), write->size()),
-            [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
-                    handle_write(writeq, ec, bytes_transferred); });
-#else
-    _write_io_channel_busy = false;
-    _write_io_total_bytes_transferred = 0;
-    _write_io_num_chunks_remaining = write->size() / CHUNK_SIZE;
 
-    if (write->size() >= CHUNK_SIZE) {
-        _compress_current_writeq = writeq;
-        _compress_current_write = write;
-        _compress_current_offset = 0;
-
-        std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-        _compress_trigger = true;
-        _compress_trigger_changed.notify_all();
+    bool can_use_io_link_compression = false;
+#ifdef IO_LINK_COMPRESSION
+    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        can_use_io_link_compression = true;
     }
-
-    try_write_next_compressed_chunk(writeq, write);
 #endif
+
+    if (!can_use_io_link_compression) {
+        boost_asio_async_write_with_sentinels(
+                *_socket, boost::asio::buffer(write->ptr(), write->size()),
+                [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
+                        handle_write(writeq, ec, bytes_transferred); });
+    } else {
+#ifdef IO_LINK_COMPRESSION
+        _write_io_channel_busy = false;
+        _write_io_total_bytes_transferred = 0;
+        _write_io_num_chunks_remaining = write->size() / CHUNK_SIZE;
+
+        if (write->size() >= CHUNK_SIZE) {
+            _compress_current_writeq = writeq;
+            _compress_current_write = write;
+            _compress_current_offset = 0;
+
+            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
+            _compress_trigger = true;
+            _compress_trigger_changed.notify_all();
+        }
+
+        try_write_next_compressed_chunk(writeq, write);
+#endif
+    }
 }
 
 #ifdef IO_LINK_COMPRESSION

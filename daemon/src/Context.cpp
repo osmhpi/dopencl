@@ -59,6 +59,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <vector>
@@ -183,14 +184,16 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     bool can_use_cl_io_link_compression = false;
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
-    if (offset == 0 && size > 0) {
-        can_use_cl_io_link_compression = true;
-    } else {
-        // TODOXXX It should be possible to handle nonzero offset cases here by passing this
-        //         information to lib842, at least for 8-byte aligned cases
-        BOOST_LOG_TRIVIAL(warning)
-                            << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
-                            << std::endl;
+    if (size > 0 && std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+        if (offset != 0) {
+            // TODOXXX It should be possible to handle nonzero offset cases here by passing this
+            //         information to lib842, at least for 8-byte aligned cases
+            BOOST_LOG_TRIVIAL(warning)
+                                << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
+                                << std::endl;
+        } else {
+            can_use_cl_io_link_compression = true;
+        }
     }
 #endif
 
