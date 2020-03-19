@@ -13,7 +13,7 @@
 #define __CL_ENABLE_EXCEPTIONS
 #include <CL/cl.hpp>
 
-#define MAX_RESULTS 32
+#define MAX_RESULTS 24
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
@@ -25,11 +25,41 @@ bool is_word_character(char c) {
            c == '_';
 }
 
+bool is_letter_character(char c) {
+    return (c >= 'a' && c <= 'z') ||
+           (c >= 'A' && c <= 'Z');
+}
+
 __kernel void count_matches(__global char *text, ulong size, __global ulong *results)
 {
     ulong k = get_global_id(0);
     ulong match_start = k, match_end;
 
+#if 1
+    // Finds palindromic phrases (substrings) of up to a certain length
+    // This is compute intensive due to the strategy used, and the amount
+    // of compute can be regulated by the max. match length
+    bool match;
+
+    for (size_t i = 60; i >= 12; i--) {
+        match = true;
+        for (size_t j = 0; j < i/2; j++) {
+            if (k+i-j-1 >= size ||                      // In bounds
+                text[k+j] != text[k+i-j-1] ||           // Palindromic condition
+                !is_letter_character(text[k+j]) ||      // Only ASCII words
+                (j > 0 && text[k+j] == text[k+j-1]) ||  // No trivial matches like AAAA...AAAA
+                (j > 1 && text[k+j] == text[k+j-2])) {  // No trivial matches like HAHA...HAHA
+                match = false;
+                break;
+            }
+        }
+
+        if (match) {
+             match_end = k+i;
+             break;
+        }
+    }
+#else
     // Matches like LC_ALL=C egrep -o "(t|T)he \w+( of the \w+){3,}",
     // except that egrep doesn't return overlapping matches
     // (this can be handled as a post-processing step if necessary)
@@ -66,7 +96,10 @@ __kernel void count_matches(__global char *text, ulong size, __global ulong *res
         count++;
     }
 
-    if (count >= 3)
+    bool match = count >= 3;
+#endif
+
+    if (match)
     {
         ulong my_counter = atom_inc(&results[0]);
         if (my_counter >= MAX_RESULTS) // Oops!
