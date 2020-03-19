@@ -16,7 +16,7 @@
 #define MAX_RESULTS 32
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
-#pragma OPENCL EXTENSION cl_khr_int64_base_atomics
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
 bool is_word_character(char c) {
     return (c >= 'a' && c <= 'z') ||
