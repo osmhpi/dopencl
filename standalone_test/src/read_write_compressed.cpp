@@ -96,88 +96,88 @@ int main(int argc, char *argv[])
     // -----------------
     // "Warm up" the buffer (otherwise the first transfer takes abnormally long)
     std::vector<std::uint8_t> init(file_data.size(), 0);
-    for (cl_uint d = 0; d < devices.size(); d++) {
-        devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-            init.data() + devinfo[d].file_data_offset);
+    for (const auto &dev : devinfo) {
+        dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+            init.data() + dev.file_data_offset);
     }
-    for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+    for (const auto &dev : devinfo) { dev.queue.finish(); }
 
 
     std::chrono::time_point<std::chrono::steady_clock> start_time, end_time;
     if (strcmp(mode, "compress") == 0) {
         // Send data to device, not timed
-        for (cl_uint d = 0; d < devices.size(); d++) {
-            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                file_data.data() + devinfo[d].file_data_offset);
+        for (const auto &dev : devinfo) {
+            dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                file_data.data() + dev.file_data_offset);
         }
-        for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
 
         // Receive data from device, timed (Host transfers only, compute node compresses)
         start_time = std::chrono::steady_clock::now();
         for (size_t m = 0; m < NUM_MEASUREMENTS; m++) {
-            for (cl_uint d = 0; d < devices.size(); d++) {
-                devinfo[d].queue.enqueueReadBuffer(devinfo[d].buf, CL_FALSE, 0,
-                    devinfo[d].file_data_size | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT,
-                    file_data.data() + devinfo[d].file_data_offset);
+            for (const auto &dev : devinfo) {
+                dev.queue.enqueueReadBuffer(dev.buf, CL_FALSE, 0,
+                    dev.file_data_size | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT,
+                    file_data.data() + dev.file_data_offset);
             }
-            for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
         }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
         end_time = std::chrono::steady_clock::now();
     } else if (strcmp(mode, "decompress") == 0) {
         // Send data to device, timed (Host transfers only, compute node decompresses)
         start_time = std::chrono::steady_clock::now();
         for (size_t m = 0; m < NUM_MEASUREMENTS; m++) {
-            for (cl_uint d = 0; d < devices.size(); d++) {
-                devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0,
-                    devinfo[d].file_data_size | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT,
-                    file_data.data() + devinfo[d].file_data_offset);
+            for (const auto &dev : devinfo) {
+                dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0,
+                    dev.file_data_size | BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT,
+                    file_data.data() + dev.file_data_offset);
             }
-            for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
         }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
         end_time = std::chrono::steady_clock::now();
 
         // Receive data from device, not timed
-        for (cl_uint d = 0; d < devices.size(); d++) {
-            devinfo[d].queue.enqueueReadBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                file_data.data() + devinfo[d].file_data_offset);
+        for (const auto &dev : devinfo) {
+            dev.queue.enqueueReadBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                file_data.data() + dev.file_data_offset);
         }
-        for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
     } else if (strcmp(mode, "send") == 0) {
         // Send data to device, timed (host compresses, compute node decompresses)
         start_time = std::chrono::steady_clock::now();
         for (size_t m = 0; m < NUM_MEASUREMENTS; m++) {
-            for (cl_uint d = 0; d < devices.size(); d++) {
-                devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                    file_data.data() + devinfo[d].file_data_offset);
+            for (const auto &dev : devinfo) {
+                dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                    file_data.data() + dev.file_data_offset);
             }
         }
-        for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
 
         end_time = std::chrono::steady_clock::now();
 
         // Receive data from device, not timed
-        for (cl_uint d = 0; d < devices.size(); d++) {
-            devinfo[d].queue.enqueueReadBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                file_data.data() + devinfo[d].file_data_offset);
+        for (const auto &dev : devinfo) {
+            dev.queue.enqueueReadBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                file_data.data() + dev.file_data_offset);
         }
-        for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
     } else if (strcmp(mode, "receive") == 0) {
         // Send data to device, not timed
-        for (cl_uint d = 0; d < devices.size(); d++) {
-            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                file_data.data() + devinfo[d].file_data_offset);
+        for (const auto &dev : devinfo) {
+            dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                file_data.data() + dev.file_data_offset);
         }
-        for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
 
         // Receive data from device, timed (compute node compresses, host decompresses)
         start_time = std::chrono::steady_clock::now();
         for (size_t m = 0; m < NUM_MEASUREMENTS; m++) {
-            for (cl_uint d = 0; d < devices.size(); d++) {
-                devinfo[d].queue.enqueueReadBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-                    file_data.data() + devinfo[d].file_data_offset);
+            for (const auto &dev : devinfo) {
+                dev.queue.enqueueReadBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
+                    file_data.data() + dev.file_data_offset);
             }
-            for (cl_uint d = 0; d < devices.size(); d++) { devinfo[d].queue.finish(); }
         }
+        for (const auto &dev : devinfo) { dev.queue.finish(); }
         end_time = std::chrono::steady_clock::now();
     }
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / NUM_MEASUREMENTS;
