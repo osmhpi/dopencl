@@ -1,3 +1,4 @@
+/* Tests sorting a large array (possibly on multiple GPUs) using Bitonic Sort */
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -5,8 +6,13 @@
 #include <queue>
 #include <tuple>
 #include <chrono>
+
 #define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
 #include <CL/cl.hpp>
+#endif
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 __kernel void bitonic_sort(__global ushort *array, ulong size,

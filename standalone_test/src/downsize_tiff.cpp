@@ -1,4 +1,4 @@
-/* Tests downsizing a TIF image*/
+/* Tests downsizing a TIF image */
 #include <iostream>
 #include <vector>
 #include <string>
@@ -10,7 +10,11 @@
 #include <tiffio.h>
 
 #define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
 #include <CL/cl.hpp>
+#endif
 
 typedef struct device_opencl
 {

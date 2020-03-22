@@ -8,7 +8,11 @@
 #include <chrono>
 
 #define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
 #include <CL/cl.hpp>
+#endif
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 __kernel void increment_each(__global char *buf, ulong buf_size)

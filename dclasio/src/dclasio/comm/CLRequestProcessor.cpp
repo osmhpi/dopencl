@@ -109,8 +109,13 @@
 #include <boost/log/trivial.hpp>
 
 #define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#include <OpenCL/cl_wwu_dcl.h>
+#else
 #include <CL/cl.hpp>
 #include <CL/cl_wwu_dcl.h>
+#endif
 
 #include <cassert>
 #include <cstddef>

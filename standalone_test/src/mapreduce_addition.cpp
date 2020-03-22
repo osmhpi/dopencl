@@ -7,7 +7,11 @@
 #include <chrono>
 
 #define __CL_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl.hpp>
+#else
 #include <CL/cl.hpp>
+#endif
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 __kernel void reduce_sum( __global const uint *data, __global uint *partial_sums, __local uint *local_sums)
