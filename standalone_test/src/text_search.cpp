@@ -14,6 +14,7 @@
 #include <CL/cl.hpp>
 
 #define MAX_RESULTS 24
+#define NUM_MEASUREMENTS 1
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
@@ -145,90 +146,92 @@ int main(int argc, char *argv[])
     auto file_name = argv[1];
     auto file_data = load_file_to_vector(file_name);
 
-    // ---------------------
-    // OPENCL INITIALIZATION
-    // ---------------------
-    cl::Platform platform;
-    cl::Platform::get(&platform);
+    for (int run = 0; run < NUM_MEASUREMENTS; run++) {
+        // ---------------------
+        // OPENCL INITIALIZATION
+        // ---------------------
+        cl::Platform platform;
+        cl::Platform::get(&platform);
 
-    std::vector<cl::Device> devices;
-    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    if (devices.size() < 1)
-        throw std::runtime_error("No OpenCL devices available");
-    std::cout << "(Using " << devices.size() << " devices)\n";
+        std::vector<cl::Device> devices;
+        platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+        if (devices.size() < 1)
+            throw std::runtime_error("No OpenCL devices available");
+        std::cout << "(Using " << devices.size() << " devices)\n";
 
-    cl::Context context(devices);
-    cl::Program program(context, OPENCL_PROGRAM);
-    std::ostringstream options;
-    options << "-D MAX_RESULTS=" << MAX_RESULTS;
-    program.build(devices, options.str().c_str());
-    cl::Kernel kernel(program, "count_matches");
+        cl::Context context(devices);
+        cl::Program program(context, OPENCL_PROGRAM);
+        std::ostringstream options;
+        options << "-D MAX_RESULTS=" << MAX_RESULTS;
+        program.build(devices, options.str().c_str());
+        cl::Kernel kernel(program, "count_matches");
 
-    std::vector<device_opencl> devinfo(devices.size());
-    static constexpr size_t BLOCK_SIZE = 1048576;
-    size_t size_blocks = (file_data.size() + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE;
-    for (cl_uint d = 0; d < devices.size(); d++) {
-        device_opencl &dev = devinfo[d];
-        dev.file_data_offset = d * size_blocks / devices.size();
-        dev.file_data_size = std::min((d + 1) * size_blocks / devices.size(),
-                                      file_data.size()) - dev.file_data_offset;
-        dev.queue = cl::CommandQueue(context, devices[d]);
-        dev.buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.file_data_size);
-        dev.results = cl::Buffer(context, CL_MEM_READ_WRITE, (1 + 2 * MAX_RESULTS) * sizeof(std::uint64_t));
-    }
-
-    // --------------------
-    // DATA WRITE & KERNELS
-    // --------------------
-    auto start_time = std::chrono::steady_clock::now();
-    for (cl_uint d = 0; d < devices.size(); d++) {
-        devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
-            file_data.data() + devinfo[d].file_data_offset);
-
-        devinfo[d].queue.enqueueWriteBuffer(devinfo[d].results, CL_FALSE, 0, sizeof(std::uint64_t), &ZERO);
-
-        kernel.setArg(0, devinfo[d].buf);
-        kernel.setArg(1, static_cast<cl_ulong>(devinfo[d].file_data_size));
-        kernel.setArg(2, devinfo[d].results);
-        devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange,
-            (devinfo[d].file_data_size + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE,
-            cl::NullRange);
-    }
-
-    // --------------
-    // GATHER RESULTS
-    // --------------
-    struct match { size_t start, end; };
-    std::vector<match> matches;
-
-    std::vector<std::uint64_t> match_buf(1 + 2 * MAX_RESULTS);
-    for (cl_uint d = 0; d < devices.size(); d++) {
-        devinfo[d].queue.enqueueReadBuffer(devinfo[d].results, CL_TRUE,
-            0, (1 + 2 * MAX_RESULTS) * sizeof(std::uint64_t), match_buf.data());
-        for (size_t i = 0; i < MAX_RESULTS && i < static_cast<size_t>(match_buf[0]); i++) {
-            matches.push_back(match {
-                .start = match_buf[1 + 2 * i + 0] + devinfo[d].file_data_offset,
-                .end   = match_buf[1 + 2 * i + 1] + devinfo[d].file_data_offset,
-            });
+        std::vector<device_opencl> devinfo(devices.size());
+        static constexpr size_t BLOCK_SIZE = 1048576;
+        size_t size_blocks = (file_data.size() + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE;
+        for (cl_uint d = 0; d < devices.size(); d++) {
+            device_opencl &dev = devinfo[d];
+            dev.file_data_offset = d * size_blocks / devices.size();
+            dev.file_data_size = std::min((d + 1) * size_blocks / devices.size(),
+                                          file_data.size()) - dev.file_data_offset;
+            dev.queue = cl::CommandQueue(context, devices[d]);
+            dev.buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.file_data_size);
+            dev.results = cl::Buffer(context, CL_MEM_READ_WRITE, (1 + 2 * MAX_RESULTS) * sizeof(std::uint64_t));
         }
+
+        // --------------------
+        // DATA WRITE & KERNELS
+        // --------------------
+        auto start_time = std::chrono::steady_clock::now();
+        for (cl_uint d = 0; d < devices.size(); d++) {
+            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].buf, CL_FALSE, 0, devinfo[d].file_data_size,
+                file_data.data() + devinfo[d].file_data_offset);
+
+            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].results, CL_FALSE, 0, sizeof(std::uint64_t), &ZERO);
+
+            kernel.setArg(0, devinfo[d].buf);
+            kernel.setArg(1, static_cast<cl_ulong>(devinfo[d].file_data_size));
+            kernel.setArg(2, devinfo[d].results);
+            devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange,
+                (devinfo[d].file_data_size + BLOCK_SIZE - 1) / BLOCK_SIZE * BLOCK_SIZE,
+                cl::NullRange);
+        }
+
+        // --------------
+        // GATHER RESULTS
+        // --------------
+        struct match { size_t start, end; };
+        std::vector<match> matches;
+
+        std::vector<std::uint64_t> match_buf(1 + 2 * MAX_RESULTS);
+        for (cl_uint d = 0; d < devices.size(); d++) {
+            devinfo[d].queue.enqueueReadBuffer(devinfo[d].results, CL_TRUE,
+                0, (1 + 2 * MAX_RESULTS) * sizeof(std::uint64_t), match_buf.data());
+            for (size_t i = 0; i < MAX_RESULTS && i < static_cast<size_t>(match_buf[0]); i++) {
+                matches.push_back(match {
+                    .start = match_buf[1 + 2 * i + 0] + devinfo[d].file_data_offset,
+                    .end   = match_buf[1 + 2 * i + 1] + devinfo[d].file_data_offset,
+                });
+            }
+        }
+
+        // FIXME: If a match is cut between the data on two devices, we will not count it!
+        //        This can be solved, but is tricky to get right, so we ignore it for now
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        // ----------------
+        // VALIDATE RESULTS
+        // ----------------
+        std::cout << "Matches: " << matches.size() << "\n";
+        for (auto match : matches) {
+            std::cout << "         \"";
+            std::cout.write(&file_data[match.start], match.end - match.start);
+            std::cout << "\"\n";
+        }
+        std::cout << "Time:    " << duration_ms << " ms\n";
     }
-
-    // FIXME: If a match is cut between the data on two devices, we will not count it!
-    //        This can be solved, but is tricky to get right, so we ignore it for now
-
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-
-    // ----------------
-    // VALIDATE RESULTS
-    // ----------------
-    std::cout << "Matches: " << matches.size() << "\n";
-    for (auto match : matches) {
-        std::cout << "         \"";
-        std::cout.write(&file_data[match.start], match.end - match.start);
-        std::cout << "\"\n";
-    }
-    std::cout << "Time:    " << duration_ms << " ms\n";
 
     return EXIT_SUCCESS;
 }

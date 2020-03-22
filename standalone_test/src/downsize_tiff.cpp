@@ -22,6 +22,7 @@ typedef struct device_opencl
 } device_opencl;
 
 #define REDUCTION_FACTOR 16
+#define NUM_MEASUREMENTS 1
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 __kernel void reduce_image( __global const uint *raster, __global uint *reduced_raster, uint width, uint height)
@@ -123,104 +124,107 @@ int main(int argc, char *argv[])
     std::uint32_t reduced_height = (height + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
     std::vector<std::uint32_t> reduced_raster(reduced_width * reduced_height);
 
-    // ---------------------
-    // OPENCL INITIALIZATION
-    // ---------------------
-    cl::Platform platform;
-    cl::Platform::get(&platform);
+    for (int run = 0; run < NUM_MEASUREMENTS; run++) {
+        // ---------------------
+        // OPENCL INITIALIZATION
+        // ---------------------
+        cl::Platform platform;
+        cl::Platform::get(&platform);
 
-    std::vector<cl::Device> devices;
-    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    if (devices.size() < 1)
-        throw std::runtime_error("No OpenCL devices available");
-    std::cout << "(Using " << devices.size() << " devices)\n";
+        std::vector<cl::Device> devices;
+        platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+        if (devices.size() < 1)
+            throw std::runtime_error("No OpenCL devices available");
+        std::cout << "(Using " << devices.size() << " devices)\n";
 
-    cl::Context context(devices);
-    
-    cl::Program program(context, OPENCL_PROGRAM);
-    std::ostringstream options;
-    options << "-D REDUCTION_FACTOR=" << REDUCTION_FACTOR;
-    program.build(devices, options.str().c_str());
-    cl::Kernel kernel(program, "reduce_image");
+        cl::Context context(devices);
 
-    std::vector<device_opencl> devinfo(devices.size());
-    for (cl_uint d = 0; d < devices.size(); d++) {
-        device_opencl &dev = devinfo[d];
-        dev.first_row = (d * reduced_height / devices.size()) * REDUCTION_FACTOR;
-        dev.num_rows = (d < (devices.size() - 1)
-            ? ((d + 1) * reduced_height / devices.size()) * REDUCTION_FACTOR
-            : height) - dev.first_row;
-        std::uint32_t reduced_num_rows = (dev.num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+        cl::Program program(context, OPENCL_PROGRAM);
+        std::ostringstream options;
+        options << "-D REDUCTION_FACTOR=" << REDUCTION_FACTOR;
+        program.build(devices, options.str().c_str());
+        cl::Kernel kernel(program, "reduce_image");
 
-        dev.queue = cl::CommandQueue(context, devices[d]);
-        dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.num_rows * width * sizeof(std::uint32_t));
-        dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_num_rows * reduced_width * sizeof(std::uint32_t));
-    }
+        std::vector<device_opencl> devinfo(devices.size());
+        for (cl_uint d = 0; d < devices.size(); d++) {
+            device_opencl &dev = devinfo[d];
+            dev.first_row = (d * reduced_height / devices.size()) * REDUCTION_FACTOR;
+            dev.num_rows = (d < (devices.size() - 1)
+                ? ((d + 1) * reduced_height / devices.size()) * REDUCTION_FACTOR
+                : height) - dev.first_row;
+            std::uint32_t reduced_num_rows = (dev.num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
 
-    // ------------------------
-    // TRANSFER DATA TO DEVICES
-    // ------------------------
-    {
-        auto max_device_rows = std::max_element(devinfo.begin(), devinfo.end(),
-            [] (const device_opencl &lhs, const device_opencl &rhs) {
-                return lhs.num_rows < rhs.num_rows;
-        })->num_rows;
-        std::vector<std::uint32_t> zeros(max_device_rows * width, 0);
+            dev.queue = cl::CommandQueue(context, devices[d]);
+            dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.num_rows * width * sizeof(std::uint32_t));
+            dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_num_rows * reduced_width * sizeof(std::uint32_t));
+        }
+
+        // ------------------------
+        // TRANSFER DATA TO DEVICES
+        // ------------------------
+        {
+            auto max_device_rows = std::max_element(devinfo.begin(), devinfo.end(),
+                [] (const device_opencl &lhs, const device_opencl &rhs) {
+                    return lhs.num_rows < rhs.num_rows;
+            })->num_rows;
+            std::vector<std::uint32_t> zeros(max_device_rows * width, 0);
+            for (cl_uint d = 0; d < devinfo.size(); d++) {
+                devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
+                    devinfo[d].num_rows * width * sizeof(std::uint32_t),
+                    zeros.data());
+            }
+            for (cl_uint d = 0; d < devinfo.size(); d++) {
+                devinfo[d].queue.finish();
+            }
+        }
+
+
+        auto start_time = std::chrono::steady_clock::now();
+
         for (cl_uint d = 0; d < devinfo.size(); d++) {
             devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
                 devinfo[d].num_rows * width * sizeof(std::uint32_t),
-                zeros.data());
+                raster.data() + devinfo[d].first_row * width);
         }
+
+        // --------------
+        // SUMS ON DEVICE
+        // --------------
         for (cl_uint d = 0; d < devinfo.size(); d++) {
-            devinfo[d].queue.finish();
+            kernel.setArg(0, devinfo[d].raster_buf);
+            kernel.setArg(1, devinfo[d].reduced_raster_buf);
+            kernel.setArg(2, static_cast<cl_uint>(width));
+            kernel.setArg(3, static_cast<cl_uint>(devinfo[d].num_rows));
+
+            cl::NDRange localRange(16, 16);
+            std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+            cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
+                                    (reduced_num_rows + localRange[1] - 1) & ~(localRange[1] - 1));
+            devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
         }
+
+        // ------------------------------
+        // GATHER AND REDUCE PARTIAL SUMS
+        // ------------------------------
+        for (cl_uint d = 0; d < devinfo.size(); d++) {
+            std::uint32_t reduced_first_row = devinfo[d].first_row / REDUCTION_FACTOR;
+            std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+            devinfo[d].queue.enqueueReadBuffer(devinfo[d].reduced_raster_buf, CL_TRUE, 0,
+                reduced_num_rows * reduced_width * sizeof(std::uint32_t),
+                reduced_raster.data() + reduced_first_row * reduced_width);
+        }
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        std::cout << "Time:     " << duration_ms << " ms\n";
     }
-
-
-    auto start_time = std::chrono::steady_clock::now();
-
-    for (cl_uint d = 0; d < devinfo.size(); d++) {
-        devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
-            devinfo[d].num_rows * width * sizeof(std::uint32_t),
-            raster.data() + devinfo[d].first_row * width);
-    }
-
-    // --------------
-    // SUMS ON DEVICE
-    // --------------
-    for (cl_uint d = 0; d < devinfo.size(); d++) {
-        kernel.setArg(0, devinfo[d].raster_buf);
-        kernel.setArg(1, devinfo[d].reduced_raster_buf);
-        kernel.setArg(2, static_cast<cl_uint>(width));
-        kernel.setArg(3, static_cast<cl_uint>(devinfo[d].num_rows));
-
-        cl::NDRange localRange(16, 16);
-        std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
-        cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
-                                (reduced_num_rows + localRange[1] - 1) & ~(localRange[1] - 1));
-        devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
-    }
-
-    // ------------------------------
-    // GATHER AND REDUCE PARTIAL SUMS
-    // ------------------------------
-    for (cl_uint d = 0; d < devinfo.size(); d++) {
-        std::uint32_t reduced_first_row = devinfo[d].first_row / REDUCTION_FACTOR;
-        std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
-        devinfo[d].queue.enqueueReadBuffer(devinfo[d].reduced_raster_buf, CL_TRUE, 0,
-            reduced_num_rows * reduced_width * sizeof(std::uint32_t),
-            reduced_raster.data() + reduced_first_row * reduced_width);
-    }
-
-    auto end_time = std::chrono::steady_clock::now();
-    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 
     // ----------------
     // VALIDATE RESULTS
     // ----------------
     write_tiff(argv[2], reduced_raster, reduced_width, reduced_height);
 
-    std::cout << "Time:     " << duration_ms << " ms\n";
     return EXIT_SUCCESS;
 }
 
