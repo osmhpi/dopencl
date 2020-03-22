@@ -208,14 +208,14 @@ public:
         double latency = static_cast<double>(_start - _submit) / 1000000.0;
         double durance = static_cast<double>(_end   - _start) / 1000000000.0;
         double bandwidth = (bytes_transferred / static_cast<double>(1024 * 1024)) / durance;
-        double compressibility = static_cast<double>(_size) / static_cast<double>(bytes_transferred);
+        double compression_ratio = static_cast<double>(bytes_transferred) / static_cast<double>(_size);
 
         BOOST_LOG_TRIVIAL(debug)
                           << Operation::action_log_name << " " << bytes_transferred << " bytes\n"
                           << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n"
                           #ifdef IO_LINK_COMPRESSION
                           << "\tuncompressed size: " << _size << " bytes, "
-                          << "compressibility:" << compressibility << "\n"
+                          << "compression ratio:" << compression_ratio << "\n"
                           #endif
                           << std::flush;
     }
