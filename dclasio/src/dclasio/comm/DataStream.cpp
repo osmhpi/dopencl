@@ -83,15 +83,15 @@
 #define COMPRESSED_CHUNK_MAGIC CL842_COMPRESSED_CHUNK_MAGIC
 #define COMPRESSIBLE_THRESHOLD ((CHUNK_SIZE - sizeof(COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)))
 
-// Configuration for the number of threads to use for compression or decompression
-// If the value is 0, the hardware concurrency level (~= number of logical cores) is used
-static constexpr unsigned int DEFAULT_NUM_COMPRESS_THREADS = 0;
-static constexpr unsigned int DEFAULT_NUM_DECOMPRESS_THREADS = 0;
+static unsigned int determine_num_threads(const char *env_name) {
+    // Configuration for the number of threads to use for compression or decompression
+    const char *env_value = std::getenv(env_name);
+    if (env_value != nullptr && std::atoi(env_value) > 0) {
+        return (unsigned int)std::atoi(env_value);
+    }
 
-static unsigned int determine_num_threads(unsigned int preferred_num_threads) {
-    if (preferred_num_threads != 0)
-        return preferred_num_threads;
-
+    // If the value is not specified (or invalid),
+    // the hardware concurrency level (~= number of logical cores) is used
     static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
     if (hardware_concurrency == 0) {
         BOOST_LOG_TRIVIAL(warning) << __func__ << ": "
@@ -194,12 +194,12 @@ DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
         _socket(socket), _receiving(false), _sending(false)
 #ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
         _compress_finish_barrier(_compress_threads.size()+1),
 
-        _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
+        _decompress_threads(determine_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
         _decompress_finish_barrier(_decompress_threads.size())
 #endif
 {
@@ -207,7 +207,7 @@ DataStream::DataStream(
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
         start_decompress_threads();
         start_compress_threads();
     }
@@ -219,19 +219,19 @@ DataStream::DataStream(
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false)
 #ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_num_threads(DEFAULT_NUM_COMPRESS_THREADS)),
+        , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
         _compress_finish_barrier(_compress_threads.size()+1),
 
-        _decompress_threads(determine_num_threads(DEFAULT_NUM_DECOMPRESS_THREADS)),
+        _decompress_threads(determine_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
         _decompress_finish_barrier(_decompress_threads.size())
 #endif
 {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
         start_decompress_threads();
         start_compress_threads();
     }
@@ -240,7 +240,7 @@ DataStream::DataStream(
 
 DataStream::~DataStream() {
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
         {
             std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
             _decompress_queue.push(decompress_message_quit());
@@ -398,7 +398,7 @@ void DataStream::start_read(readq_type *readq) {
 
     bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
         can_use_io_link_compression = true;
     }
 #endif
@@ -667,7 +667,7 @@ void DataStream::start_write(writeq_type *writeq) {
 
     bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
         can_use_io_link_compression = true;
     }
 #endif
