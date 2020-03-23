@@ -7,8 +7,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Build sample program
-COPY standalone_tests /tmp/dopencl/standalone_tests
-WORKDIR /tmp/dopencl/standalone_tests
+COPY standalone_test /tmp/dopencl/standalone_test
+WORKDIR /tmp/dopencl/standalone_test/src
 RUN g++ test_explicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_explicit_copy_cl \
  && g++ test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_implicit_copy_cl
 
