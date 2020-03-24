@@ -116,6 +116,12 @@ static unsigned int determine_num_threads(const char *env_name) {
 #endif
 #endif
 
+// If INDEPTH_TRACE is defined, more traces and statistics are generated
+//#define INDEPTH_TRACE
+#ifdef INDEPTH_TRACE
+#include <iostream> // TODOXXX: Needed to work around Boost.Log issues, see std::cerr usages in this file
+#endif
+
 // If USE_SENTINELS is defined, special marker sequences are included and checked before/after each data transfer
 // If marker sequences in a read operation don't match those in each write operation, an assertion will be triggered
 // This is useful as a "fail fast" for stream desynchronization, for bugs such as race conditions
@@ -394,6 +400,12 @@ void DataStream::schedule_read(readq_type *readq) {
 
 void DataStream::start_read(readq_type *readq) {
     auto& read = readq->front();
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "Start read of size " << read->size()
+        << std::endl;
+#endif
     read->onStart();
 
     bool can_use_io_link_compression = false;
@@ -516,6 +528,14 @@ void DataStream::start_decompress_threads() {
 }
 
 void DataStream::loop_decompress_thread(size_t thread_id) {
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "Start decompression thread with id " << thread_id
+        << std::endl;
+    size_t stat_handled_blocks = 0;
+#endif
+
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_FINALIZE = 1;
     static constexpr int CHUNKVARIANT_WHICH_MESSAGE_QUIT = 2;
@@ -584,6 +604,9 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
             }
 #else
             lock.unlock();
+#ifdef INDEPTH_TRACE
+            stat_handled_blocks++;
+#endif
             auto chunk = std::move(boost::get<decompress_message_decompress>(chunkVariant));
             auto destination = static_cast<uint8_t *>(chunk.destination);
 
@@ -604,6 +627,15 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
             assert(0);
         }
     }
+#ifdef INDEPTH_TRACE
+    // TODOXXX: We should use Boost.Log here, but this code can be called after application exit, which causes a crash
+    // https://www.boost.org/doc/libs/1_72_0/libs/log/doc/html/log/rationale/init_term_support.html
+    std::unique_lock<std::mutex> fixme_avoid_iostream_interleave(_decompress_queue_mutex);
+    std::cerr
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "End decompression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
+        << std::endl;
+#endif
 }
 #endif
 
@@ -613,6 +645,12 @@ void DataStream::handle_read(
         size_t bytes_transferred) {
     // current read is first element in readq, so readq must be non-empty
     assert(readq /* ouch! */ && !readq->empty());
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "End read of size " << readq->front()->size()
+        << std::endl;
+#endif
     readq->front()->onFinish(ec, bytes_transferred);
     readq->pop();
 
@@ -656,6 +694,12 @@ void DataStream::schedule_write(writeq_type *writeq) {
 
 void DataStream::start_write(writeq_type *writeq) {
     auto& write = writeq->front();
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "Start write of size " << write->size()
+        << std::endl;
+#endif
     write->onStart();
     /* TODO *Move* writeq through (i.e., into and out of) lambda capture
      * In C++14 this should be possible by generalized lambda captures as follows:
@@ -774,12 +818,19 @@ void DataStream::start_compress_threads() {
 }
 
 void DataStream::loop_compress_thread(size_t thread_id) {
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "Start compression thread with id " << thread_id
+        << std::endl;
+    size_t stat_handled_blocks = 0;
+#endif
     while (true) {
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
             _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
             if (_compress_quit)
-                return;
+                break;
         }
 
         _compress_start_barrier.wait();
@@ -794,6 +845,10 @@ void DataStream::loop_compress_thread(size_t thread_id) {
             if (offset >= last_valid_offset) {
                 break;
             }
+
+#ifdef INDEPTH_TRACE
+            stat_handled_blocks++;
+#endif
 
             auto source = static_cast<const uint8_t *>(write->ptr()) + offset;
 
@@ -847,6 +902,16 @@ void DataStream::loop_compress_thread(size_t thread_id) {
 
         _compress_finish_barrier.wait();
     }
+
+#ifdef INDEPTH_TRACE
+    // TODOXXX: We should use Boost.Log here, but this code can be called after application exit, which causes a crash
+    // https://www.boost.org/doc/libs/1_72_0/libs/log/doc/html/log/rationale/init_term_support.html
+    std::unique_lock<std::mutex> fixme_avoid_iostream_interleave(_decompress_queue_mutex);
+    std::cerr
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "End compression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
+        << std::endl;
+#endif
 }
 #endif
 
@@ -856,6 +921,12 @@ void DataStream::handle_write(
         size_t bytes_transferred) {
     // current write is first element in writeq, so writeq must be non-empty
     assert(writeq /* ouch! */ && !writeq->empty());
+#ifdef INDEPTH_TRACE
+    BOOST_LOG_TRIVIAL(debug)
+        << "(DataStream to " << _remote_endpoint << ") "
+        << "End write of size " << writeq->front()->size()
+        << std::endl;
+#endif
     writeq->front()->onFinish(ec, bytes_transferred);
     writeq->pop();
 
