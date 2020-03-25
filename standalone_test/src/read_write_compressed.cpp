@@ -191,11 +191,13 @@ int main(int argc, char *argv[])
             end_time = std::chrono::steady_clock::now();
         }
         auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / NUM_TRANSFERS;
+        auto bandwidth_mbps = (static_cast<double>(file_data.size()) / (1024.0 * 1024.0)) / (static_cast<double>(duration_ms) / 1000.0);
 
         // ----------------
         // VALIDATE RESULTS
         // ----------------
         std::cout << "Time:  " << duration_ms << " ms (average over " << NUM_TRANSFERS << " transfers)\n";
+        std::cout << "Bandwidth:  " << bandwidth_mbps << " MB/s (average over " << NUM_TRANSFERS << " transfers)\n";
     }
 
     write_file_from_vector(output_file_name, file_data);
