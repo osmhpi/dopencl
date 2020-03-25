@@ -4,6 +4,7 @@
 #include <string>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <chrono>
 #include <memory>
@@ -26,7 +27,6 @@ typedef struct device_opencl
 } device_opencl;
 
 #define REDUCTION_FACTOR 16
-#define NUM_MEASUREMENTS 1
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 __kernel void reduce_image( __global const uint *raster, __global uint *reduced_raster, uint width, uint height)
@@ -128,7 +128,12 @@ int main(int argc, char *argv[])
     std::uint32_t reduced_height = (height + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
     std::vector<std::uint32_t> reduced_raster(reduced_width * reduced_height);
 
-    for (int run = 0; run < NUM_MEASUREMENTS; run++) {
+    int num_measurements = 1;
+    const char *num_measurements_env = std::getenv("DCL_NUM_MEASUREMENTS");
+    if (num_measurements_env != nullptr && std::atoi(num_measurements_env) > 0)
+        num_measurements = std::atoi(num_measurements_env);
+
+    for (int run = 0; run < num_measurements; run++) {
         // ---------------------
         // OPENCL INITIALIZATION
         // ---------------------

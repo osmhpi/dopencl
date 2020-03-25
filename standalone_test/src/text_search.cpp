@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstring>
 #include <cstdint>
+#include <cstdlib>
 #include <stdexcept>
 #include <algorithm>
 #include <chrono>
@@ -18,7 +19,6 @@
 #endif
 
 #define MAX_RESULTS 24
-#define NUM_MEASUREMENTS 1
 
 static const std::string OPENCL_PROGRAM = R"V0G0N(
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
@@ -150,7 +150,12 @@ int main(int argc, char *argv[])
     auto file_name = argv[1];
     auto file_data = load_file_to_vector(file_name);
 
-    for (int run = 0; run < NUM_MEASUREMENTS; run++) {
+    int num_measurements = 1;
+    const char *num_measurements_env = std::getenv("DCL_NUM_MEASUREMENTS");
+    if (num_measurements_env != nullptr && std::atoi(num_measurements_env) > 0)
+        num_measurements = std::atoi(num_measurements_env);
+
+    for (int run = 0; run < num_measurements; run++) {
         // ---------------------
         // OPENCL INITIALIZATION
         // ---------------------
