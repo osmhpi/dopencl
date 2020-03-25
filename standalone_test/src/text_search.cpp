@@ -128,7 +128,7 @@ static std::vector<char> load_file_to_vector(const char *file_name) {
     std::ifstream file(file_name, std::ifstream::ate | std::ifstream::binary);
     file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 
-    assert(file.tellg() < SIZE_MAX);
+    assert(file.tellg() == static_cast<std::streampos>(static_cast<size_t>(file.tellg())));
     size_t size = static_cast<size_t>(file.tellg());
     file.seekg(0);
 
