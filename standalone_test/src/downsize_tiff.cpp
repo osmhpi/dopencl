@@ -8,6 +8,7 @@
 #include <sstream>
 #include <chrono>
 #include <memory>
+#include <fstream>
 #include <tiffio.h>
 
 #define __CL_ENABLE_EXCEPTIONS
@@ -64,20 +65,47 @@ struct TIFFFileDeleter {
     void operator()(TIFF *tif) { TIFFClose(tif); }
 };
 
-static std::vector<std::uint32_t> read_tiff(const char *tiff_file_name,
+static std::vector<std::uint32_t> read_tiff(const std::string &tiff_file_name,
     std::uint32_t &width, std::uint32_t &height)
 {
-    std::unique_ptr<TIFF, TIFFFileDeleter> tif(TIFFOpen(tiff_file_name, "r"));
+    // If DCL_CACHE_TIFF is set, the uncompressed image data will be written as a file,
+    // and used in subsequent executions of this program with the same image file
+    // This can be useful for offsetting libtiff's inhability to do multi-threaded decompression,
+    // and if the underlying media is fast (e.g. a SSD or RAM disk)
+    auto use_cache = std::getenv("DCL_CACHE_TIFF") != nullptr;
+
+    if (use_cache) {
+        std::ifstream tiff_cache_file(tiff_file_name + ".cache", std::ifstream::in | std::ifstream::binary);
+        if (tiff_cache_file.good()) {
+            tiff_cache_file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+            tiff_cache_file.read(reinterpret_cast<char *>(&width), sizeof(width));
+            tiff_cache_file.read(reinterpret_cast<char *>(&height), sizeof(height));
+            std::vector<std::uint32_t> raster(width * height);
+            tiff_cache_file.read(reinterpret_cast<char *>(raster.data()),
+                                 static_cast<std::streamsize>(raster.size() * sizeof(raster[0])));
+            return raster;
+        }
+    }
+
+    std::unique_ptr<TIFF, TIFFFileDeleter> tif(TIFFOpen(tiff_file_name.c_str(), "r"));
     if (!tif)
         throw std::runtime_error("Can't open the input TIFF file");
 
     TIFFGetField(tif.get(), TIFFTAG_IMAGEWIDTH, &width);
     TIFFGetField(tif.get(), TIFFTAG_IMAGELENGTH, &height);
 
-    size_t npixels = width * height;
-    std::vector<std::uint32_t> raster(npixels);
+    std::vector<std::uint32_t> raster(width * height);
     if (!TIFFReadRGBAImage(tif.get(), width, height, raster.data(), 0))
         throw std::runtime_error("Can't read the input TIFF file");
+
+    if (use_cache) {
+        std::ofstream tiff_cache_file(tiff_file_name + ".cache", std::ofstream::out | std::ofstream::binary);
+        tiff_cache_file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+        tiff_cache_file.write(reinterpret_cast<const char *>(&width), sizeof(width));
+        tiff_cache_file.write(reinterpret_cast<const char *>(&height), sizeof(height));
+        tiff_cache_file.write(reinterpret_cast<const char *>(raster.data()),
+                              static_cast<std::streamsize>(raster.size() * sizeof(raster[0])));
+    }
 
     return raster;
 }
@@ -100,7 +128,7 @@ static void write_tiff(const char *tiff_file_name,
     TIFFSetField(tif.get(), TIFFTAG_EXTRASAMPLES, 1, &extras);
     TIFFSetField(tif.get(), TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif.get(), width * sizeof(std::uint32_t)));
 
-    std::vector<std::uint8_t> buf(TIFFScanlineSize(tif.get()));
+    std::vector<std::uint8_t> buf(static_cast<size_t>(TIFFScanlineSize(tif.get())));
     for (std::uint32_t row = 0; row < height; row++) {
         memcpy(buf.data(), &raster[(height-row-1)*width], sizeof(std::uint32_t) * width);
         if (TIFFWriteScanline(tif.get(), buf.data(), row, 0) < 0)
