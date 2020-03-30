@@ -1,0 +1,13 @@
+Intel:
+* lib842 BLOCK_SIZE: 4096
+* NUM_CHUNKS_PER_NETWORK_BLOCK = 64 (NETWORK_BLOCK_SIZE=256K)
+* SUPERBLOCK_MAX_SIZE = 1 << 28 (256MiB)
+
+NVIDIA:
+* lib842 BLOCK_SIZE: 16384
+* NUM_CHUNKS_PER_NETWORK_BLOCK = 32 (NETWORK_BLOCK_SIZE=512K)
+* SUPERBLOCK_MAX_SIZE = 1 << 29 (512MiB)
+
+TODOXXX: Make all those values more easily tunable, e.g.:
+* By allowing run-time changes through e.g. an envvar if there's no big performance hit
+* By adding a build directive to select those parameters at once.
