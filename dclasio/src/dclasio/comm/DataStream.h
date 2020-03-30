@@ -53,6 +53,8 @@
 #include <boost/variant.hpp>
 #include <boost/thread/barrier.hpp>
 
+#include <cl842.hpp>
+
 #include <cstddef>
 #include <list>
 #include <memory>
@@ -192,22 +194,34 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    struct decompress_message_decompress {
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 1;
+    // Those constants must be synchronized with the constants in lib842 (cl842)
+    // for the integration with OpenCL-based decompression to work
+    static constexpr size_t CHUNK_SIZE = CL842_CHUNK_SIZE;
+    static constexpr size_t COMPRESSIBLE_THRESHOLD = ((CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
+    // ---
+    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * CHUNK_SIZE;
+
+    struct decompress_chunk {
         std::vector<uint8_t> compressed_data;
         void *destination;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
-        decompress_message_decompress() = default;
-        decompress_message_decompress(const decompress_message_decompress &) = delete;
-        decompress_message_decompress& operator=(const decompress_message_decompress &) = delete;
-        decompress_message_decompress(decompress_message_decompress &&) = default;
-        decompress_message_decompress& operator=(decompress_message_decompress &&) = default;
+        decompress_chunk() = default;
+        decompress_chunk(const decompress_chunk &) = delete;
+        decompress_chunk& operator=(const decompress_chunk &) = delete;
+        decompress_chunk(decompress_chunk &&) = default;
+        decompress_chunk& operator=(decompress_chunk &&) = default;
+    };
+
+    struct decompress_message_decompress_block {
+        std::array<decompress_chunk, NUM_CHUNKS_PER_NETWORK_BLOCK> chunks;
     };
     struct decompress_message_finalize {
         readq_type *readq;
     };
     struct decompress_message_quit {};
-    using decompress_message_t = boost::variant<decompress_message_decompress,
+    using decompress_message_t = boost::variant<decompress_message_decompress_block,
                                                 decompress_message_finalize,
                                                 decompress_message_quit>;
 
@@ -231,15 +245,15 @@ private:
     // ** Variables related to the current asynchronous I/O read operation **
     // Total bytes transferred through the network by current read (for statistical purposes)
     size_t _read_io_total_bytes_transferred;
-    // Number of full chunks remaining to transfer
-    size_t _read_io_num_chunks_remaining;
+    // Number of network blocks remaining to transfer
+    size_t _read_io_num_blocks_remaining;
     // Offset into the destination buffer where the data associated
     // with the current read operation will go (after decompression)
     size_t _read_io_destination_offset;
     // Size of the current read operation
-    size_t _read_io_buffer_size;
+    std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
     // Target buffer of the current read operation
-    std::vector<uint8_t> _read_io_buffer;
+    std::array<std::vector<uint8_t>, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffers;
 
     // A custom deleter for std::unique_ptr<const uint8_t[]> that conditionally deletes a value
     // If is_owner = true, the pointer owns the value (works like a regular std::unique_ptr)
@@ -248,6 +262,7 @@ private:
     class ConditionalOwnerDeleter {
         bool is_owner;
     public:
+        ConditionalOwnerDeleter() : is_owner(true) {}
         explicit ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
         void operator()(const uint8_t *ptr)
         {
@@ -257,12 +272,13 @@ private:
         }
     };
 
-    struct write_chunk {
-        std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter> data;
+    struct write_block {
         // Offset into the source buffer where the data associated with the chunk comes from
         size_t source_offset;
+        // (Possibly compressed) chunk data
+        std::array<std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>, NUM_CHUNKS_PER_NETWORK_BLOCK> datas;
         // (Possibly compressed) chunk size
-        size_t size;
+        std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> sizes;
     };
 
     // ** Variables related to the compression thread (associated to writes) **
@@ -291,13 +307,13 @@ private:
     // ** Variables related to the current asynchronous I/O write operation **
     // Total bytes transferred through the network by current write (for statistical purposes)
     size_t _write_io_total_bytes_transferred;
-    // Number of full chunks remaining to transfer
-    size_t _write_io_num_chunks_remaining;
+    // Number of network blocks remaining to transfer
+    size_t _write_io_num_blocks_remaining;
     // Mutex for protecting concurrent accesses to
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
-    std::queue<write_chunk> _write_io_queue;
+    std::queue<write_block> _write_io_queue;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;
 #endif
