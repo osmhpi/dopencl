@@ -194,7 +194,7 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 1;
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
     // Those constants must be synchronized with the constants in lib842 (cl842)
     // for the integration with OpenCL-based decompression to work
     static constexpr size_t CHUNK_SIZE = CL842_CHUNK_SIZE;
