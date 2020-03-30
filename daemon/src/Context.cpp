@@ -198,7 +198,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 #endif
 
     if (can_use_cl_io_link_compression) {
-        static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
 
         std::vector<cl::Event> mapEvents(num_superblocks),

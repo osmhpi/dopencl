@@ -294,7 +294,7 @@ void DataStream::disconnect() {
 std::shared_ptr<DataReceipt> DataStream::read(
         size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     // START UBER HACK
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
     if (size > SUPERBLOCK_MAX_SIZE) {
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
         std::shared_ptr<DataReceipt> callback;
@@ -329,7 +329,7 @@ std::shared_ptr<DataReceipt> DataStream::read(
 std::shared_ptr<DataSending> DataStream::write(
         size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
     // START UBER HACK
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
     if (size > SUPERBLOCK_MAX_SIZE) {
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
         std::shared_ptr<DataSending> callback;
