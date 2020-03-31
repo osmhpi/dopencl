@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
             std::cout.write(&file_data[match.start], match.end - match.start);
             std::cout << "\"\n";
         }
-        std::cout << "Time:    " << duration_ms << " ms\n";
+        std::cout << "Time:    " << duration_ms << " ms\n" << std::flush;
     }
 
     return EXIT_SUCCESS;

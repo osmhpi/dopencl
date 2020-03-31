@@ -197,7 +197,7 @@ int main(int argc, char *argv[])
         // VALIDATE RESULTS
         // ----------------
         std::cout << "Time:      " << duration_ms << " ms (average over " << NUM_TRANSFERS << " transfers)\n";
-        std::cout << "Bandwidth: " << bandwidth_mbps << " MB/s (average over " << NUM_TRANSFERS << " transfers)\n";
+        std::cout << "Bandwidth: " << bandwidth_mbps << " MB/s (average over " << NUM_TRANSFERS << " transfers)\n" << std::flush;
     }
 
     write_file_from_vector(output_file_name, file_data);
