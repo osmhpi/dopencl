@@ -1,7 +1,5 @@
-/* Tests the download of buffers in a compressed state and their upload
- * from a compressed state.
- * This test requires IO_LINK_COMPRESSION in dOpenCL to be enabled!
- * It will not work on real hardware! */
+/* Allows testing and benchmarking simple send/receive operations from/to multiple nodes,
+ * as well the download and upload of buffers in a pre-compressed state. */
 #include <iostream>
 #include <vector>
 #include <fstream>
@@ -115,6 +113,9 @@ int main(int argc, char *argv[])
 
         std::chrono::time_point<std::chrono::steady_clock> start_time, end_time;
         if (strcmp(mode, "compress") == 0) {
+            // NB: This option requires IO_LINK_COMPRESSION in dOpenCL to be enabled!
+            // It will not work on real hardware!
+
             // Send data to device, not timed
             for (const auto &dev : devinfo) {
                 dev.queue.enqueueWriteBuffer(dev.buf, CL_FALSE, 0, dev.file_data_size,
@@ -134,6 +135,9 @@ int main(int argc, char *argv[])
             for (const auto &dev : devinfo) { dev.queue.finish(); }
             end_time = std::chrono::steady_clock::now();
         } else if (strcmp(mode, "decompress") == 0) {
+            // NB: This option requires IO_LINK_COMPRESSION in dOpenCL to be enabled!
+            // It will not work on real hardware!
+
             // Send data to device, timed (Host transfers only, compute node decompresses)
             start_time = std::chrono::steady_clock::now();
             for (size_t m = 0; m < NUM_TRANSFERS; m++) {
