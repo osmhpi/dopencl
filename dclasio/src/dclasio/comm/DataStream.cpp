@@ -418,13 +418,13 @@ void DataStream::start_read(readq_type *readq) {
                     [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
                             handle_read(readq, ec, bytes_transferred); });
     } else {
-        #ifdef IO_LINK_COMPRESSION
+#ifdef IO_LINK_COMPRESSION
         _decompress_working_thread_count = 0;
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = read->size() / NETWORK_BLOCK_SIZE;
 
         read_next_compressed_chunk(readq, read);
-        #endif
+#endif
     }
 }
 

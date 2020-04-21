@@ -74,9 +74,9 @@ int main(void)
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
     if (devices.size() < 1)
         throw std::runtime_error("No OpenCL devices available");
-    #if 0 // For testing with a single device
+#if 0 // For testing with a single device
     devices = std::vector<cl::Device>(4, devices[0]);
-    #endif
+#endif
     std::cout << "(Using " << devices.size() << " devices)\n";
 
     if ((BUF_SIZE % WORKGROUP_SIZE) != 0 || ((BUF_SIZE / WORKGROUP_SIZE) % devices.size()) != 0) {

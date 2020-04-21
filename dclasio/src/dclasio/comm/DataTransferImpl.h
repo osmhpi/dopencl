@@ -213,10 +213,10 @@ public:
         BOOST_LOG_TRIVIAL(debug)
                           << Operation::action_log_name << " " << bytes_transferred << " bytes\n"
                           << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n"
-                          #ifdef IO_LINK_COMPRESSION
+#ifdef IO_LINK_COMPRESSION
                           << "\tuncompressed size: " << _size << " bytes, "
                           << "compression ratio:" << compression_ratio << "\n"
-                          #endif
+#endif
                           << std::flush;
     }
 

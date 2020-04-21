@@ -240,7 +240,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             /* Enqueue unmap buffer (implicit upload) */
             VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
-            #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
             // Rounds down (partial chunks are not compressed by DataStream)
             size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
@@ -253,7 +253,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             } else {
                 decompressEvents[i] = unmapEvents[i];
             }
-            #endif
+#endif
         }
 
         
