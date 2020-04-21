@@ -70,10 +70,9 @@
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 // When using in-place OpenCL-based compression, we need to over-allocate some space
 // at the end of the buffer to allow the lookahead to read a bit past the bufer
-#include <cl842.hpp>
-#define BUFFER_OVERALLOCATE_AMOUNT (CL842_CHUNK_SIZE/8)
+static constexpr size_t BUFFER_OVERALLOCATE_AMOUNT = dcl::DataTransfer::COMPR842_CHUNK_SIZE / 8;
 #else
-#define BUFFER_OVERALLOCATE_AMOUNT 0
+static constexpr size_t BUFFER_OVERALLOCATE_AMOUNT = 0;
 #endif
 
 /* ****************************************************************************/

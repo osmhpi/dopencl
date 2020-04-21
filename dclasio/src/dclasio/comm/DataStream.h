@@ -53,7 +53,9 @@
 #include <boost/variant.hpp>
 #include <boost/thread/barrier.hpp>
 
-#include <cl842.hpp>
+#ifdef IO_LINK_COMPRESSION
+#include <cl842.h>
+#endif
 
 #include <cstddef>
 #include <list>
@@ -195,12 +197,12 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
+    static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
+    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * CHUNK_SIZE;
     // Those constants must be synchronized with the constants in lib842 (cl842)
     // for the integration with OpenCL-based decompression to work
-    static constexpr size_t CHUNK_SIZE = CL842_CHUNK_SIZE;
     static constexpr size_t COMPRESSIBLE_THRESHOLD = ((CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
     // ---
-    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * CHUNK_SIZE;
 
     struct decompress_chunk {
         std::vector<uint8_t> compressed_data;

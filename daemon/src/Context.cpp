@@ -144,7 +144,10 @@ Context::Context(
     // TODOXXX: This should not really be a shared_ptr,
     // but how should we initialize this at the beginning of the constructor instead?
     _cl842DeviceDecompressor = std::make_shared<CL842DeviceDecompressor>(
-            _context, nativeDevices, CL842_CHUNK_SIZE, CL842InputFormat::INPLACE_COMPRESSED_CHUNKS);
+            _context, nativeDevices,
+            dcl::DataTransfer::COMPR842_CHUNK_SIZE,
+            dcl::DataTransfer::COMPR842_CHUNK_SIZE,
+            CL842InputFormat::INPLACE_COMPRESSED_CHUNKS);
 #endif
 }
 
@@ -198,6 +201,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 #endif
 
     if (can_use_cl_io_link_compression) {
+#ifdef IO_LINK_COMPRESSION
         static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
 
@@ -237,12 +241,14 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
             #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
-            size_t chunksSize = superblock_size & ~(CL842_CHUNK_SIZE - 1); // Rounds down (partial chunks are not compressed by DataStream)
+            // Rounds down (partial chunks are not compressed by DataStream)
+            size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 VECTOR_CLASS<cl::Event> decompressWaitList = {unmapEvents[i]};
                 _cl842DeviceDecompressor->decompress(commandQueue,
-                                                     buffer, superblock_offset, chunksSize,
-                                                     buffer, superblock_offset, chunksSize,
+                                                     buffer, superblock_offset, chunksSize, nullptr,
+                                                     buffer, superblock_offset, chunksSize, nullptr,
+                                                     nullptr,
                                                      &decompressWaitList, &decompressEvents[i]);
             } else {
                 decompressEvents[i] = unmapEvents[i];
@@ -253,6 +259,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
         
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
+#endif
     } else {
         /* Enqueue map buffer */
         void *ptr = commandQueue.enqueueMapBuffer(

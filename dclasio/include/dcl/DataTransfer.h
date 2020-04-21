@@ -88,6 +88,7 @@ public:
 
 #ifdef IO_LINK_COMPRESSION
     // START UBER HACK
+    static constexpr size_t COMPR842_CHUNK_SIZE = 65536;
     static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
     // END UBER HACK
 #endif

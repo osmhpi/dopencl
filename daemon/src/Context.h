@@ -58,7 +58,7 @@
 #endif
 
 #ifdef IO_LINK_COMPRESSION
-#include <cl842.hpp>
+#include <cl842.h>
 #endif
 
 #include <cstddef>
