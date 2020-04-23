@@ -187,7 +187,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     bool can_use_cl_io_link_compression = false;
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
-    if (size > 0 && std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (size > 0 && is_io_link_compression_enabled()) {
         if (offset != 0) {
             // TODOXXX It should be possible to handle nonzero offset cases here by passing this
             //         information to lib842, at least for 8-byte aligned cases

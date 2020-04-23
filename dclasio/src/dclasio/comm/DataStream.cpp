@@ -228,7 +228,7 @@ DataStream::DataStream(
     _remote_endpoint = _socket->remote_endpoint();
 
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (is_io_link_compression_enabled()) {
         start_decompress_threads();
         start_compress_threads();
     }
@@ -252,7 +252,7 @@ DataStream::DataStream(
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (is_io_link_compression_enabled()) {
         start_decompress_threads();
         start_compress_threads();
     }
@@ -261,7 +261,7 @@ DataStream::DataStream(
 
 DataStream::~DataStream() {
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (is_io_link_compression_enabled()) {
         {
             std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
             _decompress_queue.push(decompress_message_quit());
@@ -429,7 +429,7 @@ void DataStream::start_read(readq_type *readq) {
 
     bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (is_io_link_compression_enabled()) {
         can_use_io_link_compression = true;
     }
 #endif
@@ -717,7 +717,7 @@ void DataStream::start_write(writeq_type *writeq) {
 
     bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
-    if (std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr) {
+    if (is_io_link_compression_enabled()) {
         can_use_io_link_compression = true;
     }
 #endif
