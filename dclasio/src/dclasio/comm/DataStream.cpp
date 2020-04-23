@@ -96,18 +96,39 @@ static unsigned int determine_num_threads(const char *env_name) {
     return hardware_concurrency;
 }
 
-#include <queue>
-
-#ifndef USE_HW_IO_LINK_COMPRESSION
 #include <sw842.h>
-#define lib842_compress optsw842_compress
-#define lib842_decompress optsw842_decompress
-#else
+#ifdef USE_HW_IO_LINK_COMPRESSION
 // TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
 #include <hw842.h>
-#define lib842_compress hw842_compress
-#define lib842_decompress hw842_decompress
 #endif
+
+#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+static bool is_hw_io_link_compression_enabled() {
+    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
+}
+#endif
+
+static int lib842_compress(const uint8_t *in, size_t ilen,
+                           uint8_t *out, size_t *olen) {
+#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+    if (is_hw_io_link_compression_enabled())
+        return hw842_compress(in ,ilen, out, olen);
+#endif
+
+    return optsw842_compress(in, ilen, out, olen);
+}
+
+static int lib842_decompress(const uint8_t *in, size_t ilen,
+                             uint8_t *out, size_t *olen) {
+#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+    if (is_hw_io_link_compression_enabled())
+        return hw842_decompress(in ,ilen, out, olen);
+#endif
+
+    return optsw842_decompress(in, ilen, out, olen);
+}
+
 #endif
 
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
