@@ -100,9 +100,10 @@ static unsigned int determine_num_threads(const char *env_name) {
 
 #ifndef USE_HW_IO_LINK_COMPRESSION
 #include <sw842.h>
-#define lib842_compress sw842_compress
-#define lib842_decompress sw842_decompress
+#define lib842_compress optsw842_compress
+#define lib842_decompress optsw842_decompress
 #else
+// TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
 #include <hw842.h>
 #define lib842_compress hw842_compress
 #define lib842_decompress hw842_decompress
