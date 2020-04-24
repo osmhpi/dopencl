@@ -104,13 +104,6 @@ the list of preloaded libraries in the LD_PRELOAD environment variable.
 Known issues
 ------------
 
-* GNU C++ linker: undefined reference to `pthread_*'
-
-Although dOpenCL does not use POSIX threads directly (but C++11 threads)
-compilers may use POSIX threads to implement C++11 threads. This is the case for
-the GNU C++ compiler, which requires the '-pthread' compiler option in order to
-compile dOpenCL. This option can be set using the CMAKE_CXXFLAGS setting in CMake.
-
 * CMake: Boost_DIR always is set to Boost_DIR-NOTFOUND
 
 This is a known bug of the FindBoost CMake module (see
