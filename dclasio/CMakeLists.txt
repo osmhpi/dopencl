@@ -4,6 +4,9 @@ project(dOpenCLlib)
 
 option(BUILD_SHARED_LIBS "Build shared library" ON)
 
+# search for thread implementation (required for using C++'s std::thread)
+find_package(Threads REQUIRED)
+
 # search for Boost System Library (required by Boost.Asio) & Boost Log Library
 find_package(Boost 1.35.0 COMPONENTS system log log_setup REQUIRED)
 
@@ -29,7 +32,7 @@ link_directories(${Boost_LIBRARY_DIRS})
 
 add_library(dcl ${DCL_SOURCES} ${DCLASIO_SOURCES})
 target_link_libraries(dcl
-	${Boost_LIBRARIES})
+	${Boost_LIBRARIES} Threads::Threads)
 
 if (ENABLE_IO_LINK_COMPRESSION)
 	target_link_libraries(dcl 842)
