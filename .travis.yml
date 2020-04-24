@@ -1,0 +1,27 @@
+---
+language: cpp
+matrix:
+  include:
+    # Ubuntu 18.04 + gcc
+    - os: linux
+      dist: bionic
+      compiler: gcc
+    # Ubuntu 18.04 + clang
+    - os: linux
+      dist: bionic
+      compiler: clang
+    # Ubuntu 16.04 + gcc
+    - os: linux
+      dist: xenial
+      compiler: gcc
+    # Ubuntu 16.04 + clang
+    - os: linux
+      dist: xenial
+      compiler: clang
+before_install:
+  - sudo apt-get -y install cmake make g++ libboost-dev libboost-program-options-dev libboost-system-dev libboost-log-dev opencl-headers ocl-icd-opencl-dev
+script:
+  - mkdir build && cd build
+  - cmake -DCMAKE_BUILD_TYPE=Release ..
+  - make
+# TODOXXX: Run tests here (unstable for now)
