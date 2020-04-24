@@ -145,6 +145,68 @@ restarted.
 If the DCL_LOG_TO_CONSOLE environment variable is set, the log is output
 to the console, instead of written to a file.
 
+I/O Link Compression
+--------------------
+
+I/O Link Compression enables dOpenCL's transfers between the host and the nodes
+to be compressed on-the-fly, i.e. at the time when the transfer is done.
+This can provide a significant speed-up for data transfers if the network
+transfer speed becomes a limiting performance bottleneck.
+
+I/O Link Compression is implemented using the 842 Compression Algorithm,as
+implemented in lib842. lib842 provides optimized software, GPU and hardware
+accelerator implementations for 842 Compression, which can efficiently provide
+speeds sufficient to saturate moderate-to-high speed networks (e.g. 10Gbit/s).
+
+More details about this algorithm and those implementations are available in
+the lib842 repository at https://github.com/joanbm/lib842.
+lib842 is provided as a submodule of the dOpenCL repository, so its sources
+are automatically pulled in when a clone including submodules is done
+(git clone --recurse-submodules).
+
+I/O Link Compression is transparent from the application's point of view,
+i.e. no re-compilation or code changes to the application code are necessary
+to take advantage of it.
+However, note that both the dOpenCL host and daemons must be compiled with I/O
+Link Compression support, in order to be able to work correctly together.
+
+The following compile-time flags are available regarding I/O Link Compression.
+Those flags can be set when building using CMake:
+* ENABLE_IO_LINK_COMPRESSION: Enable I/O Link Compression (using lib842) for
+                              transfers
+* USE_HW_IO_LINK_COMPRESSION: Use in-kernel and potentially hardware-accelerated
+                              842 implementation (for both compression and
+                              decompression, using the cryptodev kernel module)
+* USE_CL_IO_LINK_COMPRESSION: Use OpenCL GPU-accelerated 842 implementation
+                              implementation (WIP, currently broken)
+                              (Since lib842 currently only provides a 842 GPU
+                              decompressor, this only affects decompression)
+* USE_CL_IO_LINK_COMPRESSION_INPLACE: Use OpenCL GPU-accelerated, in-place 842
+                                      implementation implementation
+                                      (Since lib842 currently only provides a
+                                      842 GPU decompressor, this only affects
+                                      decompression)
+
+Once dOpenCL has been built with I/O Link Compression, it will be used by
+default using the specified configuration and reasonably sane defaults.
+However, the behaviour can be changed at runtime for testing or performance
+tuning using the following environment variables:
+* DCL_DISABLE_IO_LINK_COMPRESSION=(any): Disables I/O Link Compression (after it
+                                         has been built in). Both the host and
+                                         all the daemons must specify this
+                                         environment variable, if used.
+* DCL_DISABLE_IO_LINK_COMPRESSION=(any): Disables the in-kernel and potentially
+                                         hardware-accelerated 842 implementation
+                                         (after if it has been built in,
+                                         and even if it's available).
+* DCL_IO_LINK_NUM_COMPRESS_THREADS=(number): Sets the number of threads used
+                                             for compression.
+                                             (Otherwise, a thread per hardware
+                                             thread is used by default)
+* DCL_IO_LINK_NUM_DECOMPRESS_THREADS=(number): Sets the number of threads used
+                                               for decompression.
+                                               (Otherwise, a thread per hardware
+                                               thread is used by default)
 
 -----------------
 Project structure
