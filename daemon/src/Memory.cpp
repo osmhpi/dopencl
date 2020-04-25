@@ -67,13 +67,17 @@
 #include <ostream>
 #include <dclasio/message/RequestBufferTransfer.h>
 
+static size_t get_buffer_overallocate_amount() {
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
-// When using in-place OpenCL-based compression, we need to over-allocate some space
-// at the end of the buffer to allow the lookahead to read a bit past the bufer
-static constexpr size_t BUFFER_OVERALLOCATE_AMOUNT = dcl::DataTransfer::COMPR842_CHUNK_SIZE / 8;
-#else
-static constexpr size_t BUFFER_OVERALLOCATE_AMOUNT = 0;
+    if (is_io_link_compression_enabled()) {
+        // When using in-place OpenCL-based compression, we need to over-allocate some space
+        // at the end of the buffer to allow the lookahead to read a bit past the bufer
+        return dcl::DataTransfer::COMPR842_CHUNK_SIZE / 8;
+    }
 #endif
+
+    return 0;
+}
 
 /* ****************************************************************************/
 
@@ -90,7 +94,7 @@ Memory::Memory(const std::shared_ptr<Context>& context) :
 Memory::~Memory() { }
 
 size_t Memory::size() const {
-    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>() - BUFFER_OVERALLOCATE_AMOUNT;
+    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>() - get_buffer_overallocate_amount();
 }
 
 bool Memory::isInput() const{
@@ -126,7 +130,7 @@ Buffer::Buffer(
      * pinned memory to ensure optimal performance for frequent data transfers.
      */
 
-    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size + BUFFER_OVERALLOCATE_AMOUNT);
+    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size + get_buffer_overallocate_amount());
 
     cl_mem_flags hostPtrFlags = flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
     // If the buffer has been created with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR,

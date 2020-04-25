@@ -269,12 +269,16 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
     bool intermediate_buffer_equal = std::equal(intermediate_buffer.begin(), intermediate_buffer.end(),
                                                 send_buffer.begin());
 #ifdef IO_LINK_COMPRESSION
-    // If I/O link compression is enabled, intermediate_buffer will contain the data
-    // in a compressed form, so it will NOT be equal to the source data
-    BOOST_CHECK(!intermediate_buffer_equal);
-#else
+    if (is_io_link_compression_enabled()) {
+        // If I/O link compression is enabled, intermediate_buffer will contain the data
+        // in a compressed form, so it will NOT be equal to the source data
+        BOOST_CHECK(!intermediate_buffer_equal);
+    } else {
+#endif
     // Otherwise, the data is just sent as usual (skip_compress_step=true is a no-op)
     BOOST_CHECK(intermediate_buffer_equal);
+#ifdef IO_LINK_COMPRESSION
+    }
 #endif
 
     // Now test the opposite case, where we write the compressed data again

@@ -212,12 +212,15 @@ public:
 
         BOOST_LOG_TRIVIAL(debug)
                           << Operation::action_log_name << " " << bytes_transferred << " bytes\n"
-                          << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n"
+                          << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n";
 #ifdef IO_LINK_COMPRESSION
+        if (is_io_link_compression_enabled()) {
+            BOOST_LOG_TRIVIAL(debug)
                           << "\tuncompressed size: " << _size << " bytes, "
-                          << "compression ratio:" << compression_ratio << "\n"
+                          << "compression ratio:" << compression_ratio << "\n";
+        }
 #endif
-                          << std::flush;
+        BOOST_LOG_TRIVIAL(debug) << std::flush;
     }
 
 private:

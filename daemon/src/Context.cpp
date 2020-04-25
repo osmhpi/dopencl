@@ -70,7 +70,7 @@
 
 #include <boost/log/trivial.hpp>
 
-#ifdef USE_CL_IO_LINK_COMPRESSION
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
 #endif
 
@@ -140,14 +140,15 @@ Context::Context(
 	_context = cl::Context(nativeDevices, properties, &onContextError, _listener.get());
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
 
-#ifdef IO_LINK_COMPRESSION
-    // TODOXXX: This should not really be a shared_ptr,
-    // but how should we initialize this at the beginning of the constructor instead?
-    _cl842DeviceDecompressor = std::make_shared<CL842DeviceDecompressor>(
-            _context, nativeDevices,
-            dcl::DataTransfer::COMPR842_CHUNK_SIZE,
-            dcl::DataTransfer::COMPR842_CHUNK_SIZE,
-            CL842InputFormat::INPLACE_COMPRESSED_CHUNKS);
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+    if (is_io_link_compression_enabled()) {
+        _cl842DeviceDecompressor = std::unique_ptr<CL842DeviceDecompressor>(
+            new CL842DeviceDecompressor(
+                _context, nativeDevices,
+                dcl::DataTransfer::COMPR842_CHUNK_SIZE,
+                dcl::DataTransfer::COMPR842_CHUNK_SIZE,
+                CL842InputFormat::INPLACE_COMPRESSED_CHUNKS));
+    }
 #endif
 }
 
@@ -184,9 +185,9 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     if (endEvent == nullptr)
         endEvent = &myEndEvent;
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
     bool can_use_cl_io_link_compression = false;
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
     if (size > 0 && is_io_link_compression_enabled()) {
         if (offset != 0) {
             // TODOXXX It should be possible to handle nonzero offset cases here by passing this
@@ -198,10 +199,8 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             can_use_cl_io_link_compression = true;
         }
     }
-#endif
 
     if (can_use_cl_io_link_compression) {
-#ifdef IO_LINK_COMPRESSION
         static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
 
@@ -240,7 +239,6 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             /* Enqueue unmap buffer (implicit upload) */
             VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
             // Rounds down (partial chunks are not compressed by DataStream)
             size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
@@ -253,34 +251,35 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
             } else {
                 decompressEvents[i] = unmapEvents[i];
             }
-#endif
         }
 
         
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
-#endif
     } else {
-        /* Enqueue map buffer */
-        void *ptr = commandQueue.enqueueMapBuffer(
-                buffer,
-                CL_FALSE,     // non-blocking map
-#if defined(CL_VERSION_1_2)
-            CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
-#else
-            CL_MAP_WRITE, // map for writing
 #endif
-            offset, size,
-            eventWaitList, startEvent);
-        // schedule local data transfer
-        cl::UserEvent receiveEvent(_context);
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-        process.receiveData(size, ptr, false, mapDataCompletable)
-                ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
-        /* Enqueue unmap buffer (implicit upload) */
-        VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
-        commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
+    /* Enqueue map buffer */
+    void *ptr = commandQueue.enqueueMapBuffer(
+            buffer,
+            CL_FALSE,     // non-blocking map
+#if defined(CL_VERSION_1_2)
+        CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
+#else
+        CL_MAP_WRITE, // map for writing
+#endif
+        offset, size,
+        eventWaitList, startEvent);
+    // schedule local data transfer
+    cl::UserEvent receiveEvent(_context);
+    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
+    process.receiveData(size, ptr, false, mapDataCompletable)
+            ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
+    /* Enqueue unmap buffer (implicit upload) */
+    VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
+    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
     }
+#endif
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
     auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
@@ -302,7 +301,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
         profile_times->end_time = std::chrono::steady_clock::now();
         BOOST_LOG_TRIVIAL(debug)
             << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " decompressed (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+            << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->end_time - profile_times->start_time).count() << std::endl;
     }, profile_times);
 #endif

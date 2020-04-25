@@ -316,21 +316,23 @@ void DataStream::disconnect() {
 std::shared_ptr<DataReceipt> DataStream::read(
         size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
 #ifdef IO_LINK_COMPRESSION
-    // START UBER HACK
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
-    if (size > SUPERBLOCK_MAX_SIZE) {
-        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-        std::shared_ptr<DataReceipt> callback;
+    if (is_io_link_compression_enabled()) {
+        // START UBER HACK
+        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
+        if (size > SUPERBLOCK_MAX_SIZE) {
+            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+            std::shared_ptr<DataReceipt> callback;
 
-        for (size_t i = 0; i < num_superblocks; i++) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-            callback = read(superblock_size, static_cast<uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+            for (size_t i = 0; i < num_superblocks; i++) {
+                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+                callback = read(superblock_size, static_cast<uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+            }
+
+            return callback;
         }
-
-        return callback;
+        // END UBER HACK
     }
-    // END UBER HACK
 #endif
 
     auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
@@ -353,21 +355,23 @@ std::shared_ptr<DataReceipt> DataStream::read(
 std::shared_ptr<DataSending> DataStream::write(
         size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
 #ifdef IO_LINK_COMPRESSION
-    // START UBER HACK
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
-    if (size > SUPERBLOCK_MAX_SIZE) {
-        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-        std::shared_ptr<DataSending> callback;
+    if (is_io_link_compression_enabled()) {
+        // START UBER HACK
+        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
+        if (size > SUPERBLOCK_MAX_SIZE) {
+            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+            std::shared_ptr<DataSending> callback;
 
-        for (size_t i = 0; i < num_superblocks; i++) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-            callback = write(superblock_size, static_cast<const uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+            for (size_t i = 0; i < num_superblocks; i++) {
+                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+                callback = write(superblock_size, static_cast<const uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+            }
+
+            return callback;
         }
-
-        return callback;
+        // END UBER HACK
     }
-    // END UBER HACK
 #endif
 
     auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step, trigger_event));
@@ -427,27 +431,21 @@ void DataStream::start_read(readq_type *readq) {
 #endif
     read->onStart();
 
-    bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        can_use_io_link_compression = true;
-    }
-#endif
-
-    if (!can_use_io_link_compression) {
-        boost_asio_async_read_with_sentinels(
-                    *_socket, boost::asio::buffer(read->ptr(), read->size()),
-                    [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
-                            handle_read(readq, ec, bytes_transferred); });
-    } else {
-#ifdef IO_LINK_COMPRESSION
         _decompress_working_thread_count = 0;
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = read->size() / NETWORK_BLOCK_SIZE;
 
         read_next_compressed_chunk(readq, read);
-#endif
+        return;
     }
+#endif
+
+    boost_asio_async_read_with_sentinels(
+                *_socket, boost::asio::buffer(read->ptr(), read->size()),
+                [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
+                        handle_read(readq, ec, bytes_transferred); });
 }
 
 #ifdef IO_LINK_COMPRESSION
@@ -715,20 +713,8 @@ void DataStream::start_write(writeq_type *writeq) {
                     handle_write(std::move(writeq), ec, bytes_transferred); });
      */
 
-    bool can_use_io_link_compression = false;
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        can_use_io_link_compression = true;
-    }
-#endif
-
-    if (!can_use_io_link_compression) {
-        boost_asio_async_write_with_sentinels(
-                *_socket, boost::asio::buffer(write->ptr(), write->size()),
-                [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
-                        handle_write(writeq, ec, bytes_transferred); });
-    } else {
-#ifdef IO_LINK_COMPRESSION
         _write_io_channel_busy = false;
         _write_io_total_bytes_transferred = 0;
         _write_io_num_blocks_remaining = write->size() / NETWORK_BLOCK_SIZE;
@@ -744,8 +730,14 @@ void DataStream::start_write(writeq_type *writeq) {
         }
 
         try_write_next_compressed_chunk(writeq, write);
-#endif
+        return;
     }
+#endif
+
+    boost_asio_async_write_with_sentinels(
+            *_socket, boost::asio::buffer(write->ptr(), write->size()),
+            [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
+                    handle_write(writeq, ec, bytes_transferred); });
 }
 
 #ifdef IO_LINK_COMPRESSION
