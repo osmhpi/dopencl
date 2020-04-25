@@ -178,11 +178,11 @@ Those flags can be set when building using CMake:
                               842 implementation (for both compression and
                               decompression, using the cryptodev kernel module)
 * USE_CL_IO_LINK_COMPRESSION: Use OpenCL GPU-accelerated 842 implementation
-                              implementation (WIP, currently broken)
+                              (WIP, currently broken)
                               (Since lib842 currently only provides a 842 GPU
                               decompressor, this only affects decompression)
 * USE_CL_IO_LINK_COMPRESSION_INPLACE: Use OpenCL GPU-accelerated, in-place 842
-                                      implementation implementation
+                                      implementation
                                       (Since lib842 currently only provides a
                                       842 GPU decompressor, this only affects
                                       decompression)
@@ -195,10 +195,14 @@ tuning using the following environment variables:
                                          has been built in). Both the host and
                                          all the daemons must specify this
                                          environment variable, if used.
-* DCL_DISABLE_IO_LINK_COMPRESSION=(any): Disables the in-kernel and potentially
-                                         hardware-accelerated 842 implementation
-                                         (after if it has been built in,
-                                         and even if it's available).
+* DCL_DISABLE_HW_IO_LINK_COMPRESSION=(any): Disables the in-kernel and
+                                            potentially hardware-accelerated 842
+                                            implementation (after if it has been
+                                            built in, and even if available).
+* DCL_DISABLE_CL_IO_LINK_COMPRESSION=(any): Disables the OpenCL GPU-accelerated
+                                            842 implementation
+                                            (after if it has been built in,
+                                            and even if available).
 * DCL_IO_LINK_NUM_COMPRESS_THREADS=(number): Sets the number of threads used
                                              for compression.
                                              (Otherwise, a thread per hardware

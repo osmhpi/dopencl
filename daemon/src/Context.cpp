@@ -70,7 +70,7 @@
 
 #include <boost/log/trivial.hpp>
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
 #error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
 #endif
 
@@ -140,8 +140,8 @@ Context::Context(
 	_context = cl::Context(nativeDevices, properties, &onContextError, _listener.get());
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
-    if (is_io_link_compression_enabled()) {
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
         _cl842DeviceDecompressor = std::unique_ptr<CL842DeviceDecompressor>(
             new CL842DeviceDecompressor(
                 _context, nativeDevices,
@@ -185,10 +185,10 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     if (endEvent == nullptr)
         endEvent = &myEndEvent;
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
     bool can_use_cl_io_link_compression = false;
 
-    if (size > 0 && is_io_link_compression_enabled()) {
+    if (size > 0 && is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
         if (offset != 0) {
             // TODOXXX It should be possible to handle nonzero offset cases here by passing this
             //         information to lib842, at least for 8-byte aligned cases
@@ -277,7 +277,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     /* Enqueue unmap buffer (implicit upload) */
     VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
     }
 #endif
 
