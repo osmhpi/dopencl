@@ -98,8 +98,7 @@ public:
 
 #ifdef IO_LINK_COMPRESSION
 // TODOXXX: Move this to a better place
-static bool is_io_link_compression_enabled()
-{
+static bool is_io_link_compression_enabled() {
 	static bool enabled = std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr;
 	return enabled;
 }

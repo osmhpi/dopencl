@@ -141,8 +141,7 @@ private:
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
 // TODOXXX: Move this to a better place
-static bool is_cl_io_link_compression_enabled()
-{
+static bool is_cl_io_link_compression_enabled() {
     static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
     return enabled;
 }

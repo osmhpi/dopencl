@@ -50,19 +50,16 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/functional/hash.hpp>
 
-namespace std
-{
+namespace std {
 
 template<>
-struct hash<boost::uuids::uuid>
-{
-    size_t operator () (const boost::uuids::uuid& uid) const
-    {
+struct hash<boost::uuids::uuid> {
+    size_t operator () (const boost::uuids::uuid& uid) const {
         return boost::hash<boost::uuids::uuid>()(uid);
     }
 };
 
-}
+}  /* namespace std */
 
 namespace dcl {
 
