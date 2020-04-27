@@ -202,6 +202,7 @@ void CommunicationManagerImpl::destroyComputeNode(
         {
             std::lock_guard<std::recursive_mutex> lock(_connectionsMutex);
             _computeNodes.erase(computeNode->get_id());
+            _connectionsChanged.notify_all();
         }
     } else {
         throw dcl::InvalidArgument(DCL_INVALID_NODE);
@@ -262,8 +263,19 @@ void CommunicationManagerImpl::message_queue_disconnected(
 
 bool CommunicationManagerImpl::approve_data_stream(
         dcl::process_id pid) {
-    // check if the source process is already registered
-    return (get_process(pid) != nullptr);
+    // After the message queue is successfully connected:
+    // (1) An acknowledgement of the message queue is sent to the remote node
+    // (2) The remote node is added to the list of nodes
+    // Additionally, the acknowledgement of the message queue triggers the connection
+    // of the data stream, which is approved by looking at the list of nodes
+    // Note that (while in practice possible, but rare), there's a chance that the
+    // data stream connection checks the list of nodes before the node could be added
+    // to the list. For this reason we must also wait here, to avoid a data race
+    std::unique_lock<std::recursive_mutex> lock(_connectionsMutex);
+    return _connectionsChanged.wait_for(lock, DEFAULT_CONNECTION_TIMEOUT, [this, &pid] {
+        // verify the source process is registered (i.e. the message queue is connected)
+        return get_process(pid) != nullptr;
+    });
 }
 
 void CommunicationManagerImpl::data_stream_connected(

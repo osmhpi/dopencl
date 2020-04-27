@@ -129,6 +129,7 @@ void HostCommunicationManagerImpl::createComputeNodes(
             computeNodes.push_back(nullptr); // return nullptr to indicate failed connection
         }
     }
+    _connectionsChanged.notify_all();
     lock.unlock();
 
     // Prefetch device IDs

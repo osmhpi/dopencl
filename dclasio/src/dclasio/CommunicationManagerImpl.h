@@ -210,6 +210,7 @@ protected:
 
     std::unordered_map<dcl::process_id, std::unique_ptr<ComputeNodeImpl>> _computeNodes;
     mutable std::recursive_mutex _connectionsMutex;
+    std::condition_variable_any _connectionsChanged;
 };
 
 } /* namespace dclasio */

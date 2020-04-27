@@ -226,6 +226,7 @@ void ComputeNodeCommunicationManagerImpl::host_connected(
             std::lock_guard<std::recursive_mutex> lock(_connectionsMutex);
             bool inserted = _hosts.emplace(pid, std::move(host)).second;
             assert(inserted && "Could not add host to list"); // assert insertion of host into list
+            _connectionsChanged.notify_all();
         }
     } else {
         BOOST_LOG_TRIVIAL(warning)
@@ -258,6 +259,7 @@ void ComputeNodeCommunicationManagerImpl::compute_node_connected(
             std::lock_guard<std::recursive_mutex> lock(_connectionsMutex);
             bool inserted = _computeNodes.emplace(pid, std::move(computeNode)).second;
             assert(inserted && "Could not add compute node to list"); // assert insertion of compute node into list
+            _connectionsChanged.notify_all();
         }
     } else {
         BOOST_LOG_TRIVIAL(warning)
@@ -335,6 +337,7 @@ void ComputeNodeCommunicationManagerImpl::message_queue_disconnected(
     std::lock_guard<std::recursive_mutex> lock(_connectionsMutex);
     _hosts.erase(pid);
     _computeNodes.erase(pid);
+    _connectionsChanged.notify_all();
 }
 
 /*
