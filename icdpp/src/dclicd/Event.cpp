@@ -69,7 +69,7 @@
 #include <dcl/SynchronizationListener.h>
 
 #include <dcl/util/Clock.h>
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -137,7 +137,7 @@ Event::Event(cl_context context,
 
 		/* Create substitute events on other compute nodes */
 		dcl::executeCommand(computeNodes, createEvent);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Event created (ID=" << _command->remoteId() << ')'
 				<< std::endl;
 	} catch (const dcl::CLError& err) {
@@ -197,7 +197,7 @@ bool Event::onCommandExecutionStatusChanged(cl_int status) {
                 dclasio::message::CommandExecutionStatusChangedMessage message(remoteId(), status);
 
                 dcl::sendMessage(computeNodes, message);
-                BOOST_LOG_TRIVIAL(debug)
+                dcl::util::Logger << dcl::util::Debug
                         << "Forwarded update of command execution status to compute nodes (ID=" << remoteId()
                         << ", status=" << status
                         << ')' << std::endl;
@@ -293,7 +293,7 @@ void Event::synchronize() {
 }
 
 void Event::onSynchronize(dcl::Process& process) {
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "(MEM) Event synchronization (ID=" << remoteId()
             << ") requested by compute node '" << process.url() << '\''
             << std::endl;
@@ -303,7 +303,7 @@ void Event::onSynchronize(dcl::Process& process) {
     /* forward synchronization request to event's compute node */
     dclasio::message::EventSynchronizationMessage msg(remoteId());
     _command->commandQueue()->computeNode().sendMessage(msg);
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "(MEM) Forwarded event synchronization request (ID=" << remoteId()
             << ") to compute node '" << _command->commandQueue()->computeNode().url() << '\''
             << std::endl;
@@ -333,7 +333,7 @@ UserEvent::UserEvent(cl_context context) :
 		dclasio::message::CreateEvent request(context->remoteId(), _id,
 		        std::vector<dcl::object_id>());
 		dcl::executeCommand(_context->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "User event created (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw Error(err);
@@ -383,7 +383,7 @@ void UserEvent::setStatus(cl_int status) {
 	try {
 	    dclasio::message::CommandExecutionStatusChangedMessage request(_id, status);
 		dcl::sendMessage(_context->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "User event status set (ID=" << remoteId()
 				<< ", status=" << status
 				<< ')' << std::endl;

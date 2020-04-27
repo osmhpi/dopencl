@@ -20,7 +20,7 @@ matrix:
       compiler: clang
 before_install:
   - |
-    sudo apt-get -y install cmake make g++ libboost-dev libboost-program-options-dev libboost-system-dev libboost-log-dev opencl-headers ocl-icd-opencl-dev
+    sudo apt-get -y install cmake make g++ libboost-dev libboost-program-options-dev libboost-system-dev opencl-headers ocl-icd-opencl-dev
     if [[ "$(lsb_release -rs)" == "16.04" ]]; then
       sudo wget -O /usr/include/CL/cl.hpp https://www.khronos.org/registry/OpenCL/api/2.1/cl.hpp
     fi

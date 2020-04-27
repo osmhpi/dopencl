@@ -10,7 +10,7 @@ RUN apt-get update \
         # Required by dopencl/daemon
         libboost-program-options-dev \
         # Required by dopencl/dclasio
-        libboost-system-dev libboost-log-dev \
+        libboost-system-dev \
         # Required by tests
         libboost-thread-dev libboost-test-dev libtiff-dev \
         # Development utilities

@@ -69,7 +69,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -106,7 +106,7 @@ void ComputeNodeImpl::updateDevices(
 			++i;
 		} catch (const dcl::DCLException& err) {
 			i = connectedComputeNodes.erase(i);
-			BOOST_LOG_TRIVIAL(warning)
+			dcl::util::Logger << dcl::util::Warning
 			        << err.what() << std::endl;
 		}
 	}
@@ -118,13 +118,13 @@ void ComputeNodeImpl::updateDevices(
 					static_cast<message::DeviceIDsResponse *>(
 							computeNode->awaitResponse(request, message::DeviceIDsResponse::TYPE).release()));
 			assert(response != nullptr); // response must not be NULL
-		    BOOST_LOG_TRIVIAL(info)
+		    dcl::util::Logger << dcl::util::Info
 		            << "Found " << response->deviceIds.size()
 		            << " devices on compute node " << computeNode->url() << std::endl;
 
 			computeNode->updateDevices(response->deviceIds);
 		} catch (const dcl::DCLException& err) {
-			BOOST_LOG_TRIVIAL(error) << err.what() << std::endl;
+			dcl::util::Logger << dcl::util::Error << err.what() << std::endl;
 		}
 	}
 }
@@ -149,7 +149,7 @@ void ComputeNodeImpl::connect(
 			++i;
 		} catch (const dcl::DCLException& err) {
 			i = connectingComputeNodes.erase(i);
-			BOOST_LOG_TRIVIAL(warning) << err.what() << std::endl;
+			dcl::util::Logger << dcl::util::Warning << err.what() << std::endl;
 		}
 	}
 
@@ -161,7 +161,7 @@ void ComputeNodeImpl::connect(
 			++i;
 		} catch (const dcl::DCLException& err) {
 			i = connectingComputeNodes.erase(i);
-			BOOST_LOG_TRIVIAL(error) << err.what() << std::endl;
+			dcl::util::Logger << dcl::util::Error << err.what() << std::endl;
 		}
 	}
 }
@@ -182,7 +182,7 @@ ComputeNodeImpl::ComputeNodeImpl(
         comm::message_queue& messageQueue) :
     ProcessImpl(pid, messageDispatcher, dataDispatcher, messageQueue)
 {
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Created compute node '" << url() << '\'' << std::endl;
 }
 
@@ -192,7 +192,7 @@ ComputeNodeImpl::ComputeNodeImpl(
         const endpoint_type& endpoint) :
     ProcessImpl(messageDispatcher, dataDispatcher, endpoint)
 {
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Created compute node '" << url() << '\'' << std::endl;
 }
 
@@ -205,7 +205,7 @@ void ComputeNodeImpl::updateDevices() {
 			static_cast<message::DeviceIDsResponse *>(
 					executeCommand(request, message::DeviceIDsResponse::TYPE).release()));
 	assert(response != nullptr); // response must not be NULL
-	BOOST_LOG_TRIVIAL(info)
+	dcl::util::Logger << dcl::util::Info
 			<< "Found " << response->deviceIds.size()
 			<< " devices on compute node " << url() << std::endl;
 
@@ -262,7 +262,7 @@ void ComputeNodeImpl::getInfo(
     // TODO Implement ComputeNodeImpl::getInfo
     assert(!"ComputeNodeImpl::getInfo not implemented");
 
-    BOOST_LOG_TRIVIAL(info)
+    dcl::util::Logger << dcl::util::Info
             << "Got compute node infos from '" << url()
             << '\'' << std::endl;
 }
@@ -322,13 +322,13 @@ std::unique_ptr<message::Response> ComputeNodeImpl::executeCommand(
 //#ifndef NDEBUG
 #if 0
     sendRequest(request);
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "\tsent request (request ID=" << request.id
             << ", type=" << request.getType() << ')'
             << std::endl;
 
     std::unique_ptr<message::Response> response = awaitResponse(request, responseType);
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "\treceived response (request ID=" << response->requestId
             << ", type=" << response->getType() << ')'
             << std::endl;

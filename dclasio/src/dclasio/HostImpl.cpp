@@ -52,7 +52,7 @@
 
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <ostream>
 
@@ -65,7 +65,7 @@ HostImpl::HostImpl(
         comm::message_queue& messageQueue) :
 	ProcessImpl(id, messageDispatcher, dataDispatcher, messageQueue)
 {
-	BOOST_LOG_TRIVIAL(debug)
+	dcl::util::Logger << dcl::util::Debug
 			<< "Created host " << url() << std::endl;
 }
 

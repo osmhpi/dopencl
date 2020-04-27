@@ -47,13 +47,7 @@
 #include <dcl/CommunicationManager.h>
 #include <dcl/DCLException.h>
 
-#include <boost/log/core.hpp>
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/sinks/text_file_backend.hpp>
-#include <boost/log/utility/setup/file.hpp>
-#include <boost/log/utility/setup/console.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
+#include <dcl/util/Logger.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -64,28 +58,28 @@
 
 namespace {
 
-boost::log::trivial::severity_level getSeverity() {
+dcl::util::Severity getSeverity() {
     const char *loglevel = getenv("DCL_LOG_LEVEL");
 
     if (loglevel) {
         if (strcmp(loglevel, "ERROR") == 0) {
-            return boost::log::trivial::error;
+            return dcl::util::Severity::Error;
         } else if (strcmp(loglevel, "WARNING") == 0) {
-            return boost::log::trivial::warning;
+            return dcl::util::Severity::Warning;
         } else if (strcmp(loglevel, "INFO") == 0) {
-            return boost::log::trivial::info;
+            return dcl::util::Severity::Info;
         } else if (strcmp(loglevel, "DEBUG") == 0) {
-            return boost::log::trivial::debug;
+            return dcl::util::Severity::Debug;
         } else if (strcmp(loglevel, "VERBOSE") == 0) {
-            return boost::log::trivial::trace;
+            return dcl::util::Severity::Verbose;
         }
     }
 
     // use default log level
 #ifndef NDEBUG
-    return boost::log::trivial::debug;
+    return dcl::util::Severity::Debug;
 #else
-    return boost::log::trivial::info;
+    return dcl::util::Severity::Info;
 #endif
 }
 
@@ -97,18 +91,11 @@ namespace dcl {
 
 static void setup_log(const char *file_name) {
     // set up dOpenCL logger
-    if (std::getenv("DCL_LOG_TO_CONSOLE") == nullptr) {
-        boost::log::add_file_log
-        (
-            boost::log::keywords::file_name = file_name,
-            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%"
-        );
-    } else {
-        boost::log::add_console_log(std::cout,
-            boost::log::keywords::format = "(%Severity%) [%TimeStamp%]: %Message%");
-    }
-    boost::log::core::get()->set_filter(boost::log::trivial::severity >= getSeverity());
-    boost::log::add_common_attributes();
+    // TODOYYY handle envvar DCL_LOG_TO_CONSOLE!!
+    static std::ofstream dclLogFile(file_name);
+    dcl::util::Logger.setOutput(dclLogFile);
+    dcl::util::Logger.setLoggingLevel(getSeverity());
+    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
 }
 
 HostCommunicationManager * HostCommunicationManager::create() {

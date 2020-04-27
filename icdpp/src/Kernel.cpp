@@ -67,7 +67,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -104,7 +104,7 @@ _cl_kernel::_cl_kernel(
 		/* TODO Only create kernels on compute nodes where the associated program has been build.
 		 * If no such compute nodes exists, throw CL_INVALID_PROGRAM_EXECUTABLE */
 		dcl::executeCommand(program->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Kernel created (ID=" << _id
 				<< ", name=" << kernelName
 				<< ')' << std::endl;
@@ -138,7 +138,7 @@ void _cl_kernel::destroy() {
 	try {
 		dclasio::message::DeleteKernel request(_id);
 		dcl::executeCommand(_program->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Kernel deleted (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -198,7 +198,7 @@ void _cl_kernel::setArgument(cl_uint index, size_t size, const void *value) {
 
 	try {
 		dcl::executeCommand(_program->computeNodes(), *request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Kernel argument set (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -254,7 +254,7 @@ void _cl_kernel::createKernelsInProgram(
         /* TODO Only create kernels on compute nodes where the associated program has been build.
          * If no such compute nodes exists, throw CL_INVALID_PROGRAM_EXECUTABLE */
         dcl::executeCommand(program->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Kernels in program created (program ID=" << program->remoteId()
 				<< ", #kernels=" << numKernels
 				<< ')' << std::endl;
@@ -316,7 +316,7 @@ void _cl_kernel::getInfo(
                 /* add kernel info to cache */
                 i = _infoCache.insert(std::make_pair(param_name, response->param())).first;
 
-		        BOOST_LOG_TRIVIAL(info)
+		        dcl::util::Logger << dcl::util::Info
 		                << "Got kernel info (ID=" << _id
 		                << ')' << std::endl;
 			} catch (const dcl::CLError& err) {
@@ -389,7 +389,7 @@ void _cl_kernel::getWorkGroupInfo(
                 /* add work group info to cache */
                 i = infoCache.insert(std::make_pair(param_name, response->param())).first;
 
-                BOOST_LOG_TRIVIAL(info)
+                dcl::util::Logger << dcl::util::Info
                         << "Got kernel work group info (kernel ID=" << _id
                         << ", device ID=" << device->remote().getId()
                         << ')' << std::endl;

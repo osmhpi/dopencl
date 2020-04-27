@@ -58,7 +58,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -120,7 +120,7 @@ void _cl_event::destroy() {
 	try {
 		dclasio::message::DeleteEvent request(remoteId());
 		dcl::executeCommand(_context->computeNodes(), request);
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Event deleted (ID=" << remoteId() << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);

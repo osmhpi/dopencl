@@ -50,7 +50,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/Process.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -157,7 +157,7 @@ void Buffer::acquire(
         cl::Event *acquireEvent) {
     cl::Event mapEvent;
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "(SYN) Acquiring buffer from process '" << process.url() << '\''
             << std::endl;
 
@@ -183,7 +183,7 @@ void Buffer::release(
         const cl::Event& releaseEvent) const {
     cl::Event mapEvent, unmapEvent;
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "(SYN) Releasing buffer to process '" << process.url() << '\''
             << std::endl;
 

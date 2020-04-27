@@ -48,7 +48,7 @@
 #include <dcl/ByteBuffer.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/read.hpp>
@@ -117,7 +117,7 @@ dcl::process_id message_queue::connect(
     dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(process_type) << uint8_t(0);
     boost::asio::write(*_socket, boost::asio::buffer(buf.data(), buf.size()));
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Sent process identification message for message queue (process type="
             << (process_type == ProcessImpl::Type::HOST ? "HOST" : "COMPUTE_NODE")
             << ", pid=" << pid << ')'
@@ -128,7 +128,7 @@ dcl::process_id message_queue::connect(
     obuf.resize(sizeof(dcl::process_id));
     boost::asio::read(*_socket, boost::asio::buffer(obuf.data(), obuf.size()));
     obuf >> _pid;
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Received identification message response (pid=" << _pid << ')'
             << std::endl;
 
@@ -154,7 +154,7 @@ void message_queue::send_message(
             boost::asio::const_buffer(&_send_header, sizeof(header_type)),
             boost::asio::const_buffer(_send_buffer.data(), _send_buffer.size()) }));
 
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Sent message (size=" << _send_buffer.size() << ", type=" << message.get_type() << ')'
             << std::endl;
 #else
@@ -169,7 +169,7 @@ void message_queue::send_message(
             boost::asio::const_buffer(&header, sizeof(header_type)),
             boost::asio::const_buffer(buf.data(), buf.size()) }));
 
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Sent message (size=" << buf.size() << ", type=" << message.get_type() << ')'
             << std::endl;
 #endif
@@ -187,7 +187,7 @@ void message_queue::handle_header(
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not read message header: " << ec.message()
                 << std::endl;
         // FIXME Report error via MessageHandler
@@ -199,7 +199,7 @@ void message_queue::handle_header(
 
 void message_queue::start_read_message(
         message::Message::size_type size) {
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Incoming message (size=" << size << ')' << std::endl;
     _message_buffer.resize(size);
     // read message
@@ -215,13 +215,13 @@ void message_queue::handle_message(
     std::unique_ptr<message::Message> message;
 
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not read message: " << ec.message()
                 << std::endl;
     } else {
         // create message of type _message_header.type from _message_buffer
         message.reset(message::createMessage(ntohl(_message_header.type)));
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received message (size=" << _message_buffer.size()
                 << ", type=" << message->get_type() << ')'
                 << std::endl;

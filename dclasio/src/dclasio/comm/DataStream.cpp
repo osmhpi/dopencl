@@ -49,7 +49,7 @@
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/read.hpp>
@@ -87,7 +87,7 @@ static unsigned int determine_num_threads(const char *env_name) {
     // the hardware concurrency level (~= number of logical cores) is used
     static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
     if (hardware_concurrency == 0) {
-        BOOST_LOG_TRIVIAL(warning) << __func__ << ": "
+        dcl::util::Logger << dcl::util::Warning << __func__ << ": "
             << "std::thread::hardware_concurrency() returned 0, using 1 thread"
             << std::endl;
         return 1;
@@ -133,9 +133,6 @@ static int lib842_decompress(const uint8_t *in, size_t ilen,
 
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
-#ifdef INDEPTH_TRACE
-#include <iostream> // TODOXXX: Needed to work around Boost.Log issues, see std::cerr usages in this file
-#endif
 
 // If USE_SENTINELS is defined, special marker sequences are included and checked before/after each data transfer
 // If marker sequences in a read operation don't match those in each write operation, an assertion will be triggered
@@ -291,7 +288,7 @@ dcl::process_id DataStream::connect(
     dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(0) << uint8_t(0);
     boost::asio::write(*_socket, boost::asio::buffer(buf.data(), buf.size()));
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Sent process identification message for data stream (pid=" << pid << ')'
             << std::endl;
 
@@ -301,7 +298,7 @@ dcl::process_id DataStream::connect(
     ibuf.resize(sizeof(dcl::process_id));
     boost::asio::read(*_socket, boost::asio::buffer(ibuf.data(), ibuf.size()));
     ibuf >> pid;
-    BOOST_LOG_TRIVIAL(trace)
+    dcl::util::Logger << dcl::util::Verbose
             << "Received identification message response (pid=" << pid << ')'
             << std::endl;
 #endif
@@ -425,7 +422,7 @@ void DataStream::schedule_read(readq_type *readq) {
 void DataStream::start_read(readq_type *readq) {
     auto& read = readq->front();
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start read of size " << read->size()
         << std::endl;
@@ -562,7 +559,7 @@ void DataStream::start_decompress_threads() {
 
 void DataStream::loop_decompress_thread(size_t thread_id) {
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start decompression thread with id " << thread_id
         << std::endl;
@@ -633,10 +630,7 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
         }
     }
 #ifdef INDEPTH_TRACE
-    // TODOXXX: We should use Boost.Log here, but this code can be called after application exit, which causes a crash
-    // https://www.boost.org/doc/libs/1_72_0/libs/log/doc/html/log/rationale/init_term_support.html
-    std::unique_lock<std::mutex> fixme_avoid_iostream_interleave(_decompress_queue_mutex);
-    std::cerr
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "End decompression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
         << std::endl;
@@ -651,7 +645,7 @@ void DataStream::handle_read(
     // current read is first element in readq, so readq must be non-empty
     assert(readq /* ouch! */ && !readq->empty());
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "End read of size " << readq->front()->size()
         << std::endl;
@@ -700,7 +694,7 @@ void DataStream::schedule_write(writeq_type *writeq) {
 void DataStream::start_write(writeq_type *writeq) {
     auto& write = writeq->front();
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start write of size " << write->size()
         << std::endl;
@@ -822,7 +816,7 @@ void DataStream::start_compress_threads() {
 
 void DataStream::loop_compress_thread(size_t thread_id) {
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start compression thread with id " << thread_id
         << std::endl;
@@ -906,10 +900,7 @@ void DataStream::loop_compress_thread(size_t thread_id) {
     }
 
 #ifdef INDEPTH_TRACE
-    // TODOXXX: We should use Boost.Log here, but this code can be called after application exit, which causes a crash
-    // https://www.boost.org/doc/libs/1_72_0/libs/log/doc/html/log/rationale/init_term_support.html
-    std::unique_lock<std::mutex> fixme_avoid_iostream_interleave(_decompress_queue_mutex);
-    std::cerr
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "End compression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
         << std::endl;
@@ -924,7 +915,7 @@ void DataStream::handle_write(
     // current write is first element in writeq, so writeq must be non-empty
     assert(writeq /* ouch! */ && !writeq->empty());
 #ifdef INDEPTH_TRACE
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
         << "End write of size " << writeq->front()->size()
         << std::endl;

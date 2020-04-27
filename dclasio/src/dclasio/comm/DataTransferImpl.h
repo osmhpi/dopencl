@@ -49,7 +49,7 @@
 #include <dcl/DCLException.h>
 
 #include <dcl/util/Clock.h>
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -210,17 +210,17 @@ public:
         double bandwidth = (bytes_transferred / static_cast<double>(1024 * 1024)) / durance;
         double compression_ratio = static_cast<double>(bytes_transferred) / static_cast<double>(_size);
 
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                           << Operation::action_log_name << " " << bytes_transferred << " bytes\n"
                           << "\tlatency: " << latency << " ms, bandwidth: " << bandwidth << " MB/s\n";
 #ifdef IO_LINK_COMPRESSION
         if (is_io_link_compression_enabled()) {
-            BOOST_LOG_TRIVIAL(debug)
+            dcl::util::Logger << dcl::util::Debug
                           << "\tuncompressed size: " << _size << " bytes, "
                           << "compression ratio:" << compression_ratio << "\n";
         }
 #endif
-        BOOST_LOG_TRIVIAL(debug) << std::flush;
+        dcl::util::Logger << dcl::util::Debug << std::flush;
     }
 
 private:

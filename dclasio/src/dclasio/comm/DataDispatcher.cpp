@@ -53,7 +53,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_service.hpp>
@@ -129,7 +129,7 @@ void DataDispatcher::start() {
             // initiate accept loop
             start_accept();
         } catch (const boost::system::system_error& err) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Could not start data stream acceptor: "
                     << err.what()
                     << std::endl;
@@ -158,7 +158,7 @@ void DataDispatcher::handle_accept(
         std::shared_ptr<boost::asio::ip::tcp::socket> socket,
         const boost::system::error_code& ec) {
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not accept data stream: "
                 << ec.message() << std::endl;
         return;
@@ -183,7 +183,7 @@ void DataDispatcher::handle_approval(
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not approve data stream: "
                 << ec.message() << std::endl;
         return;
@@ -221,7 +221,7 @@ void DataDispatcher::handle_approval(
         obuf << _pid; // signal approval: return own process ID
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
-        BOOST_LOG_TRIVIAL(trace)
+        dcl::util::Logger << dcl::util::Verbose
                 << "Accepted data stream from process (pid=" << pid << ')'
                 << std::endl;
 
@@ -235,7 +235,7 @@ void DataDispatcher::handle_approval(
         obuf << dcl::process_id();
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Rejected data stream from process (pid=" << pid << ')'
                 << std::endl;
     }

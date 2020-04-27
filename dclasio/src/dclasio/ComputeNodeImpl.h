@@ -62,7 +62,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl_wwu_dcl.h>

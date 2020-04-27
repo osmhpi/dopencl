@@ -55,7 +55,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/algorithm/string/trim.hpp>
 
@@ -140,7 +140,7 @@ void CommunicationManagerImpl::bind(
     _messageDispatcher.bind(message_endpoint);
     _dataDispatcher.bind(data_endpoint);
 
-    BOOST_LOG_TRIVIAL(info)
+    dcl::util::Logger << dcl::util::Info
             << "Bound to " << host << ':' << port
             << std::endl;
 }
@@ -173,7 +173,7 @@ void CommunicationManagerImpl::createComputeNodes(
 
         resolve_url(url, host, port);
         if (host.empty()) {
-            BOOST_LOG_TRIVIAL(warning)
+            dcl::util::Logger << dcl::util::Warning
                     << "Invalid URL '" << url << '\'' << std::endl;
             continue;
         }
@@ -250,14 +250,14 @@ void CommunicationManagerImpl::message_queue_connected(
         ProcessImpl::Type process_type,
         dcl::process_id pid) {
     // ignore process
-    BOOST_LOG_TRIVIAL(warning)
+    dcl::util::Logger << dcl::util::Warning
             << "Ignoring incoming connection" << std::endl;
 }
 
 void CommunicationManagerImpl::message_queue_disconnected(
         comm::message_queue& msgq) {
     // ignore process disconnect
-    BOOST_LOG_TRIVIAL(warning)
+    dcl::util::Logger << dcl::util::Warning
             << "Ignoring closed connection" << std::endl;
 }
 
@@ -289,14 +289,14 @@ void CommunicationManagerImpl::data_stream_connected(
     auto process = get_process(pid);
     if (process) {
         /* TODO Log node type ('host' or 'compute node') */
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Incoming data stream connection from process '" << process->url()
                 << "' (pid=" << process->get_id() << ')'
                 << std::endl;
 
         process->setDataStream(&data_stream);
     } else {
-        BOOST_LOG_TRIVIAL(warning)
+        dcl::util::Logger << dcl::util::Warning
                 << "Incoming data stream connection from unknown process"
                 << " (pid=" << process->get_id() << ')'
                 << std::endl;
@@ -318,7 +318,7 @@ void CommunicationManagerImpl::message_received(
         return;
 
     // unknown message
-    BOOST_LOG_TRIVIAL(error)
+    dcl::util::Logger << dcl::util::Error
             << "Received unknown message" << std::endl;
 }
 

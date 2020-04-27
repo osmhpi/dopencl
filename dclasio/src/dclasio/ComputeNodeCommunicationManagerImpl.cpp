@@ -60,7 +60,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <cassert>
 #include <condition_variable>
@@ -219,7 +219,7 @@ void ComputeNodeCommunicationManagerImpl::host_connected(
     }
 
     if (accepted) {
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Accepted connection from host '" << host->url() << '\'' << std::endl;
         // add host to list
         {
@@ -229,7 +229,7 @@ void ComputeNodeCommunicationManagerImpl::host_connected(
             _connectionsChanged.notify_all();
         }
     } else {
-        BOOST_LOG_TRIVIAL(warning)
+        dcl::util::Logger << dcl::util::Warning
                 << "Rejected connection from host '" << host->url() << '\'' << std::endl;
     }
 }
@@ -252,7 +252,7 @@ void ComputeNodeCommunicationManagerImpl::compute_node_connected(
     }
 
     if (accepted) {
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Accepted connection from compute node '" << computeNode->url() << '\'' << std::endl;
         // add compute node to list
         {
@@ -262,7 +262,7 @@ void ComputeNodeCommunicationManagerImpl::compute_node_connected(
             _connectionsChanged.notify_all();
         }
     } else {
-        BOOST_LOG_TRIVIAL(warning)
+        dcl::util::Logger << dcl::util::Warning
                 << "Rejected connection from compute node '" << computeNode->url() << '\'' << std::endl;
     }
 }
@@ -285,7 +285,7 @@ void ComputeNodeCommunicationManagerImpl::message_queue_connected(
         ProcessImpl::Type process_type,
         dcl::process_id pid) {
     /* TODO Log node type ('host' or 'compute node') */
-    BOOST_LOG_TRIVIAL(info)
+    dcl::util::Logger << dcl::util::Info
             << "Incoming message queue connection"
             << std::endl;
 
@@ -360,7 +360,7 @@ void ComputeNodeCommunicationManagerImpl::message_received(
         return;
 
     // unknown message
-    BOOST_LOG_TRIVIAL(error)
+    dcl::util::Logger << dcl::util::Error
             << "Received unknown message" << std::endl;
 }
 

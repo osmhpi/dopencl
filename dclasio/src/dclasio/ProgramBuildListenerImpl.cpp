@@ -52,7 +52,7 @@
 #include <dcl/Device.h>
 #include <dcl/Remote.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -90,7 +90,7 @@ void ProgramBuildListenerImpl::onComplete(
     _host.sendMessage(message);
     /* TODO Handle errors */
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Sent update of program build status (ID=" << _id
             << ')' << std::endl;
 }

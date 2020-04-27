@@ -53,7 +53,7 @@
 #include <dcl/ByteBuffer.h>
 #include <dcl/DCLTypes.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/read.hpp>
@@ -135,7 +135,7 @@ void MessageDispatcher::start() {
             // start accept loop
             start_accept();
         } catch (const boost::system::system_error& err) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Could not start message queue acceptor: " << err.what()
                     << std::endl;
         }
@@ -164,7 +164,7 @@ void MessageDispatcher::handle_accept(
         const boost::system::error_code& ec) {
     // TODO Handle error
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not accept message queue: " << ec.message()
                 << std::endl;
         return;
@@ -189,7 +189,7 @@ void MessageDispatcher::handle_approval(
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Could not approve data stream: " << ec.message()
                 << std::endl;
         return;
@@ -223,7 +223,7 @@ void MessageDispatcher::handle_approval(
         dcl::OutputByteBuffer obuf;
         obuf << _pid; // signal approval: return own process ID
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
-        BOOST_LOG_TRIVIAL(trace)
+        dcl::util::Logger << dcl::util::Verbose
                 << "Accepted message queue from process (pid=" << pid << ')'
                 << std::endl;
 
@@ -238,7 +238,7 @@ void MessageDispatcher::handle_approval(
         dcl::OutputByteBuffer obuf;
         obuf << dcl::process_id();
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Rejected message queue from process (pid=" << pid << ')'
                 << std::endl;
     }

@@ -51,7 +51,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Remote.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <cstddef>
 #include <ostream>
@@ -73,7 +73,7 @@ void ContextListenerImpl::onError(
             dcl::Binary(cb, private_info));
     _host.sendMessage(message);
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Context error (ID=" << _id
             << ", info=" << errorInfo
             << ')' << std::endl;

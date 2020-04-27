@@ -7,8 +7,8 @@ option(BUILD_SHARED_LIBS "Build shared library" ON)
 # search for thread implementation (required for using C++'s std::thread)
 find_package(Threads REQUIRED)
 
-# search for Boost System Library (required by Boost.Asio) & Boost Log Library
-find_package(Boost 1.35.0 COMPONENTS system log log_setup REQUIRED)
+# search for Boost System Library (required by Boost.Asio) Library
+find_package(Boost 1.35.0 COMPONENTS system thread REQUIRED)
 
 # search for Doxygen
 find_package(Doxygen)

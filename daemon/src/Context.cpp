@@ -68,7 +68,7 @@
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
 #error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
@@ -192,7 +192,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
         if (offset != 0) {
             // TODOXXX It should be possible to handle nonzero offset cases here by passing this
             //         information to lib842, at least for 8-byte aligned cases
-            BOOST_LOG_TRIVIAL(warning)
+            dcl::util::Logger << dcl::util::Warning
                                 << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
                                 << std::endl;
         } else {
@@ -290,7 +290,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->start_time = std::chrono::steady_clock::now();
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
             << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
@@ -299,7 +299,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->end_time = std::chrono::steady_clock::now();
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
             << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->end_time - profile_times->start_time).count() << std::endl;
@@ -345,7 +345,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
     startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->start_time = std::chrono::steady_clock::now();
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
             << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
@@ -354,7 +354,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
     endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
         auto profile_times = ((profile_send_receive_buffer_times *)user_data);
         profile_times->end_time = std::chrono::steady_clock::now();
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
             << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
             << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
                     profile_times->end_time - profile_times->start_time).count() << std::endl;

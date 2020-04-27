@@ -68,7 +68,7 @@
 #include <dcl/ProgramBuildListener.h>
 #include <dcl/SynchronizationListener.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -126,7 +126,7 @@ void CLComputeNodeEventProcessor::contextError(
         contextListener->onError(notification.errorInfo.c_str(),
                 notification.privateInfo.value(), notification.privateInfo.size());
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Context listener not found (ID=" << notification.contextId
                 << ')' << std::endl;
     }
@@ -141,7 +141,7 @@ void CLComputeNodeEventProcessor::executionStatusChanged(
                 std::bind(&dcl::CommandListener::onExecutionStatusChanged,
                         commandListener, notification.status()));
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Command listener not found (command ID=" << notification.commandId()
                 << ')' << std::endl;
     }
@@ -154,7 +154,7 @@ void CLComputeNodeEventProcessor::synchronizeEvent(
     if (synchronizationlistener) {
         synchronizationlistener->onSynchronize(process);
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Synchronization listener not found (command ID=" << notification.commandId()
                 << ')' << std::endl;
     }
@@ -171,7 +171,7 @@ void CLComputeNodeEventProcessor::programBuildComplete(
 
         programBuildListener->onComplete(devices, notification.buildStatus);
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Program build listener not found (ID=" << notification.programBuildId
                 << ')' << std::endl;
     }
@@ -187,7 +187,7 @@ void CLComputeNodeEventProcessor::requestBufferTransfer(
                 std::bind(&dcl::BufferListener::onRequestBufferTransfer,
                           bufferListener, std::ref(process)));
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                           << "Buffer listener not found (ID=" << notification.bufferId()
                           << ')' << std::endl;
     }
@@ -200,21 +200,21 @@ bool CLComputeNodeEventProcessor::dispatch(
 
     switch (message.get_type()) {
     case message::ContextErrorMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received context error message from compute node" << std::endl;
         contextError(
                 static_cast<const message::ContextErrorMessage&>(message));
         break;
 
     case message::CommandExecutionStatusChangedMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received command execution status changed message from compute node" << std::endl;
         executionStatusChanged(
                 static_cast<const message::CommandExecutionStatusChangedMessage&>(message));
         break;
 
     case message::EventSynchronizationMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received event synchronization message from compute node" << std::endl;
         computeNode = _communicationManager.get_compute_node(pid);
         assert(computeNode && "No host for event");
@@ -227,14 +227,14 @@ bool CLComputeNodeEventProcessor::dispatch(
         break;
 
     case message::ProgramBuildMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received program build message" << std::endl;
         programBuildComplete(
                 static_cast<const message::ProgramBuildMessage&>(message));
         break;
 
     case message::RequestBufferTransfer::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received request buffer transfer from compute node" << std::endl;
 
         computeNode = _communicationManager.get_compute_node(pid);
@@ -275,7 +275,7 @@ void CLHostEventProcessor::executionStatusChanged(
     if (event) {
         event->onExecutionStatusChanged(notification.status());
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Event not found (command ID=" << notification.commandId()
                 << ')' << std::endl;
     }
@@ -288,7 +288,7 @@ void CLHostEventProcessor::synchronizeEvent(
     if (event) {
         event->onSynchronize(host);
     } else {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Event not found (command ID=" << notification.commandId()
                 << ')' << std::endl;
     }
@@ -304,14 +304,14 @@ bool CLHostEventProcessor::dispatch(
 
     switch (message.get_type()) {
     case message::CommandExecutionStatusChangedMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received command execution status changed message from host" << std::endl;
         executionStatusChanged(
                 static_cast<const message::CommandExecutionStatusChangedMessage&>(message), *host);
         break;
 
     case message::EventSynchronizationMessage::TYPE:
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Received event synchronization message from host" << std::endl;
         synchronizeEvent(
                 static_cast<const message::EventSynchronizationMessage&>(message), *host);

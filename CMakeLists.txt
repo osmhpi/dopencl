@@ -24,9 +24,6 @@ option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accele
 option(USE_CL_IO_LINK_COMPRESSION "Use OpenCL GPU-accelerated 842 implementation implementation (WIP, currently broken)" OFF)
 option(USE_CL_IO_LINK_COMPRESSION_INPLACE "Use OpenCL GPU-accelerated, in-place 842 implementation implementation" ON)
 
-# Necessary for Boost.Log linking, see https://stackoverflow.com/q/23137637
-add_definitions(-DBOOST_LOG_DYN_LINK)
-
 #
 # dOpenCL version information
 #

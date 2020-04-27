@@ -56,7 +56,7 @@
 #include <dcl/Remote.h>
 
 #include <dcl/util/Clock.h>
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -153,7 +153,7 @@ void RemoteEvent::synchronize(
         VECTOR_CLASS<cl::Event>& nativeEventList) {
     std::lock_guard<std::mutex> lock(_syncMutex);
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Synchronizing replacement event with remote event (ID=" << _id << ')'
             << std::endl;
 
@@ -166,7 +166,7 @@ void RemoteEvent::synchronize(
         /* TODO Send message to event owner (host or compute node) */
         dclasio::message::EventSynchronizationMessage msg(_id);
         _context->host().sendMessage(msg);
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Sent event synchronization message to host (ID=" << _id << ')'
                 << std::endl;
 
@@ -195,7 +195,7 @@ void RemoteEvent::onExecutionStatusChanged(cl_int executionStatus) {
 }
 
 void RemoteEvent::onSynchronize(dcl::Process& process) {
-    BOOST_LOG_TRIVIAL(error)
+    dcl::util::Logger << dcl::util::Error
             << "Synchronization attempt on replacement event (ID=" << _id << ')'
             << std::endl;
 }
@@ -234,7 +234,7 @@ LocalEvent::~LocalEvent() {
 void LocalEvent::onSynchronize(dcl::Process& process) {
     cl::CommandQueue commandQueue = _context->ioCommandQueue();
 
-    BOOST_LOG_TRIVIAL(debug)
+    dcl::util::Logger << dcl::util::Debug
             << "Event synchronization (ID=" << _id
             << ") requested by '" << process.url() << '\''
             << std::endl;
@@ -327,12 +327,12 @@ void SimpleEvent::onExecutionStatusChanged(cl_int executionStatus) {
         _context->host().sendMessage(message);
         sendMessage(_context->computeNodes(), message);
 
-        BOOST_LOG_TRIVIAL(debug)
+        dcl::util::Logger << dcl::util::Debug
                 << "Sent update of command execution status (ID=" << _id
                 << ", status=" << executionStatus << ')'
                 << std::endl;
     } catch (const dcl::IOException& err) {
-        BOOST_LOG_TRIVIAL(error)
+        dcl::util::Logger << dcl::util::Error
                 << "Sending update of command execution status failed (ID=" << _id
                 << ", status=" << executionStatus << ')'
                 << std::endl;
@@ -357,12 +357,12 @@ void SimpleNodeEvent::onExecutionStatusChanged(cl_int executionStatus) {
              * No message has to be sent to the host. */
             sendMessage(_context->computeNodes(), message);
 
-            BOOST_LOG_TRIVIAL(debug)
+            dcl::util::Logger << dcl::util::Debug
                     << "Sent update of command execution status to compute nodes (ID=" << _id
                     << ", status=" << executionStatus << ')'
                     << std::endl;
         } catch (const dcl::IOException& err) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Sending update of command execution status to compute nodes failed (ID=" << _id
                     << ", status=" << executionStatus << ')'
                     << std::endl;
@@ -464,12 +464,12 @@ void WriteMemoryEvent::onExecutionStatusChanged(cl_int executionStatus) {
              * No message has to be sent to the host. */
             sendMessage(_context->computeNodes(), message);
 
-            BOOST_LOG_TRIVIAL(debug)
+            dcl::util::Logger << dcl::util::Debug
                     << "Sent update of command execution status to compute nodes (ID=" << _id
                     << ", status=" << executionStatus << ')'
                     << std::endl;
         } catch (const dcl::IOException& err) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Sending update of command execution status to compute nodes failed (ID=" << _id
                     << ", status=" << executionStatus << ')'
                     << std::endl;

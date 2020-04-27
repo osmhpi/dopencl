@@ -51,7 +51,7 @@
 
 #include <dcl/CommunicationManager.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -114,7 +114,7 @@ void readNodeList(
                 if (ifs.eof()) break;
 
                 /* true error */
-                BOOST_LOG_TRIVIAL(error)
+                dcl::util::Logger << dcl::util::Error
                         << "Error reading node file '" << filename << '\'' << std::endl;
                 break;
             }
@@ -127,7 +127,7 @@ void readNodeList(
 
         ifs.close(); // close node file
     } else {
-        BOOST_LOG_TRIVIAL(warning)
+        dcl::util::Logger << dcl::util::Warning
                 << "Node file '" << filename << "' not found" << std::endl;
     }
 }
@@ -314,10 +314,10 @@ void _cl_platform_id::initComputeNodes() {
 
 			/* TODO Delete compute node proxies in case of an exception */
 		} catch (const std::bad_alloc& err) {
-			BOOST_LOG_TRIVIAL(error)
+			dcl::util::Logger << dcl::util::Error
 					<< "Out of memory" << std::endl;
 		} catch (const dcl::DCLException& err) {
-			BOOST_LOG_TRIVIAL(error)
+			dcl::util::Logger << dcl::util::Error
 					<< "dOpenCL error: " << err.what() << std::endl;
 		}
 	}

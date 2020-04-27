@@ -66,7 +66,7 @@
 #include <dcl/DCLException.h>
 #include <dcl/Remote.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
@@ -147,7 +147,7 @@ void _cl_context::init(
 	    /* Register context as context listener */
 	    getPlatform()->remote().objectRegistry().bind<dcl::ContextListener>(_id, *this);
 
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Context created (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);
@@ -281,7 +281,7 @@ void _cl_context::destroy() {
 	    /* Remove this context from list of context listeners */
 		getPlatform()->remote().objectRegistry().unbind<dcl::ContextListener>(_id);
 
-		BOOST_LOG_TRIVIAL(info)
+		dcl::util::Logger << dcl::util::Info
 				<< "Context deleted (ID=" << _id << ')' << std::endl;
 	} catch (const dcl::CLError& err) {
 		throw dclicd::Error(err);

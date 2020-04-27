@@ -35,60 +35,94 @@
  ******************************************************************************/
 
 /*!
- * \file DeviceImpl.cpp
+ * \file Logger.h
  *
- * \date 2011-11-12
- * \author Philipp Kegel
+ * \date 2011-08-08
+ * \author Michel Steuwer <michel.steuwer@uni-muenster.de>
+ * \author Philipp Kegel <philipp.kegel@uni-muenster.de>
  */
 
-#include "DeviceImpl.h"
+#ifndef LOGGER_H_
+#define LOGGER_H_
 
-#include "ComputeNodeImpl.h"
+#include <mutex>
+#include <ostream>
+#include <sstream>
 
-//#include "message/DeviceInfosResponse.h"
-#include "message/GetDeviceInfo.h"
+namespace dcl {
 
-#include <dclasio/message/InfoResponse.h>
+namespace util {
 
-#include <dcl/Binary.h>
-#include <dcl/ComputeNode.h>
-#include <dcl/DCLTypes.h>
-#include <dcl/Remote.h>
+enum class Severity {
+    Error = 1,
+    Warning = 2,
+    Info = 3,
+    Debug = 4,
+    Verbose = 5
+};
 
-#include <dcl/util/Logger.h>
+/*!
+ * \brief A simple logger
+ */
+class LoggerImpl: public std::ostream {
+public:
+    LoggerImpl();
 
-#ifdef __APPLE__
-#include <OpenCL/cl.h>
-#else
-#include <CL/cl.h>
-#endif
+    void setOutput(std::ostream& output);
 
-#include <memory>
+    void setLoggingLevel(Severity severity);
 
-namespace dclasio {
+    void setDefaultSeverity(Severity severity);
 
-DeviceImpl::DeviceImpl(
-		dcl::object_id id,
-		ComputeNodeImpl& computeNode) :
-	dcl::Remote(id), _computeNode(computeNode) {
-}
+    /*!
+     * \brief Sets logging level until next flush
+     */
+    void setCurrentSeverity(Severity severity);
 
-DeviceImpl::~DeviceImpl() { }
+private:
+    std::string severityToString(Severity severity);
 
-void DeviceImpl::getInfo(cl_device_info param_name, dcl::Binary& param) const {
-    message::GetDeviceInfo request(_id, param_name);
-	std::unique_ptr<message::InfoResponse> response(
-			static_cast<message::InfoResponse *>(
-					_computeNode.executeCommand(request, message::InfoResponse::TYPE).release()));
-	param = response->param();
+    class LoggerBuffer: public std::stringbuf {
+    public:
+        LoggerBuffer(LoggerImpl& logger, std::ostream& stream);
 
-    dcl::util::Logger << dcl::util::Info
-            << "Got device info (ID=" << _id
-            << ')' << std::endl;
-}
+        void setOutput(std::ostream& output);
 
-ComputeNodeImpl& DeviceImpl::computeNode() const {
-    return _computeNode;
-}
+        virtual int sync();
+    private:
+        LoggerImpl &_logger;
+        std::ostream *_output;
+        std::mutex _mutex; //!< Mutex to synchronize logging
+    };
 
-} /* namespace dclasio */
+    Severity _currentSeverity;
+    Severity _defaultSeverity;
+    Severity _maxSeverity;
+    LoggerBuffer _buffer;
+};
+
+/*
+ * custom manipulators
+ */
+
+LoggerImpl& operator<<(
+        LoggerImpl& logger,
+        LoggerImpl& (*manipulator)(LoggerImpl&));
+
+LoggerImpl& Error(LoggerImpl& logger);
+
+LoggerImpl& Warning(LoggerImpl& logger);
+
+LoggerImpl& Info(LoggerImpl& logger);
+
+LoggerImpl& Debug(LoggerImpl& logger);
+
+LoggerImpl& Verbose(LoggerImpl& logger);
+
+extern LoggerImpl Logger;
+
+} // namespace util
+
+} // namespace dcl
+
+#endif // LOGGER_H_

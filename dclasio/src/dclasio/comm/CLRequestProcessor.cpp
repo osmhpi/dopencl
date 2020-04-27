@@ -106,7 +106,7 @@
 #include <dcl/Program.h>
 #include <dcl/Session.h>
 
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
@@ -262,7 +262,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         _communicationManager.objectRegistry().getIDs<dcl::Device *>(deviceIDs);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Got device IDs" << std::endl;
 
         /* TODO Return list of (device ID, device type) pairs */
@@ -283,7 +283,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         device->getInfo(request.paramName, param);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Got device info (device ID=" << request.deviceId
                 << ')' << std::endl;
 
@@ -315,7 +315,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         /* TODO Asynchronously connect to created compute nodes
          * Return response when compute nodes have been connected */
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Context created (ID=" << request.contextId() << ')'
                 << std::endl;
 
@@ -336,7 +336,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookup<std::shared_ptr<dcl::Context>>(request.contextId()));
         registry.unbind<std::shared_ptr<dcl::Context>>(request.contextId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Context released (ID=" << request.contextId() << ')'
                 << std::endl;
 
@@ -358,7 +358,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 request.flags(), request.size(), request.bufferId());
         registry.bind(request.bufferId(), buffer);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Buffer created (ID=" << request.bufferId() << ')'
                 << std::endl;
 
@@ -379,7 +379,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookupMemory(request.memObjectId()));
         registry.unbindMemory(request.memObjectId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Memory object released (ID=" << request.memObjectId() << ')'
                 << std::endl;
 
@@ -404,7 +404,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 request.properties());
         registry.bind(request.commandQueueId(), commandQueue);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Command queue created (ID=" << request.commandQueueId() << ')' << std::endl;
 
         return extstd::make_unique<message::DefaultResponse>(request);
@@ -424,7 +424,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId()));
         registry.unbind<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Command queue released (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
@@ -456,7 +456,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 source.get(), length);
         registry.bind(request.programId(), program);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Program created from source (ID=" << request.programId() << ')'
                 << std::endl;
 
@@ -504,7 +504,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 &binary_status);
         registry.bind(request.programId(), program);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Program created from binaries (ID=" << request.programId() << ')'
                 << std::endl;
 
@@ -528,7 +528,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookup<std::shared_ptr<dcl::Program>>(request.programId()));
         registry.unbind<std::shared_ptr<dcl::Program>>(request.programId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Program released (ID=" << request.programId() << ')'
                 << std::endl;
 
@@ -555,7 +555,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 std::make_shared<ProgramBuildListenerImpl>(request.programBuildId(), host));
         program->build(devices, request.options().c_str(), programBuildListener);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Program build submitted (program ID=" << request.programId()
                 << ", build ID=" << request.programBuildId()
                 << ')' << std::endl;
@@ -578,7 +578,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                         request.programId()), request.kernelName());
         registry.bind(request.kernelId(), kernel);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Kernel created (ID=" << request.kernelId()
                 << ", name=" << request.kernelName()
                 << ')' << std::endl;
@@ -607,7 +607,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(*id++, *kernel++);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Kernels in program created (program ID=" << request.programId()
                 << ", #kernels=" << kernels.size()
                 << ')' << std::endl;
@@ -629,7 +629,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookup<std::shared_ptr<dcl::Kernel>>(request.kernelId()));
         registry.unbind<std::shared_ptr<dcl::Kernel>>(request.kernelId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Kernel released (ID=" << request.kernelId() << ')'
                 << std::endl;
 
@@ -659,7 +659,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 memoryObjects);
         registry.bind(request.eventId(), event);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Event created (ID=" << request.eventId() << ')'
                 << std::endl;
 
@@ -680,7 +680,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 registry.lookup<std::shared_ptr<dcl::Event>>(request.eventId()));
         registry.unbind<std::shared_ptr<dcl::Event>>(request.eventId());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Event released (ID=" << request.eventId() << ')'
                 << std::endl;
 
@@ -707,7 +707,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         event->getProfilingInfo(CL_PROFILING_COMMAND_START, start);
         event->getProfilingInfo(CL_PROFILING_COMMAND_END, end);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Got event profiling info (ID=" << request.eventId() << ')'
                 << std::endl;
 
@@ -730,7 +730,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         registry.lookup<std::shared_ptr<dcl::Kernel>>(request.kernelId())->getInfo(
                 request.paramName(), param);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Got kernel info (ID=" << request.kernelId() << ')'
                 << std::endl;
 
@@ -753,7 +753,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         registry.lookup<std::shared_ptr<dcl::Kernel>>(request.kernelId())->getWorkGroupInfo(
                 device, request.paramName(), param);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Got kernel work group info (kernel ID=" << request.kernelId()
                 << ", device ID=" << request.deviceId()
                 << ')' << std::endl;
@@ -791,7 +791,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), copyBuffer);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued copy buffer (command queue ID=" << request.commandQueueId()
                 << ", src buffer ID=" << request.srcBufferId()
                 << ", dst buffer ID=" << request.dstBufferId()
@@ -830,7 +830,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), writeBuffer);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued data upload to buffer (command queue ID="
                 << request.commandQueueId() << ", buffer ID=" << request.bufferId()
                 << ", command ID=" << request.commandId()
@@ -868,7 +868,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), readBuffer);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued data download from buffer (command queue ID="
                 << request.commandQueueId() << ", buffer ID=" << request.bufferId()
                 << ", command ID=" << request.commandId()
@@ -933,7 +933,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), ndRangeKernel);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued ND range kernel (command queue ID=" << request.commandQueueId()
                 << ", kernel ID=" << request.kernelId()
                 << ", command ID=" << request.commandId()
@@ -968,7 +968,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), barrier);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued barrier (command queue ID=" << request.commandQueueId()
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
@@ -1000,7 +1000,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueWaitForEvents(
                 eventList);
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued wait for events (command queue ID=" << request.commandQueueId()
                 << ')' << std::endl;
 
@@ -1037,7 +1037,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), mapBuffer);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued map buffer (command queue ID=" << request.commandQueueId()
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
@@ -1074,7 +1074,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), unmapBuffer);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued unmap buffer (command queue ID=" << request.commandQueueId()
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
@@ -1108,7 +1108,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             registry.bind(request.commandId(), marker);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Enqueued marker (command queue ID=" << request.commandQueueId()
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
@@ -1129,7 +1129,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         /* TODO Finish command queue asynchronously */
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->finish();
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Finished command queue (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
@@ -1148,7 +1148,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     try {
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->flush();
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Flushed command queue (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
@@ -1175,7 +1175,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
             kernel->setArg(request.argIndex(), memory);
         }
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Kernel argument set (ID=" << request.kernelId() << ')' << std::endl;
 
         return extstd::make_unique<message::DefaultResponse>(request);
@@ -1194,7 +1194,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         registry.lookup<std::shared_ptr<dcl::Kernel>>(request.kernelId())->setArg(
                 request.argIndex(), request.argSize(), request.argValue());
 
-        BOOST_LOG_TRIVIAL(info)
+        dcl::util::Logger << dcl::util::Info
                 << "Kernel argument set (ID=" << request.kernelId() << ')' << std::endl;
 
         return extstd::make_unique<message::DefaultResponse>(request);

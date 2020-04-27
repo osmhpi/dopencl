@@ -52,7 +52,7 @@
 #include <dcl/DCLTypes.h>
 
 #if !defined(NO_TEMPLATES)
-#include <boost/log/trivial.hpp>
+#include <dcl/util/Logger.h>
 
 #include <boost/asio/read.hpp>
 #endif
@@ -161,7 +161,7 @@ private:
             size_t bytes_transferred,
             MessageHandler handler) {
         if (ec) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Could not read message header: " << ec.message()
                     << std::endl;
             // FIXME Report error asynchronously
@@ -176,7 +176,7 @@ private:
     void start_read_message(
             message::Message::size_type size,
             MessageHandler handler) {
-        BOOST_LOG_TRIVIAL(trace)
+        dcl::util::Logger << dcl::util::Verbose
                 << "Incoming message (size=" << size << ')' << std::endl;
         _message_buffer.resize(size);
         // read message
@@ -194,13 +194,13 @@ private:
         std::unique_ptr<message::Message> message;
 
         if (ec) {
-            BOOST_LOG_TRIVIAL(error)
+            dcl::util::Logger << dcl::util::Error
                     << "Could not read message: " << ec.message()
                     << std::endl;
         } else {
             // create message of type _message_header.type from _message_buffer
             message.reset(message::createMessage(ntohl(_message_header.type)));
-            BOOST_LOG_TRIVIAL(debug)
+            dcl::util::Logger << dcl::util::Debug
                     << "Received message (size=" << _message_buffer.size()
                     << ", type=" << message->get_type() << ')'
                     << std::endl;
