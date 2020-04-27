@@ -216,11 +216,11 @@ void MessageDispatcher::handle_approval(
         }
     }
 
-    dcl::OutputByteBuffer obuf;
     if (approved) {
         // message queue has been approved - keep it
         auto msgq = add_message_queue(new message_queue(socket, pid));
 
+        dcl::OutputByteBuffer obuf;
         obuf << _pid; // signal approval: return own process ID
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
         BOOST_LOG_TRIVIAL(trace)
@@ -235,6 +235,7 @@ void MessageDispatcher::handle_approval(
         start_read_message(*msgq);
     } else {
         // signal reject: return process ID 0
+        dcl::OutputByteBuffer obuf;
         obuf << dcl::process_id();
         boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
         BOOST_LOG_TRIVIAL(error)

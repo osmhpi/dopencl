@@ -217,8 +217,9 @@ void DataDispatcher::handle_approval(
         auto dataStream = add_data_stream(new DataStream(socket));
 
 #if USE_DATA_STREAM_RESPONSE
-        *buf << _pid; // signal approval: return own process ID
-        boost::asio::write(*socket, boost::asio::buffer(buf->data(), buf->size()));
+        dcl::OutputByteBuffer obuf;
+        obuf << _pid; // signal approval: return own process ID
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
         BOOST_LOG_TRIVIAL(trace)
                 << "Accepted data stream from process (pid=" << pid << ')'
@@ -230,8 +231,9 @@ void DataDispatcher::handle_approval(
     } else {
 #if USE_DATA_STREAM_RESPONSE
         // signal reject: return process ID 0
-        *buf << dcl::process_id();
-        boost::asio::write(*socket, boost::asio::buffer(buf->data(), buf->size()));
+        dcl::OutputByteBuffer obuf;
+        obuf << dcl::process_id();
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
         BOOST_LOG_TRIVIAL(error)
                 << "Rejected data stream from process (pid=" << pid << ')'

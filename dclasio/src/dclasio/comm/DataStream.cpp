@@ -297,9 +297,10 @@ dcl::process_id DataStream::connect(
 
 #if USE_DATA_STREAM_RESPONSE
     // receive response
-    buf.resize(sizeof(dcl::process_id));
-    boost::asio::read(*_socket, boost::asio::buffer(buf.data(), buf.size()));
-    buf >> pid;
+    dcl::InputByteBuffer ibuf;
+    ibuf.resize(sizeof(dcl::process_id));
+    boost::asio::read(*_socket, boost::asio::buffer(ibuf.data(), ibuf.size()));
+    ibuf >> pid;
     BOOST_LOG_TRIVIAL(trace)
             << "Received identification message response (pid=" << pid << ')'
             << std::endl;
