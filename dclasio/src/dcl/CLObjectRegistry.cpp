@@ -60,16 +60,19 @@ namespace detail {
 
 template<class T>
 void Registry<T>::bind(object_id id, T& object) {
+    std::lock_guard<std::mutex> lock(_objectsMutex);
     _objects.insert(std::make_pair(id, &object));
 }
 
 template<class T>
 void Registry<T>::unbind(object_id id) {
+    std::lock_guard<std::mutex> lock(_objectsMutex);
     _objects.erase(id);
 }
 
 template<class T>
 T * Registry<T>::lookup(object_id id) const {
+    std::lock_guard<std::mutex> lock(_objectsMutex);
     auto i = _objects.find(id);
     return (i == std::end(_objects)) ? nullptr : i->second;
 }

@@ -47,6 +47,7 @@
 #include "DCLTypes.h"
 
 #include <map>
+#include <mutex>
 
 namespace dcl {
 
@@ -65,6 +66,7 @@ public:
 
 private:
     std::map<object_id, T *> _objects;
+    mutable std::mutex _objectsMutex;
 };
 
 } /* namespace detail */
