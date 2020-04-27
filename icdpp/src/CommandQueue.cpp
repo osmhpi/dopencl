@@ -464,6 +464,7 @@ void _cl_command_queue::enqueueRead(
 		dclasio::message::EnqueueReadBuffer request(_id, readBuffer->remoteId(),
 				buffer->remoteId(), blocking_read, offset, cb, &eventIds,
 				(event != nullptr));
+		readBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
 		_device->remote().getComputeNode().executeCommand(request);
 		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued data download from buffer (command queue ID="
@@ -527,6 +528,7 @@ void _cl_command_queue::enqueueWrite(
 		dclasio::message::EnqueueWriteBuffer enqueueWriteBuffer(_id,
 				writeBuffer->remoteId(), buffer->remoteId(), blocking_write,
 				offset, cb, &eventIds, (event != nullptr));
+		writeBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
 		_device->remote().getComputeNode().executeCommand(enqueueWriteBuffer);
 		BOOST_LOG_TRIVIAL(info)
 				<< "Enqueued data upload to buffer (command queue ID=" << _id
@@ -639,6 +641,7 @@ void * _cl_command_queue::enqueueMap(
                 buffer->remoteId(), blocking_map, map_flags,
                 offset, cb,
                 &eventIds, (event != nullptr));
+        mapBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
         _device->remote().getComputeNode().executeCommand(request);
         BOOST_LOG_TRIVIAL(info)
                 << "Enqueued map buffer (command queue ID=" << _id
@@ -718,6 +721,7 @@ void _cl_command_queue::enqueueUnmap(
                     memobj->remoteId(), mapping->flags(),
                     mapping->offset(), mapping->cb(),
                     &eventIds, (event != nullptr));
+            unmapMemory->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
             _device->remote().getComputeNode().executeCommand(request);
             break;
         }

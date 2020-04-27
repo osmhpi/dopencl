@@ -278,9 +278,6 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
-        // schedule data transfer on host
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
         /* The read buffer command is finished on the host, such that no
          * 'command complete' message must be sent by the compute node. */
     } catch (const std::bad_alloc&) {
@@ -313,9 +310,6 @@ void CommandQueue::enqueueWriteBuffer(
 #endif
 
     try {
-        // schedule data transfer on host
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
         // schedule completion message for host
         /* A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -446,11 +440,6 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
-        // schedule data transfer on host
-        /* A 'command submitted' message will be sent to the host in order to
-         * start data receipt. */
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 
@@ -521,10 +510,6 @@ void CommandQueue::enqueueWriteBuffer(
                     bufferImpl, writeBuffer);
         }
 #else
-        // schedule data transfer on host
-        /* A 'command submitted' message will be sent to the host. */
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
