@@ -21,11 +21,21 @@ matrix:
 before_install:
   - |
     sudo apt-get -y install cmake make g++ libboost-dev libboost-program-options-dev libboost-system-dev libboost-thread-dev opencl-headers ocl-icd-opencl-dev
+    # cl.hpp is not included in opencl-headers or any other package for Ubuntu 16.04
     if [[ "$(lsb_release -rs)" == "16.04" ]]; then
       sudo wget -O /usr/include/CL/cl.hpp https://www.khronos.org/registry/OpenCL/api/2.1/cl.hpp
     fi
+    # Rely on POCL to provide a generic OpenCL implementation that can run the tests
+    # Unfortunately however,it is not available on Ubuntu 16.04, only on Ubuntu 18.04
+    if [[ "$(lsb_release -rs)" == "18.04" ]]; then
+      sudo apt-get -y install libboost-test-dev pocl-opencl-icd netcat-openbsd
+    fi
 script:
-  - mkdir build && cd build
-  - cmake -DCMAKE_BUILD_TYPE=Release ..
-  - make
-# TODOXXX: Run tests here (unstable for now)
+  - |
+    mkdir build && cd build
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    make -j"$(nproc)"
+    cd ..
+    if [[ "$(lsb_release -rs)" == "18.04" ]]; then
+       ./run_tests.sh
+    fi
