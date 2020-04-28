@@ -51,11 +51,13 @@
 #include <dcl/Device.h>
 #include <dcl/Memory.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cassert>
@@ -148,7 +150,7 @@ void Kernel::setArg(cl_uint index,
     auto memoryImpl = std::dynamic_pointer_cast<Memory>(memory);
     if (!memoryImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
-    _kernel.setArg(index, memoryImpl->operator cl::Memory()());
+    _kernel.setArg(index, memoryImpl->operator cl::Memory());
 
     assert(index < _allMemoryObjects.size());
     if (_allMemoryObjects.size() <= index) {

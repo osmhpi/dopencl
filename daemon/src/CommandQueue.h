@@ -50,11 +50,13 @@
 #include <dcl/Kernel.h>
 #include <dcl/Memory.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cstddef>
@@ -187,14 +189,14 @@ private:
     void synchronize(
             const std::vector<std::shared_ptr<Memory>>&     syncBuffers,
             const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
-            VECTOR_CLASS<cl::Event>&                        nativeEventWaitList);
+            cl::vector<cl::Event>&                          nativeEventWaitList);
 
     void enqueueReadBuffer(
             const std::shared_ptr<Buffer>&  buffer,
             bool                            blocking,
             size_t                          offset,
             size_t                          size,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
+            const cl::vector<cl::Event>&    nativeEventWaitList,
             dcl::object_id                  commandId,
             cl::Event&                      mapData,
             cl::Event&                      unmapData);
@@ -204,14 +206,14 @@ private:
             bool                            blocking,
             size_t                          offset,
             size_t                          size,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
+            const cl::vector<cl::Event>&    nativeEventWaitList,
             dcl::object_id                  commandId,
             cl::Event&                      mapData,
             cl::Event&                      unmapData);
 
     void enqueuePhonyMarker(
             bool                            blocking,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
+            const cl::vector<cl::Event>&    nativeEventWaitList,
             dcl::object_id                  commandId,
             cl::Event&                      marker);
 

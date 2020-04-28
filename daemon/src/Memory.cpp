@@ -52,12 +52,14 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #include <OpenCL/cl_wwu_dcl.h>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #include <CL/cl_wwu_dcl.h>
 #endif
 
@@ -162,7 +164,7 @@ void Buffer::acquire(
             << std::endl;
 
     /* map buffer to host memory when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> receiveWaitList;
+    cl::vector<cl::Event> receiveWaitList;
     if (releaseEvent != nullptr)
         receiveWaitList.push_back(*releaseEvent);
 
@@ -188,7 +190,7 @@ void Buffer::release(
             << std::endl;
 
     /* enqueue data transfer from buffer when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> mapWaitList(1, releaseEvent);
+    cl::vector<cl::Event> mapWaitList(1, releaseEvent);
     _context->sendBufferToProcess(process, commandQueue, _buffer, 0, size(),
             &mapWaitList, &mapEvent, &unmapEvent);
 }

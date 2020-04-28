@@ -50,11 +50,13 @@
 #include <dcl/Device.h>
 #include <dcl/Host.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
@@ -97,7 +99,7 @@ public:
                                   const cl::Buffer &buffer,
                                   size_t offset,
                                   size_t size,
-                                  const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                  const cl::vector<cl::Event> *eventWaitList,
                                   cl::Event *startEvent,
                                   cl::Event *endEvent);
 
@@ -106,7 +108,7 @@ public:
                              const cl::Buffer &buffer,
                              size_t offset,
                              size_t size,
-                             const VECTOR_CLASS<cl::Event> *eventWaitList,
+                             const cl::vector<cl::Event> *eventWaitList,
                              cl::Event *startEvent,
                              cl::Event *endEvent);
 

@@ -63,11 +63,13 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cassert>
@@ -197,7 +199,7 @@ CommandQueue::operator cl::CommandQueue() const {
 void CommandQueue::synchronize(
         const std::vector<std::shared_ptr<Memory>>& syncBuffers,
         const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
-        VECTOR_CLASS<cl::Event>& nativeEventWaitList) {
+        cl::vector<cl::Event>& nativeEventWaitList) {
     bool synchronizationPending = false;
 
     nativeEventWaitList.clear();
@@ -217,7 +219,7 @@ void CommandQueue::synchronize(
              * synchronization for remote events */
             auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
             if (remoteEvent) { // event is a remote event
-                VECTOR_CLASS<cl::Event> synchronizeEvents;
+                cl::vector<cl::Event> synchronizeEvents;
                 remoteEvent->synchronize(_commandQueue, synchronizeEvents);
                 /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
                  * Different events may be associated with the same memory object
@@ -260,7 +262,7 @@ void CommandQueue::enqueueReadBuffer(
         bool blocking,
         size_t offset,
         size_t size,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
+        const cl::vector<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId,
         cl::Event& mapData, cl::Event& unmapData) {
     /* enqueue data transfer from buffer */
@@ -290,7 +292,7 @@ void CommandQueue::enqueueWriteBuffer(
         bool blocking,
         size_t offset,
         size_t size,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
+        const cl::vector<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId,
         cl::Event& mapData, cl::Event& unmapData) {
     /* enqueue data transfer to buffer */
@@ -323,7 +325,7 @@ void CommandQueue::enqueueWriteBuffer(
 
 void CommandQueue::enqueuePhonyMarker(
         bool blocking,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
+        const cl::vector<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId, cl::Event& marker) {
 #if defined(CL_VERSION_1_2)
     _commandQueue.enqueueMarkerWithWaitList(&nativeEventWaitList, &marker);
@@ -381,7 +383,7 @@ void CommandQueue::enqueueCopyBuffer(
         std::shared_ptr<dcl::Event> *event) {
     auto srcImpl = std::dynamic_pointer_cast<Buffer>(src);
     auto dstImpl = std::dynamic_pointer_cast<Buffer>(dst);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event copyBuffer;
 
     if (!srcImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
@@ -419,7 +421,7 @@ void CommandQueue::enqueueReadBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
@@ -467,7 +469,7 @@ void CommandQueue::enqueueWriteBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
@@ -552,7 +554,7 @@ void CommandQueue::enqueueMapBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
@@ -622,7 +624,7 @@ void CommandQueue::enqueueUnmapBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
@@ -686,7 +688,7 @@ void CommandQueue::enqueueNDRangeKernel(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto kernelImpl = std::dynamic_pointer_cast<Kernel>(kernel);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event ndRangeKernel;
 
     if (!kernelImpl) throw cl::Error(CL_INVALID_KERNEL);
@@ -722,7 +724,7 @@ void CommandQueue::enqueueNDRangeKernel(
 void CommandQueue::enqueueMarker(
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId, std::shared_ptr<dcl::Event> *event) {
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event marker;
 
     /* Obtain wait list of native events */
@@ -782,7 +784,7 @@ void CommandQueue::enqueueMarker(
 #if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
 void CommandQueue::enqueueWaitForEvents(
         const std::vector<std::shared_ptr<dcl::Event>>& eventList) {
-    VECTOR_CLASS<cl::Event> nativeEventList;
+    cl::vector<cl::Event> nativeEventList;
 
 	assert(!eventList.empty()); // event list must no be empty
 
@@ -798,7 +800,7 @@ void CommandQueue::enqueueWaitForEvents(
         /* TODO Create Event::synchronize method (see CommandQueue::synchronize) */
         auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
         if (remoteEvent) { // event is a remote event
-            VECTOR_CLASS<cl::Event> synchronizeEvents;
+            cl::vector<cl::Event> synchronizeEvents;
             remoteEvent->synchronize(_commandQueue, synchronizeEvents);
             nativeEventList.insert(std::end(nativeEventList),
                     std::begin(synchronizeEvents), std::end(synchronizeEvents));
@@ -817,7 +819,7 @@ void CommandQueue::enqueueWaitForEvents(
 void CommandQueue::enqueueBarrier(
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId, std::shared_ptr<dcl::Event> *event) {
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event barrier;
 
     /* Obtain wait list of native events */
@@ -864,7 +866,7 @@ void CommandQueue::enqueueBarrier(
          * command is executed. This is implied for in-order command-queues but
          * requires additional synchronization using clEnqueueWaitForEvents for
          * out-of-order command-queues. */
-        _commandQueue.enqueueWaitForEvents(VECTOR_CLASS<cl::Event>(1, barrier));
+        _commandQueue.enqueueWaitForEvents(cl::vector<cl::Event>(1, barrier));
         /* TODO Lock command-queue when enqueuing clEnqueueBarrierWithWaitList
          * No other command must be enqueued concurrently, such that
          * clEnqeueueWaitForEvents is executed right after clEnqueueMarker. */

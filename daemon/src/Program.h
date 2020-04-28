@@ -49,11 +49,13 @@
 #include <dcl/Program.h>
 #include <dcl/ProgramBuildListener.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cstddef>
@@ -83,7 +85,7 @@ public:
             const std::vector<dcl::Device *>&   devices,
             const std::vector<size_t>&          lengths,
             const unsigned char **              binaries,
-            VECTOR_CLASS<cl_int> *              binary_status);
+            cl::vector<cl_int> *                binary_status);
     virtual ~Program();
 
     operator cl::Program() const;

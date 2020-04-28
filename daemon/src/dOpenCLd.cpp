@@ -56,11 +56,13 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <condition_variable>
@@ -128,14 +130,14 @@ void getOpenCLVersion(
     }
 }
 
-VECTOR_CLASS<cl::Platform> getAllPlatforms() {
-    VECTOR_CLASS<cl::Platform> platforms;
+cl::vector<cl::Platform> getAllPlatforms() {
+    cl::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
     return platforms;
 }
 
 cl::Platform getPlatform(const std::string *platformName) {
-    VECTOR_CLASS<cl::Platform> platforms;
+    cl::vector<cl::Platform> platforms;
 	
     /* The number of platform may be zero without throwing an error.
      * If an ICD loader is used, CL_PLATFORM_NOT_FOUND_KHR will be thrown. */
@@ -244,12 +246,12 @@ void dOpenCLd::terminate() {
 }
 
 void dOpenCLd::initializeDevices() {
-    VECTOR_CLASS<cl::Device> devices;
+    cl::vector<cl::Device> devices;
 	
     /*
      * Initialize device list
      */
-    VECTOR_CLASS<cl::Platform> platforms = getAllPlatforms();
+    cl::vector<cl::Platform> platforms = getAllPlatforms();
     auto platform = std::begin(platforms);
     while (platform != std::end(platforms)) {
     platform->getDevices(CL_DEVICE_TYPE_ALL, &devices);

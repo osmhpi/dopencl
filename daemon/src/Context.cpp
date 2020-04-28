@@ -50,11 +50,13 @@
 #include <dcl/Device.h>
 #include <dcl/Host.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cassert>
@@ -123,7 +125,7 @@ Context::Context(
 
     /* TODO Use helper function for device conversion */
     /* convert devices */
-    VECTOR_CLASS<cl::Device> nativeDevices;
+    cl::vector<cl::Device> nativeDevices;
     for (auto device : devices) {
         auto deviceImpl = dynamic_cast<Device *>(device);
         if (!deviceImpl) throw cl::Error(CL_INVALID_DEVICE);
@@ -175,7 +177,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                        const cl::Buffer &buffer,
                                        size_t offset,
                                        size_t size,
-                                       const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                       const cl::vector<cl::Event> *eventWaitList,
                                        cl::Event *startEvent,
                                        cl::Event *endEvent) {
     cl::Event myStartEvent, myEndEvent;
@@ -237,16 +239,16 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 
 
             /* Enqueue unmap buffer (implicit upload) */
-            VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
+            cl::vector<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
             // Rounds down (partial chunks are not compressed by DataStream)
             size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
-                VECTOR_CLASS<cl::Event> decompressWaitList = {unmapEvents[i]};
+                cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
                 _cl842DeviceDecompressor->decompress(commandQueue,
-                                                     buffer, superblock_offset, chunksSize, nullptr,
-                                                     buffer, superblock_offset, chunksSize, nullptr,
-                                                     nullptr,
+                                                     buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
+                                                     buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
+                                                     cl::Buffer(nullptr),
                                                      &decompressWaitList, &decompressEvents[i]);
             } else {
                 decompressEvents[i] = unmapEvents[i];
@@ -275,7 +277,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     process.receiveData(size, ptr, false, mapDataCompletable)
             ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
-    VECTOR_CLASS<cl::Event> unmapWaitList = {receiveEvent};
+    cl::vector<cl::Event> unmapWaitList = {receiveEvent};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
     }
@@ -312,7 +314,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
                                   const cl::Buffer &buffer,
                                   size_t offset,
                                   size_t size,
-                                  const VECTOR_CLASS<cl::Event> *eventWaitList,
+                                  const cl::vector<cl::Event> *eventWaitList,
                                   cl::Event *startEvent,
                                   cl::Event *endEvent) {
     cl::Event myStartEvent;
@@ -333,7 +335,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
     process.sendData(size, ptr, false, mapDataCompletable)
             ->setCallback(std::bind(&cl::UserEvent::setStatus, sendData, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
-    VECTOR_CLASS<cl::Event> unmapWaitList = {sendData};
+    cl::vector<cl::Event> unmapWaitList = {sendData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
