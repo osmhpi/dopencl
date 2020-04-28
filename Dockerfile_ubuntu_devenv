@@ -12,7 +12,7 @@ RUN apt-get update \
         # Required by dopencl/dclasio
         libboost-system-dev libboost-thread-dev \
         # Required by tests
-        libboost-test-dev libtiff-dev netcat-openbsd \
+        libboost-test-dev libtiff-dev netcat-openbsd psmisc \
         # Development utilities
         gdb nano clinfo git \
         # NB: Both C and C++ headers + libOpenCL required
