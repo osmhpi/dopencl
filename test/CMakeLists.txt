@@ -32,6 +32,7 @@ add_executable(CommandQueue ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Command
 add_executable(Context ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Context.cpp)
 add_executable(Device ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Device.cpp)
 add_executable(Event ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Event.cpp)
+add_executable(Logger ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Logger.cpp)
 add_executable(Memory
 		${UTILITY_SOURCES}
 		${PROJECT_SOURCE_DIR}/src/Buffer.cpp
@@ -42,7 +43,7 @@ add_executable(Platform ${PROJECT_SOURCE_DIR}/src/Platform.cpp)
 add_executable(Program ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/Program.cpp)
 add_executable(DataTransfer ${UTILITY_SOURCES} ${PROJECT_SOURCE_DIR}/src/DataTransfer.cpp)
 
-foreach(test CommandQueue Context Device Event Memory Platform Program DataTransfer)
+foreach(test CommandQueue Context Device Event Logger Memory Platform Program DataTransfer)
 	add_test(${test} ${test})
 	
 	target_link_libraries(${test}

@@ -91,11 +91,13 @@ namespace dcl {
 
 static void setup_log(const char *file_name) {
     // set up dOpenCL logger
-    // TODOYYY handle envvar DCL_LOG_TO_CONSOLE!!
-    static std::ofstream dclLogFile(file_name);
-    dcl::util::Logger.setOutput(dclLogFile);
+    if (getenv("DCL_LOG_TO_CONSOLE") != nullptr) {
+        dcl::util::Logger.setOutput(std::clog);
+    } else {
+        static std::ofstream dclLogFile(file_name);
+        dcl::util::Logger.setOutput(dclLogFile);
+    }
     dcl::util::Logger.setLoggingLevel(getSeverity());
-    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
 }
 
 HostCommunicationManager * HostCommunicationManager::create() {

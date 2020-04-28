@@ -197,11 +197,3 @@ cl_mem createRWBuffer(cl_context context, size_t cb) {
 }
 
 } // namespace dcltest
-
-
-struct SetTestLogLevel {
-    SetTestLogLevel() {
-        // TODOYYY: Configure the log adequately for the unit tests (Set output to console and severity to >= warning)
-    }
-};
-BOOST_GLOBAL_FIXTURE( SetTestLogLevel );
