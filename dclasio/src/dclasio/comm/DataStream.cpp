@@ -742,6 +742,10 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
         return;
     }
+    if (_write_io_num_blocks_remaining == SIZE_MAX) {
+        // Last block was already written (calls to this function by compression threads can be spurious)
+        return;
+    }
 
     if (_write_io_num_blocks_remaining > 0) {
         if (_write_io_queue.empty()) {
@@ -770,10 +774,9 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
              _write_io_queue.pop();
-             lock.unlock();
-
              _write_io_total_bytes_transferred += bytes_transferred;
              _write_io_num_blocks_remaining--;
+             lock.unlock();
 
              try_write_next_compressed_chunk(writeq, write);
          });
@@ -792,9 +795,9 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
 
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
-             lock.unlock();
-
              _write_io_total_bytes_transferred += bytes_transferred;
+             _write_io_num_blocks_remaining = SIZE_MAX;
+             lock.unlock();
 
              // The data transfer thread also joins the final barrier for the compression
              // threads before finishing the write, to ensure resources are not released
