@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build
-mkdir -p build
-cd build
+echo -e "\033[0;36m**Building dOpenCL...**\033[0m"
+mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/dopencl ..
-make -j$(nproc)
+make -j"$(nproc)"
 
+echo -e "\033[0;36m**Installing dOpenCL...**\033[0m"
 # Remove old install
 sudo rm -Rf /opt/dopencl /etc/profile.d/dopenclenv.sh /usr/share/fish/vendor_conf.d/dopenclenv.fish
 
