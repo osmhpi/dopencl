@@ -435,7 +435,7 @@ void DataStream::start_read(readq_type *readq) {
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = read->size() / NETWORK_BLOCK_SIZE;
 
-        read_next_compressed_chunk(readq, read);
+        read_next_compressed_block(readq, read);
         return;
     }
 #endif
@@ -447,10 +447,9 @@ void DataStream::start_read(readq_type *readq) {
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read) {
+void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<DataReceipt> read) {
     if (_read_io_num_blocks_remaining > 0) {
-        // Read header containing the offset and size of the current chunk
-
+        // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 3> buffers = {
                 boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
                 boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_NETWORK_BLOCK * sizeof(size_t))
@@ -518,15 +517,15 @@ void DataStream::read_next_compressed_chunk(readq_type *readq, std::shared_ptr<D
 
                 _read_io_num_blocks_remaining--;
 
-                read_next_compressed_chunk(readq, read);
+                read_next_compressed_block(readq, read);
             });
         });
     } else {
-        // Always read the last incomplete chunk of the input uncompressed
-        auto last_chunk_destination_ptr =  static_cast<uint8_t *>(read->ptr()) + (read->size() & ~(NETWORK_BLOCK_SIZE - 1));
-        auto last_chunk_size = read->size() & (NETWORK_BLOCK_SIZE - 1);
+        // Always read the last incomplete block of the input uncompressed
+        auto last_block_destination_ptr =  static_cast<uint8_t *>(read->ptr()) + (read->size() & ~(NETWORK_BLOCK_SIZE - 1));
+        auto last_block_size = read->size() & (NETWORK_BLOCK_SIZE - 1);
 
-        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_chunk_destination_ptr, last_chunk_size),
+        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
                                 [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
             assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
@@ -566,15 +565,15 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
     size_t stat_handled_blocks = 0;
 #endif
 
-    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
-    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_FINALIZE = 1;
-    static constexpr int CHUNKVARIANT_WHICH_MESSAGE_QUIT = 2;
+    static constexpr int VARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
+    static constexpr int VARIANT_WHICH_MESSAGE_FINALIZE = 1;
+    static constexpr int VARIANT_WHICH_MESSAGE_QUIT = 2;
 
     while (true) {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
         _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
-        if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_FINALIZE) {
+        if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_FINALIZE) {
             lock.unlock();
 
             // Wait until all threads have got the "finalize" message
@@ -589,10 +588,10 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
 
             // Once write is finalized, wait again
             _decompress_finish_barrier.wait();
-        } else if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_QUIT) {
+        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_QUIT) {
             break;
-        } else if (_decompress_queue.front().which() == CHUNKVARIANT_WHICH_MESSAGE_DECOMPRESS) {
-            auto chunkVariant = std::move(_decompress_queue.front());
+        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_DECOMPRESS) {
+            auto blockVariant = std::move(_decompress_queue.front());
             _decompress_queue.pop();
             _decompress_working_thread_count++;
 
@@ -600,7 +599,7 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
 #ifdef INDEPTH_TRACE
             stat_handled_blocks++;
 #endif
-            auto block = std::move(boost::get<decompress_message_decompress_block>(chunkVariant));
+            auto block = std::move(boost::get<decompress_message_decompress_block>(blockVariant));
             for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                 const auto &chunk = block.chunks[i];
                 if (chunk.compressed_data.empty() && chunk.destination == nullptr) {
@@ -724,7 +723,7 @@ void DataStream::start_write(writeq_type *writeq) {
             _compress_trigger_changed.notify_all();
         }
 
-        try_write_next_compressed_chunk(writeq, write);
+        try_write_next_compressed_block(writeq, write);
         return;
     }
 #endif
@@ -736,7 +735,7 @@ void DataStream::start_write(writeq_type *writeq) {
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write) {
+void DataStream::try_write_next_compressed_block(writeq_type *writeq, std::shared_ptr<DataSending> write) {
     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
     if (_write_io_channel_busy) {
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
@@ -749,7 +748,7 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
 
     if (_write_io_num_blocks_remaining > 0) {
         if (_write_io_queue.empty()) {
-            // No compressed chunk is yet available
+            // No compressed block is yet available
             return;
         }
 
@@ -762,14 +761,10 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
         send_buffers[0] = boost::asio::buffer(&block.source_offset, sizeof(size_t));
         send_buffers[1] = boost::asio::buffer(&block.sizes, sizeof(size_t) * NUM_CHUNKS_PER_NETWORK_BLOCK);
         for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++)
-        {
-        }
-        for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++)
             send_buffers[2 + i] = boost::asio::buffer(block.datas[i].get(), block.sizes[i]);
         boost_asio_async_write_with_sentinels(*_socket, send_buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              assert(!ec);
-
 
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
@@ -778,18 +773,19 @@ void DataStream::try_write_next_compressed_chunk(writeq_type *writeq, std::share
              _write_io_num_blocks_remaining--;
              lock.unlock();
 
-             try_write_next_compressed_chunk(writeq, write);
+             try_write_next_compressed_block(writeq, write);
          });
     } else {
-        // Always write the last incomplete chunk of the input uncompressed
+        // Always write the last incomplete block of the input uncompressed
         _write_io_channel_busy = true;
         lock.unlock();
 
-        auto last_chunk_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(NETWORK_BLOCK_SIZE - 1));
-        auto last_chunk_size = write->size() & (NETWORK_BLOCK_SIZE - 1);
+
+        auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(NETWORK_BLOCK_SIZE - 1));
+        auto last_block_size = write->size() & (NETWORK_BLOCK_SIZE - 1);
 
         boost_asio_async_write_with_sentinels(*_socket,
-                boost::asio::buffer(last_chunk_source_ptr, last_chunk_size),
+                boost::asio::buffer(last_block_source_ptr, last_block_size),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              assert(!ec);
 
@@ -896,7 +892,7 @@ void DataStream::loop_compress_thread(size_t thread_id) {
                 _write_io_queue.push(std::move(block));
             }
 
-            try_write_next_compressed_chunk(writeq, write);
+            try_write_next_compressed_block(writeq, write);
         }
 
         _compress_finish_barrier.wait();

@@ -154,7 +154,7 @@ private:
     void start_read(readq_type *readq);
 
 #ifdef IO_LINK_COMPRESSION
-    void read_next_compressed_chunk(readq_type *readq, std::shared_ptr<DataReceipt> read);
+    void read_next_compressed_block(readq_type *readq, std::shared_ptr<DataReceipt> read);
     void start_decompress_threads();
     void loop_decompress_thread(size_t thread_id);
 #endif
@@ -174,7 +174,7 @@ private:
     void start_write(writeq_type *writeq);
 
 #ifdef IO_LINK_COMPRESSION
-    void try_write_next_compressed_chunk(writeq_type *writeq, std::shared_ptr<DataSending> write);
+    void try_write_next_compressed_block(writeq_type *writeq, std::shared_ptr<DataSending> write);
     void start_compress_threads();
     void loop_compress_thread(size_t thread_id);
 #endif
@@ -275,11 +275,11 @@ private:
     };
 
     struct write_block {
-        // Offset into the source buffer where the data associated with the chunk comes from
+        // Offset into the source buffer where the data associated with the block comes from
         size_t source_offset;
-        // (Possibly compressed) chunk data
+        // Data for each (possibly compressed) chunk in the block
         std::array<std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>, NUM_CHUNKS_PER_NETWORK_BLOCK> datas;
-        // (Possibly compressed) chunk size
+        // Size for each (possibly compressed) chunk in the block
         std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> sizes;
     };
 
