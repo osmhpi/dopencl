@@ -10,9 +10,9 @@ RUN apt-get update \
         # Required by dopencl/daemon
         libboost-program-options-dev \
         # Required by dopencl/dclasio
-        libboost-system-dev \
+        libboost-system-dev libboost-thread-dev \
         # Required by tests
-        libboost-thread-dev libboost-test-dev libtiff-dev \
+        libboost-test-dev libtiff-dev \
         # Development utilities
         gdb nano clinfo git \
         # NB: Both C and C++ headers + libOpenCL required
