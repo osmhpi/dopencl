@@ -450,7 +450,7 @@ void DataStream::start_read(readq_type *readq) {
 void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<DataReceipt> read) {
     if (_read_io_num_blocks_remaining > 0) {
         // Read header containing the offset and size of the chunks in the current block
-        std::array<boost::asio::mutable_buffer, 3> buffers = {
+        std::array<boost::asio::mutable_buffer, 2> buffers = {
                 boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
                 boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_NETWORK_BLOCK * sizeof(size_t))
         };
