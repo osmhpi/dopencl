@@ -1,10 +1,10 @@
 /* Tests sorting a large array (possibly on multiple GPUs) using Bitonic Sort */
 #include <iostream>
 #include <vector>
+#include <string>
 #include <algorithm>
 #include <cassert>
 #include <queue>
-#include <tuple>
 #include <chrono>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120

@@ -257,80 +257,6 @@ void CommandQueue::synchronize(
     }
 }
 
-void CommandQueue::enqueueReadBuffer(
-        const std::shared_ptr<Buffer>& buffer,
-        bool blocking,
-        dcl::transfer_id transferId,
-        size_t offset,
-        size_t size,
-        const cl::vector<cl::Event>& nativeEventWaitList,
-        dcl::object_id commandId,
-        cl::Event& mapData, cl::Event& unmapData) {
-    /* enqueue data transfer from buffer */
-    _context->sendBufferToProcess(_context->host(), _commandQueue, *buffer, transferId, offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
-#ifdef PROFILE
-    mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
-#endif
-#ifdef FORCE_FLUSH
-    _commandQueue.flush();
-#else
-    if (blocking) {
-        _commandQueue.flush();
-    }
-#endif
-
-    try {
-        // schedule data transfer on host
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
-        /* The read buffer command is finished on the host, such that no
-         * 'command complete' message must be sent by the compute node. */
-    } catch (const std::bad_alloc&) {
-        throw cl::Error(CL_OUT_OF_RESOURCES);
-    }
-}
-
-void CommandQueue::enqueueWriteBuffer(
-        const std::shared_ptr<Buffer>& buffer,
-        bool blocking,
-        dcl::transfer_id transferId,
-        size_t offset,
-        size_t size,
-        const cl::vector<cl::Event>& nativeEventWaitList,
-        dcl::object_id commandId,
-        cl::Event& mapData, cl::Event& unmapData) {
-    /* enqueue data transfer to buffer */
-    _context->receiveBufferFromProcess(
-            _context->host(), _commandQueue,
-            *buffer, transferId, offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
-#ifdef PROFILE
-    unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
-#endif
-#ifdef FORCE_FLUSH
-    _commandQueue.flush();
-#else
-    if (blocking) {
-        _commandQueue.flush();
-    }
-#endif
-
-    try {
-        // schedule data transfer on host
-        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
-        _context->host().sendMessage(message);
-        // schedule completion message for host
-        /* A 'command complete' message is sent to the host.
-         * Note that this message must also be sent, if no event is associated
-         * with this command, such that a blocking write succeeds. */
-        unmapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::SetCompleteCommand(_context->host(), commandId, cl::UserEvent(*_context)));
-    } catch (const std::bad_alloc&) {
-        throw cl::Error(CL_OUT_OF_RESOURCES);
-    }
-}
-
 void CommandQueue::enqueuePhonyMarker(
         bool blocking,
         const cl::vector<cl::Event>& nativeEventWaitList,
@@ -587,26 +513,43 @@ void CommandQueue::enqueueMapBuffer(
          * downloaded to the mapped host pointer. */
         cl::Event mapData, unmapData;
 
-        enqueueReadBuffer(bufferImpl, blockingMap, transferId, offset, size,
-                nativeEventWaitList, commandId, mapData, unmapData);
+        /* enqueue data transfer from buffer */
+        _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, transferId, offset, size,
+                                      (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
+#ifdef PROFILE
+        mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
+#endif
+#ifdef FORCE_FLUSH
+        _commandQueue.flush();
+#else
+        if (blockingMap) {
+            _commandQueue.flush();
+        }
+#endif
 
-        if (event) { // an event should be associated with this command
-            /* The event must only broadcast its status on other compute nodes
-             * but not to the host, as a 'command complete' message will be sent
-             * to the host by the callback that has been set for the native
-             * event unmapData. */
-            /* WARNING: No callback must be registered for any native event of
-             * the CompoundNodeEvent object, that access the object. As the order
-             * of execution of callbacks is undefined, the application may delete
-             * the CompoundNodeEvent object, while the callbacks are processed.
-             * Thus, a callback that accesses the CompoundNodeEvent object may
-             * raise a SIGSEGV. */
-            try {
+        try {
+            // schedule data transfer on host
+            dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+            _context->host().sendMessage(message);
+            /* The read buffer command is finished on the host, such that no
+             * 'command complete' message must be sent by the compute node. */
+
+            if (event) { // an event should be associated with this command
+                /* The event must only broadcast its status on other compute nodes
+                 * but not to the host, as a 'command complete' message will be sent
+                 * to the host by the callback that has been set for the native
+                 * event unmapData. */
+                /* WARNING: No callback must be registered for any native event of
+                 * the CompoundNodeEvent object, that access the object. As the order
+                 * of execution of callbacks is undefined, the application may delete
+                 * the CompoundNodeEvent object, while the callbacks are processed.
+                 * Thus, a callback that accesses the CompoundNodeEvent object may
+                 * raise a SIGSEGV. */
                 *event = std::make_shared<ReadMemoryEvent>(commandId, _context,
-                        mapData, unmapData);
-            } catch (const std::bad_alloc&) {
-                throw cl::Error(CL_OUT_OF_RESOURCES);
+                                                           mapData, unmapData);
             }
+        } catch (const std::bad_alloc&) {
+            throw cl::Error(CL_OUT_OF_RESOURCES);
         }
     } else {
         /* The mapped memory region has *not* to be synchronized, as it will not
@@ -658,20 +601,39 @@ void CommandQueue::enqueueUnmapBuffer(
          * has to be uploaded to the buffer. */
         cl::Event mapData, unmapData;
 
-        enqueueWriteBuffer(bufferImpl, false, transferId, offset, size,
-                nativeEventWaitList, commandId, mapData, unmapData);
+        /* enqueue data transfer to buffer */
+        _context->receiveBufferFromProcess(
+            _context->host(), _commandQueue,
+            *bufferImpl, transferId, offset, size,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
+#ifdef PROFILE
+        unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
+#endif
+#ifdef FORCE_FLUSH
+        _commandQueue.flush();
+#endif
 
-        if (event) { // an event should be associated with this command
-            /* The event must only broadcast its status on other compute nodes
-             * but not to the host, as a 'command complete' message will be sent
-             * to the host by the callback that has been set for the native
-             * event unmapData. */
-            try {
+        try {
+            // schedule data transfer on host
+            dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+            _context->host().sendMessage(message);
+            // schedule completion message for host
+            /* A 'command complete' message is sent to the host.
+             * Note that this message must also be sent, if no event is associated
+             * with this command, such that a blocking write succeeds. */
+            unmapData.setCallback(CL_COMPLETE, &executeCommand,
+                                  new command::SetCompleteCommand(_context->host(), commandId, cl::UserEvent(*_context)));
+
+            if (event) { // an event should be associated with this command
+                /* The event must only broadcast its status on other compute nodes
+                 * but not to the host, as a 'command complete' message will be sent
+                 * to the host by the callback that has been set for the native
+                 * event unmapData. */
                 *event = std::make_shared<WriteMemoryEvent>(commandId, _context,
-                        bufferImpl, mapData, unmapData);
-            } catch (const std::bad_alloc&) {
-                throw cl::Error(CL_OUT_OF_RESOURCES);
+                                                            bufferImpl, mapData, unmapData);
             }
+        } catch (const std::bad_alloc&) {
+            throw cl::Error(CL_OUT_OF_RESOURCES);
         }
     } else {
         /* The mapped memory region has *not* to be synchronized, as it has
@@ -813,24 +775,9 @@ void CommandQueue::enqueueWaitForEvents(
             << "Synchronizing event list with " << eventList.size() << " event(s)"
             << std::endl;
 
-    /* Obtain native event list
-     * Unlike other enqueued commands, wait-for-events throws CL_INVALID_EVENT,
-     * rather than CL_INVALID_EVENT_WAIT_LIST, if the event list contains an
-     * invalid event. */
-    for (auto event : eventList) {
-        /* TODO Create Event::synchronize method (see CommandQueue::synchronize) */
-        auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
-        if (remoteEvent) { // event is a remote event
-            cl::vector<cl::Event> synchronizeEvents;
-            remoteEvent->synchronize(_commandQueue, synchronizeEvents);
-            nativeEventList.insert(std::end(nativeEventList),
-                    std::begin(synchronizeEvents), std::end(synchronizeEvents));
-        } else { // event is a local event
-            auto eventImpl = std::dynamic_pointer_cast<Event>(event);
-            if (!eventImpl) throw cl::Error(CL_INVALID_EVENT);
-            nativeEventList.push_back(*eventImpl);
-        }
-    }
+    /* Obtain wait list of native events */
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, &eventList, nativeEventList);
 
     _commandQueue.enqueueWaitForEvents(nativeEventList);
 }

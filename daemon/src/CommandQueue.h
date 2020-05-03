@@ -195,28 +195,6 @@ private:
             const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
             cl::vector<cl::Event>&                          nativeEventWaitList);
 
-    void enqueueReadBuffer(
-            const std::shared_ptr<Buffer>&  buffer,
-            bool                            blocking,
-            dcl::transfer_id                transferId,
-            size_t                          offset,
-            size_t                          size,
-            const cl::vector<cl::Event>&    nativeEventWaitList,
-            dcl::object_id                  commandId,
-            cl::Event&                      mapData,
-            cl::Event&                      unmapData);
-
-    void enqueueWriteBuffer(
-            const std::shared_ptr<Buffer>&  buffer,
-            bool                            blocking,
-            dcl::transfer_id                transferId,
-            size_t                          offset,
-            size_t                          size,
-            const cl::vector<cl::Event>&    nativeEventWaitList,
-            dcl::object_id                  commandId,
-            cl::Event&                      mapData,
-            cl::Event&                      unmapData);
-
     void enqueuePhonyMarker(
             bool                            blocking,
             const cl::vector<cl::Event>&    nativeEventWaitList,

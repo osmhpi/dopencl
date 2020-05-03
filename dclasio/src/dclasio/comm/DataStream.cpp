@@ -956,13 +956,14 @@ void DataStream::handle_write(
         size_t bytes_transferred) {
     // current write is first element in writeq, so writeq must be non-empty
     assert(writeq /* ouch! */ && !writeq->empty());
+    auto& write = writeq->front();
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
-        << "End write of size " << writeq->front()->size()
+        << "End write of size " << write->size()
         << std::endl;
 #endif
-    writeq->front()->onFinish(ec, bytes_transferred);
+    write->onFinish(ec, bytes_transferred);
     writeq->pop();
 
     if (ec) {
