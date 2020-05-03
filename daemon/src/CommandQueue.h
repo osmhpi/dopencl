@@ -108,6 +108,7 @@ public:
     void enqueueReadBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingRead,
+            dcl::transfer_id                                transferId,
             size_t                                          offset,
             size_t                                          size,
             const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -117,6 +118,7 @@ public:
     void enqueueWriteBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingWrite,
+            dcl::transfer_id                                transferId,
             size_t                                          offset,
             size_t                                          size,
             const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -126,6 +128,7 @@ public:
     void enqueueMapBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingMap,
+            dcl::transfer_id                                transferId,
             cl_map_flags                                    mapFlags,
             size_t                                          offset,
             size_t                                          size,
@@ -135,6 +138,7 @@ public:
 
     void enqueueUnmapBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
+            dcl::transfer_id                                transferId,
             cl_map_flags                                    map_flags,
             size_t                                          offset,
             size_t                                          size,
@@ -194,6 +198,7 @@ private:
     void enqueueReadBuffer(
             const std::shared_ptr<Buffer>&  buffer,
             bool                            blocking,
+            dcl::transfer_id                transferId,
             size_t                          offset,
             size_t                          size,
             const cl::vector<cl::Event>&    nativeEventWaitList,
@@ -204,6 +209,7 @@ private:
     void enqueueWriteBuffer(
             const std::shared_ptr<Buffer>&  buffer,
             bool                            blocking,
+            dcl::transfer_id                transferId,
             size_t                          offset,
             size_t                          size,
             const cl::vector<cl::Event>&    nativeEventWaitList,

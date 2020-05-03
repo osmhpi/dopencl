@@ -48,6 +48,7 @@
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
+#include <dcl/DCLTypes.h>
 #include <dcl/Process.h>
 
 #include <dcl/util/Logger.h>
@@ -155,6 +156,7 @@ Buffer::operator cl::Buffer() const {
 void Buffer::acquire(
         dcl::Process& process,
         const cl::CommandQueue& commandQueue,
+        dcl::transfer_id transferId,
         cl::Event *releaseEvent,
         cl::Event *acquireEvent) {
     cl::Event mapEvent;
@@ -170,7 +172,7 @@ void Buffer::acquire(
 
     /* enqueue data transfer to buffer */
     _context->receiveBufferFromProcess(process, commandQueue,
-            _buffer, 0, size(),
+            _buffer, transferId, 0, size(),
             (receiveWaitList.empty() ? nullptr : &receiveWaitList), &mapEvent, acquireEvent);
 
     // Mark the buffer as needing no synchronization with the data
@@ -182,6 +184,7 @@ void Buffer::acquire(
 void Buffer::release(
         dcl::Process& process,
         const cl::CommandQueue& commandQueue,
+        dcl::transfer_id transferId,
         const cl::Event& releaseEvent) const {
     cl::Event mapEvent, unmapEvent;
 
@@ -191,13 +194,13 @@ void Buffer::release(
 
     /* enqueue data transfer from buffer when releaseEvent is complete */
     cl::vector<cl::Event> mapWaitList(1, releaseEvent);
-    _context->sendBufferToProcess(process, commandQueue, _buffer, 0, size(),
+    _context->sendBufferToProcess(process, commandQueue, _buffer, transferId, 0, size(),
             &mapWaitList, &mapEvent, &unmapEvent);
 }
 
-bool Buffer::_checkCreateBufferInitialSync(dcl::Process&           process,
-                                           const cl::CommandQueue& commandQueue,
-                                           cl::Event*              acquireEvent) {
+bool Buffer::checkCreateBufferInitialSync(dcl::Process&           process,
+                                          const cl::CommandQueue& commandQueue,
+                                          cl::Event*              acquireEvent) {
     if (!_needsCreateBufferInitialSync) {
         // Needs no synchronization or already synchronized
         return false;
@@ -206,11 +209,12 @@ bool Buffer::_checkCreateBufferInitialSync(dcl::Process&           process,
     // Request the host to transfer the buffer
     // TODOXXX: Is this the right place to do this? I think this transfer
     // and _bufferId should not belong here, but I can't find a better place
-    dclasio::message::RequestBufferTransfer msg(_bufferId);
+    dcl::transfer_id transferId = dcl::create_transfer_id();
+    dclasio::message::RequestBufferTransfer msg(_bufferId, transferId);
     process.sendMessage(msg);
 
     // Download the buffer from the host
-    acquire(process, commandQueue, nullptr, acquireEvent);
+    acquire(process, commandQueue, transferId, nullptr, acquireEvent);
     return true;
 }
 

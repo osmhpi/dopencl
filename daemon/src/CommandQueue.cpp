@@ -244,7 +244,7 @@ void CommandQueue::synchronize(
     // the initial synchronization flag is unset, so no transfer happens here
     for (auto buffer : syncBuffers) {
         cl::Event _syncEvent;
-        if (buffer->_checkCreateBufferInitialSync(_context->host(), _commandQueue, &_syncEvent)) {
+        if (buffer->checkCreateBufferInitialSync(_context->host(), _commandQueue, &_syncEvent)) {
             nativeEventWaitList.push_back(_syncEvent);
             synchronizationPending = true;
         }
@@ -260,13 +260,14 @@ void CommandQueue::synchronize(
 void CommandQueue::enqueueReadBuffer(
         const std::shared_ptr<Buffer>& buffer,
         bool blocking,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const cl::vector<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId,
         cl::Event& mapData, cl::Event& unmapData) {
     /* enqueue data transfer from buffer */
-    _context->sendBufferToProcess(_context->host(), _commandQueue, *buffer, offset, size,
+    _context->sendBufferToProcess(_context->host(), _commandQueue, *buffer, transferId, offset, size,
             (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
     mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
@@ -280,6 +281,9 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
+        // schedule data transfer on host
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         /* The read buffer command is finished on the host, such that no
          * 'command complete' message must be sent by the compute node. */
     } catch (const std::bad_alloc&) {
@@ -290,6 +294,7 @@ void CommandQueue::enqueueReadBuffer(
 void CommandQueue::enqueueWriteBuffer(
         const std::shared_ptr<Buffer>& buffer,
         bool blocking,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const cl::vector<cl::Event>& nativeEventWaitList,
@@ -298,7 +303,7 @@ void CommandQueue::enqueueWriteBuffer(
     /* enqueue data transfer to buffer */
     _context->receiveBufferFromProcess(
             _context->host(), _commandQueue,
-            *buffer, offset, size,
+            *buffer, transferId, offset, size,
             (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
     unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
@@ -312,6 +317,9 @@ void CommandQueue::enqueueWriteBuffer(
 #endif
 
     try {
+        // schedule data transfer on host
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         // schedule completion message for host
         /* A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -415,6 +423,7 @@ void CommandQueue::enqueueCopyBuffer(
 void CommandQueue::enqueueReadBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingRead,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -431,7 +440,7 @@ void CommandQueue::enqueueReadBuffer(
     synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* enqueue data transfer from buffer */
-    _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, offset, size,
+    _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, transferId, offset, size,
             &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
@@ -442,6 +451,11 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host in order to
+         * start data receipt. */
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 
@@ -463,6 +477,7 @@ void CommandQueue::enqueueReadBuffer(
 void CommandQueue::enqueueWriteBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingWrite,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -481,7 +496,7 @@ void CommandQueue::enqueueWriteBuffer(
     /* enqueue data transfer to buffer */
     _context->receiveBufferFromProcess(
             _context->host(), _commandQueue,
-            *bufferImpl, offset, size,
+            *bufferImpl, transferId, offset, size,
             &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
@@ -512,6 +527,10 @@ void CommandQueue::enqueueWriteBuffer(
                     bufferImpl, writeBuffer);
         }
 #else
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host. */
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -547,6 +566,7 @@ void CommandQueue::enqueueWriteBuffer(
 void CommandQueue::enqueueMapBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingMap,
+        dcl::transfer_id transferId,
         cl_map_flags map_flags,
         size_t offset,
         size_t size,
@@ -567,7 +587,7 @@ void CommandQueue::enqueueMapBuffer(
          * downloaded to the mapped host pointer. */
         cl::Event mapData, unmapData;
 
-        enqueueReadBuffer(bufferImpl, blockingMap, offset, size,
+        enqueueReadBuffer(bufferImpl, blockingMap, transferId, offset, size,
                 nativeEventWaitList, commandId, mapData, unmapData);
 
         if (event) { // an event should be associated with this command
@@ -617,6 +637,7 @@ void CommandQueue::enqueueMapBuffer(
 
 void CommandQueue::enqueueUnmapBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
+        dcl::transfer_id transferId,
         cl_map_flags map_flags,
         size_t offset,
         size_t size,
@@ -637,7 +658,7 @@ void CommandQueue::enqueueUnmapBuffer(
          * has to be uploaded to the buffer. */
         cl::Event mapData, unmapData;
 
-        enqueueWriteBuffer(bufferImpl, false, offset, size,
+        enqueueWriteBuffer(bufferImpl, false, transferId, offset, size,
                 nativeEventWaitList, commandId, mapData, unmapData);
 
         if (event) { // an event should be associated with this command

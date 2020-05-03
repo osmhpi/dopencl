@@ -367,12 +367,14 @@ bool _cl_mem::isOutput() const {
 }
 
 void _cl_mem::onAcquireComplete(dcl::Process& destination,
-        const std::shared_ptr<dcl::Completable>& acquireCompletable) {
+        const std::shared_ptr<dcl::Completable>& acquireCompletable,
+        dcl::transfer_id transferId) {
     // See matching receiveData call for why skip_compress_step=true here
-    destination.sendData(_size, _data, true, acquireCompletable);
+    destination.sendData(transferId, _size, _data, true, acquireCompletable);
 }
 
-void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
+void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source,
+                        dcl::transfer_id transferId) {
     dcl::util::Logger << dcl::util::Debug
             << "(SYN) Acquiring memory object from compute node '" << source.url()
             << "' on behalf of compute node '" << destination.url()
@@ -386,10 +388,10 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
      * different copies that are exchanged during synchronization between
      * compute nodes */
     try {
-        auto recv = acquire(source);
+        auto recv = acquire(source, transferId);
 
         /* forward memory object data to requesting compute node */
-        _cl_mem::onAcquireComplete(destination, recv);
+        _cl_mem::onAcquireComplete(destination, recv, transferId);
     } catch (const dcl::IOException& e) {
         dcl::util::Logger << dcl::util::Error
                 << "(SYN) Acquire failed: " << e.what()
@@ -397,11 +399,12 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
     }
 }
 
-std::shared_ptr<dcl::DataTransfer> _cl_mem::acquire(dcl::Process& process) {
+std::shared_ptr<dcl::DataTransfer> _cl_mem::acquire(dcl::Process& process,
+                                                    dcl::transfer_id transferId) {
     std::lock_guard<std::mutex> lock(_dataMutex);
     allocHostMemory();
     // Note that here we pass skip_compress_step=true, which allows us to
     // avoid a double decompression step immediately followed by a compression
     // step when we are just acting as a proxy for a node-to-node transfer
-    return process.receiveData(_size, _data, true);
+    return process.receiveData(transferId, _size, _data, true);
 }

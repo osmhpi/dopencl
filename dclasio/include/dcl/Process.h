@@ -91,6 +91,7 @@ public:
 	 * \return
 	 */
 	virtual std::shared_ptr<DataTransfer> sendData(
+			dcl::transfer_id transfer_id,
 			size_t      size,
 			const void *ptr,
 			bool skip_compress_step = false,
@@ -105,6 +106,7 @@ public:
 	 * \return
 	 */
 	virtual std::shared_ptr<DataTransfer> receiveData(
+			dcl::transfer_id transfer_id,
 			size_t  size,
 			void *  ptr,
 			bool skip_compress_step = false,

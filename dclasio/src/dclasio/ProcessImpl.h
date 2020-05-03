@@ -153,11 +153,13 @@ public:
             const message::Message& message) const;
 
     std::shared_ptr<dcl::DataTransfer> sendData(
+            dcl::transfer_id transfer_id,
             size_t      size,
             const void *ptr,
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
     std::shared_ptr<dcl::DataTransfer> receiveData(
+            dcl::transfer_id transfer_id,
             size_t  size,
             void *  ptr,
             bool skip_compress_step = false,

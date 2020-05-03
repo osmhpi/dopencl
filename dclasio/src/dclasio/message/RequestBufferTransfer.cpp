@@ -55,16 +55,20 @@ RequestBufferTransfer::RequestBufferTransfer() {
 }
 
 RequestBufferTransfer::RequestBufferTransfer(
-		dcl::object_id bufferId) :
-	_bufferId(bufferId) {
+		dcl::object_id bufferId, dcl::transfer_id transferId) :
+	_bufferId(bufferId), _transferId(transferId) {
 }
 
 RequestBufferTransfer::RequestBufferTransfer(const RequestBufferTransfer& rhs) :
-	Request(rhs), _bufferId(rhs._bufferId) {
+	Request(rhs), _bufferId(rhs._bufferId), _transferId(rhs._transferId) {
 }
 
 dcl::object_id RequestBufferTransfer::bufferId() const {
 	return _bufferId;
+}
+
+dcl::transfer_id RequestBufferTransfer::transferId() const {
+	return _transferId;
 }
 
 } /* namespace message */

@@ -184,14 +184,14 @@ size_t Buffer::offset() const {
     return 0;
 }
 
-void Buffer::onRequestBufferTransfer(dcl::Process &process) {
+void Buffer::onRequestBufferTransfer(dcl::Process &process, dcl::transfer_id transferId) {
     // This is called when a compute node asks for the data initially given
     // to the buffer through host_ptr. Note that there's no guarantee that
     // this is really the initial version of the data if another node has
     // already requested and modified the buffer, but in this case it's the
     // application's responsability to give the correct events, so the most
     // recent buffer can be obtained from the corresponding device in this case
-    process.sendData(_size, _data);
+    process.sendData(transferId, _size, _data);
 }
 
 } /* namespace dclicd */

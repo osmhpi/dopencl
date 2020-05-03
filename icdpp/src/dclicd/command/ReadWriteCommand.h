@@ -46,6 +46,8 @@
 
 #include "Command.h"
 
+#include <dcl/DCLTypes.h>
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -66,10 +68,12 @@ public:
             size_t              cb,
             void *              ptr,
             bool                skip_compress_step);
+    dcl::transfer_id transferId() const;
 
 private:
     cl_int submit();
 
+    dcl::transfer_id _transfer_id;
     size_t _cb;
     void *_ptr;
     bool _skip_compress_step;
@@ -85,10 +89,12 @@ public:
             size_t              cb,
             const void *        ptr,
             bool                skip_compress_step);
+    dcl::transfer_id transferId() const;
 
 private:
     cl_int submit();
 
+    dcl::transfer_id _transfer_id;
     size_t _cb;
     const void *_ptr;
     bool _skip_compress_step;

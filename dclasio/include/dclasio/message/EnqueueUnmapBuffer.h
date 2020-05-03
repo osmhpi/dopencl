@@ -67,6 +67,7 @@ public:
             dcl::object_id commandQueueId,
             dcl::object_id commandId,
             dcl::object_id bufferId,
+            dcl::transfer_id transferId,
             cl_map_flags map_flags,
             size_t offset,
             size_t cb,
@@ -77,6 +78,7 @@ public:
     dcl::object_id commandQueueId() const;
     dcl::object_id commandId() const;
     dcl::object_id bufferId() const;
+    dcl::transfer_id transferId() const;
     cl_map_flags mapFlags() const;
     size_t offset() const;
     size_t cb() const;
@@ -91,13 +93,13 @@ public:
 
     void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
-        buf << _commandQueueId << _commandId << _bufferId << _mapFlags
+        buf << _commandQueueId << _commandId << _bufferId << _transferId << _mapFlags
                 << _offset << _cb << _eventIdWaitList << _event;
     }
 
     void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
-        buf >> _commandQueueId >> _commandId >> _bufferId >> _mapFlags
+        buf >> _commandQueueId >> _commandId >> _bufferId >> _transferId >> _mapFlags
                 >> _offset >> _cb >> _eventIdWaitList >> _event;
     }
 
@@ -105,6 +107,7 @@ private:
     dcl::object_id _commandQueueId;
     dcl::object_id _commandId;
     dcl::object_id _bufferId;
+    dcl::transfer_id _transferId;
     cl_map_flags _mapFlags;
     size_t _offset;
     size_t _cb;

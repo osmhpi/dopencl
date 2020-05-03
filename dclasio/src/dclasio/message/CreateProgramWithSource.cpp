@@ -54,18 +54,19 @@ namespace message {
 CreateProgramWithSource::CreateProgramWithSource(
 		dcl::object_id programId,
 		dcl::object_id contextId,
+		dcl::transfer_id transferId,
 		size_t length) :
-	_programId(programId), _contextId(contextId), _length(length) {
+	_programId(programId), _contextId(contextId), _transferId(transferId), _length(length) {
 }
 
 CreateProgramWithSource::CreateProgramWithSource(
 		const CreateProgramWithSource& rhs) :
 	Request(rhs), _programId(rhs._programId), _contextId(rhs._contextId),
-			_length(rhs._length) {
+			_transferId(rhs._transferId), _length(rhs._length) {
 }
 
 CreateProgramWithSource::CreateProgramWithSource() :
-	_programId(0), _contextId(0), _length(0) {
+	_programId(0), _contextId(0), _transferId(), _length(0) {
 }
 
 CreateProgramWithSource::~CreateProgramWithSource() { }
@@ -76,6 +77,10 @@ dcl::object_id CreateProgramWithSource::programId() const {
 
 dcl::object_id CreateProgramWithSource::contextId() const {
 	return _contextId;
+}
+
+dcl::transfer_id CreateProgramWithSource::transferId() const {
+	return _transferId;
 }
 
 size_t CreateProgramWithSource::length() const {

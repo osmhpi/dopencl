@@ -47,6 +47,7 @@
 #include <dcl/ComputeNode.h>
 #include <dcl/Context.h>
 #include <dcl/ContextListener.h>
+#include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
 #include <dcl/Host.h>
 
@@ -97,6 +98,7 @@ public:
     void receiveBufferFromProcess(dcl::Process &process,
                                   const cl::CommandQueue &commandQueue,
                                   const cl::Buffer &buffer,
+                                  dcl::transfer_id transferId,
                                   size_t offset,
                                   size_t size,
                                   const cl::vector<cl::Event> *eventWaitList,
@@ -106,6 +108,7 @@ public:
     void sendBufferToProcess(dcl::Process &process,
                              const cl::CommandQueue &commandQueue,
                              const cl::Buffer &buffer,
+                             dcl::transfer_id transferId,
                              size_t offset,
                              size_t size,
                              const cl::vector<cl::Event> *eventWaitList,

@@ -138,8 +138,9 @@ _cl_program::_cl_program(cl_context context, const Sources& sources) :
 	 */
 
 	try {
+		dcl::transfer_id transferId = dcl::create_transfer_id();
 		dclasio::message::CreateProgramWithSource request(
-				_id, _context->remoteId(), totalLength);
+				_id, _context->remoteId(), transferId, totalLength);
 
 		/* Send request and data */
 		for (auto computeNode : _computeNodes) {
@@ -148,7 +149,7 @@ _cl_program::_cl_program(cl_context context, const Sources& sources) :
 			computeNode->sendRequest(request);
 			/* Program code is sent using the data stream to avoid copying large
 			 * program codes into a message before sending it. */
-			computeNode->sendData(_source.size(), _source.data());
+			computeNode->sendData(transferId, _source.size(), _source.data());
 		}
 
 		/* Await responses from all compute nodes */
@@ -502,7 +503,8 @@ void _cl_program::getBuildInfo(
 				if (param_value) {
 					assert(size <= param_value_size);
 					/* Receive program build log (blocking operation) */
-					device->getComputeNode().receiveData(response->size(), param_value)->wait();
+					dcl::transfer_id transferId{}; // TODO: Obtain transfer ID when this is implemented
+					device->getComputeNode().receiveData(transferId, response->size(), param_value)->wait();
 				}
 				if (param_value_size_ret) {
 					*param_value_size_ret = response->size();

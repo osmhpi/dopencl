@@ -110,6 +110,7 @@ public:
     virtual void acquire(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
+            dcl::transfer_id        transferId,
             cl::Event*              releaseEvent,
             cl::Event*              acquireEvent) = 0;
 
@@ -128,6 +129,7 @@ public:
     virtual void release(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
+            dcl::transfer_id        transferId,
             const cl::Event&        releaseEvent) const = 0;
 
     /*!
@@ -138,7 +140,7 @@ public:
      * \param[in]  commandQueue command queue for uploading the received data
      * \param[out] acquireEvent event associated with this acquire operation
      */
-    virtual bool _checkCreateBufferInitialSync(
+    virtual bool checkCreateBufferInitialSync(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
             cl::Event*              acquireEvent) = 0;
@@ -176,15 +178,17 @@ public:
     void acquire(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
+            dcl::transfer_id        transferId,
             cl::Event*              releaseEvent,
             cl::Event*              acquireEvent);
 
     void release(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
+            dcl::transfer_id        transferId,
             const cl::Event&        releaseEvent) const;
 
-    bool _checkCreateBufferInitialSync(
+    bool checkCreateBufferInitialSync(
             dcl::Process&           process,
             const cl::CommandQueue& commandQueue,
             cl::Event*              acquireEvent);

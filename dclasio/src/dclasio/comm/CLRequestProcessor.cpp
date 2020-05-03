@@ -447,7 +447,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     /* Receive program sources */
     try {
         source.reset(new char[length]);
-        host.receiveData(length, source.get())->wait(); // blocking receive
+        host.receiveData(request.transferId(), length, source.get())->wait(); // blocking receive
     } catch (const std::bad_alloc&) {
         return extstd::make_unique<message::ErrorResponse>(request, CL_OUT_OF_RESOURCES);
     }
@@ -488,7 +488,8 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
             strings[i].reset(new unsigned char[length]);
             void *binary = static_cast<void *>(strings[i].get());
-            host.receiveData(length, binary)->wait(); // blocking receive
+            dcl::transfer_id transferId{}; // TODO: Obtain transfer ID when this is implemented
+            host.receiveData(transferId, length, binary)->wait(); // blocking receive
         }
 
         /* DO NOT DELETE strings, as binaries hold pointers to strings */
@@ -819,8 +820,8 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueWriteBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.offset(),
-                request.cb(),
+                request.blocking(), request.transferId(),
+                request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
                 (request.event() ? &writeBuffer : nullptr)
@@ -857,8 +858,8 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueReadBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.offset(),
-                request.cb(),
+                request.blocking(), request.transferId(),
+                request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
                 (request.event() ? &readBuffer : nullptr)
@@ -1026,7 +1027,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueMapBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.mapFlags(),
+                request.blocking(), request.transferId(), request.mapFlags(),
                 request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
@@ -1063,7 +1064,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueUnmapBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.mapFlags(),
+                request.transferId(), request.mapFlags(),
                 request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),

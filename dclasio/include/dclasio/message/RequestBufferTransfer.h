@@ -58,11 +58,12 @@ class RequestBufferTransfer : public Request {
 public:
     RequestBufferTransfer();
     RequestBufferTransfer(
-			dcl::object_id bufferId);
+			dcl::object_id bufferId, dcl::transfer_id transferId);
     RequestBufferTransfer(
 	        const RequestBufferTransfer& rhs);
 
 	dcl::object_id bufferId() const;
+	dcl::transfer_id transferId() const;
 
     static const class_type TYPE = 100 + REQUEST_BUFFER_TRANSFER;
 
@@ -72,16 +73,17 @@ public:
 
     void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
-        buf << _bufferId;
+        buf << _bufferId << _transferId;
     }
 
     void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
-        buf >> _bufferId;
+        buf >> _bufferId >> _transferId;
     }
 
 private:
 	dcl::object_id _bufferId;
+	dcl::transfer_id _transferId;
 };
 
 } /* namespace message */

@@ -49,6 +49,7 @@
 #include <dcl/ContextListener.h>
 #include <dcl/Device.h>
 #include <dcl/Host.h>
+#include <dcl/DCLTypes.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -175,6 +176,7 @@ const std::vector<dcl::ComputeNode *>& Context::computeNodes() const {
 void Context::receiveBufferFromProcess(dcl::Process &process,
                                        const cl::CommandQueue &commandQueue,
                                        const cl::Buffer &buffer,
+                                       dcl::transfer_id transferId,
                                        size_t offset,
                                        size_t size,
                                        const cl::vector<cl::Event> *eventWaitList,
@@ -227,14 +229,15 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                     eventWaitList, &mapEvents[i]);
         }
 
-        for (size_t i = 0; i < num_superblocks; i++) {
+        dcl::transfer_id split_transfer_id = transferId;
+        for (size_t i = 0; i < num_superblocks; i++, dcl::next_transfer_id_uberhax(split_transfer_id)) {
             size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
             size_t superblock_size = std::min(size - i * SUPERBLOCK_MAX_SIZE, SUPERBLOCK_MAX_SIZE);
 
             // schedule local data transfer
             cl::UserEvent receiveEvent(_context);
             std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
-            process.receiveData(superblock_size, ptrs[i], true, mapDataCompletable)
+            process.receiveData(split_transfer_id, superblock_size, ptrs[i], true, mapDataCompletable)
                     ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
 
 
@@ -274,7 +277,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
     // schedule local data transfer
     cl::UserEvent receiveEvent(_context);
     std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-    process.receiveData(size, ptr, false, mapDataCompletable)
+    process.receiveData(transferId, size, ptr, false, mapDataCompletable)
             ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
     cl::vector<cl::Event> unmapWaitList = {receiveEvent};
@@ -312,6 +315,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
 void Context::sendBufferToProcess(dcl::Process &process,
                                   const cl::CommandQueue &commandQueue,
                                   const cl::Buffer &buffer,
+                                  dcl::transfer_id transferId,
                                   size_t offset,
                                   size_t size,
                                   const cl::vector<cl::Event> *eventWaitList,
@@ -332,7 +336,7 @@ void Context::sendBufferToProcess(dcl::Process &process,
             eventWaitList, startEvent);
     // schedule local data transfer
     std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-    process.sendData(size, ptr, false, mapDataCompletable)
+    process.sendData(transferId, size, ptr, false, mapDataCompletable)
             ->setCallback(std::bind(&cl::UserEvent::setStatus, sendData, std::placeholders::_1));
     /* Enqueue unmap buffer (implicit upload) */
     cl::vector<cl::Event> unmapWaitList = {sendData};

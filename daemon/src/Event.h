@@ -159,7 +159,7 @@ public:
      */
 
     void onSynchronize(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
 
 private:
     cl::UserEvent _event; //!< Native user event
@@ -200,7 +200,7 @@ public:
      */
 
     void onSynchronize(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
 
 protected:
     cl_ulong _received; //!< Receipt time of associated command

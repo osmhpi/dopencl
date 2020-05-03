@@ -60,6 +60,7 @@ public:
 	CreateProgramWithSource(
 			const dcl::object_id    program_id,
 			const dcl::object_id    context_id,
+			const dcl::transfer_id  transferId,
 			const size_t            length);
 	CreateProgramWithSource(
 	        const CreateProgramWithSource& rhs);
@@ -67,6 +68,7 @@ public:
 
 	dcl::object_id programId() const;
 	dcl::object_id contextId() const;
+	dcl::transfer_id transferId() const;
 	size_t length() const;
 
     static const class_type TYPE = 100 + CREATE_PROGRAM_WITH_SOURCE;
@@ -77,17 +79,18 @@ public:
 
     void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
-        buf << _programId << _contextId << _length;
+        buf << _programId << _contextId << _transferId << _length;
     }
 
     void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
-        buf >> _programId >> _contextId >> _length;
+        buf >> _programId >> _contextId >> _transferId >> _length;
     }
 
 private:
 	dcl::object_id _programId;
 	dcl::object_id _contextId;
+	dcl::transfer_id _transferId;
 	size_t _length;
 };
 

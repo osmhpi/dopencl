@@ -292,7 +292,7 @@ void Event::synchronize() {
      * 2. Acquire associated memory object changes */
 }
 
-void Event::onSynchronize(dcl::Process& process) {
+void Event::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
     dcl::util::Logger << dcl::util::Debug
             << "(MEM) Event synchronization (ID=" << remoteId()
             << ") requested by compute node '" << process.url() << '\''
@@ -301,7 +301,7 @@ void Event::onSynchronize(dcl::Process& process) {
     if (_memoryObjects.empty()) return;
 
     /* forward synchronization request to event's compute node */
-    dclasio::message::EventSynchronizationMessage msg(remoteId());
+    dclasio::message::EventSynchronizationMessage msg(remoteId(), transferId);
     _command->commandQueue()->computeNode().sendMessage(msg);
     dcl::util::Logger << dcl::util::Debug
             << "(MEM) Forwarded event synchronization request (ID=" << remoteId()
@@ -317,8 +317,10 @@ void Event::onSynchronize(dcl::Process& process) {
      * node-to-node communication). */
 
     /* acquire and release memory objects from event's compute node */
+    auto bufferTransferId = transferId;
     for (auto memoryObject : _memoryObjects) {
-        memoryObject->onAcquire(process, _command->commandQueue()->computeNode());
+        memoryObject->onAcquire(process, _command->commandQueue()->computeNode(), bufferTransferId);
+        dcl::next_transfer_id(bufferTransferId);
     }
 }
 

@@ -45,6 +45,8 @@
 #ifndef DCL_SYNCHRONIZATIONLISTENER_H_
 #define DCL_SYNCHRONIZATIONLISTENER_H_
 
+#include "DCLTypes.h"
+
 namespace dcl {
 
 class Process;
@@ -83,7 +85,7 @@ public:
      * \param[in]  process  the process (host or compute node) that requested the synchronization
      */
     virtual void onSynchronize(
-            Process& process) = 0;
+            Process& process, dcl::transfer_id transferId) = 0;
 
 };
 

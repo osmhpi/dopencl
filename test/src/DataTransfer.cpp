@@ -44,7 +44,10 @@
  */
 
 #define BOOST_TEST_MODULE DataTransfer
+
 #include <boost/test/unit_test.hpp>
+#include <dcl/DCLTypes.h>
+
 #include <algorithm>
 #include <fstream>
 #include <vector>
@@ -169,26 +172,38 @@ public:
 void validate_data_is_successfully_transferred(const std::vector<std::vector<uint8_t>> &send_buffers) {
     DataStreamPair dsp;
 
-    std::vector<std::vector<uint8_t>> recv_buffers(send_buffers.size());
-    for (size_t i = 0; i < send_buffers.size(); i++) {
-        recv_buffers[i].resize(send_buffers[i].size(), 0xFF);
+    struct transfer {
+        const std::vector<uint8_t> &send_buffer;
+        std::vector<uint8_t> recv_buffer;
+        dcl::transfer_id id;
+    };
+
+    std::vector<transfer> transfers;
+    for (const auto &send_buffer : send_buffers) {
+        transfers.emplace_back(transfer {
+            send_buffer,
+            std::vector<uint8_t>(send_buffer.size(), 0xFF),
+            dcl::create_transfer_id()
+        });
     }
 
     // Send the data through one of the datastreams
-    for (const auto &send_buffer : send_buffers)
-        dsp.connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
+    for (const auto &t : transfers)
+        dsp.connected_ds1->write(t.id, t.send_buffer.size(),
+                                 t.send_buffer.data(), false, nullptr);
 
     // Read the data through the other end
     std::vector<std::shared_ptr<dclasio::comm::DataReceipt>> recv_handles;
-    for (auto &recv_buffer : recv_buffers)
-        recv_handles.push_back(dsp.ds2->read(recv_buffer.size(), recv_buffer.data(), false, nullptr));
+    for (auto &t : transfers)
+        recv_handles.push_back(dsp.ds2->read(t.id, t.recv_buffer.size(),
+                                             t.recv_buffer.data(), false, nullptr));
     for (auto &recv_handle : recv_handles)
         recv_handle->wait();
 
     // Assert that the received data is equal to the sent data
-    for (size_t i = 0; i < send_buffers.size(); i++) {
-        BOOST_CHECK_EQUAL_COLLECTIONS(recv_buffers[i].begin(), recv_buffers[i].end(),
-                                      send_buffers[i].begin(), send_buffers[i].end());
+    for (const auto &t : transfers) {
+        BOOST_CHECK_EQUAL_COLLECTIONS(t.recv_buffer.begin(), t.recv_buffer.end(),
+                                      t.send_buffer.begin(), t.send_buffer.end());
     }
 }
 
@@ -257,14 +272,16 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
     pattern_fill(send_buffer.begin(), send_buffer.begin() + send_buffer.size()/2);
     random_fill(send_buffer.begin() + send_buffer.size()/2, send_buffer.end());
 
+    dcl::transfer_id transfer_id_1 = dcl::create_transfer_id();
+
     // Send the data through one of the datastreams
-    dsp.connected_ds1->write(send_buffer.size(), send_buffer.data(), false, nullptr);
+    dsp.connected_ds1->write(transfer_id_1, send_buffer.size(), send_buffer.data(), false, nullptr);
 
     // Read the data through the other end, but request that no decompression happens
     // (set skip_compress_step=true). This means that, if I/O link compression is enabled,
     // intermediate_buffer will contain the data in a compressed form.
     std::vector<uint8_t> intermediate_buffer(send_buffer.size(), 0xff);
-    dsp.ds2->read(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr)->wait();
+    dsp.ds2->read(transfer_id_1, intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr)->wait();
 
     bool intermediate_buffer_equal = std::equal(intermediate_buffer.begin(), intermediate_buffer.end(),
                                                 send_buffer.begin());
@@ -284,9 +301,11 @@ BOOST_AUTO_TEST_CASE( DataTransfer_ProxyCompressedData )
     // Now test the opposite case, where we write the compressed data again
     // and request that it it not re-compressed, but read it as usual
     // This will then recover the original buffer we originally sent through the stream
-    dsp.connected_ds2->write(intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr);
+    dcl::transfer_id transfer_id_2 = dcl::create_transfer_id();
+
+    dsp.connected_ds2->write(transfer_id_2, intermediate_buffer.size(), intermediate_buffer.data(), true, nullptr);
     std::vector<uint8_t> recv_buffer(send_buffer.size());
-    dsp.ds1->read(recv_buffer.size(), recv_buffer.data(), false, nullptr)->wait();
+    dsp.ds1->read(transfer_id_2, recv_buffer.size(), recv_buffer.data(), false, nullptr)->wait();
 
     BOOST_CHECK_EQUAL_COLLECTIONS(send_buffer.begin(), send_buffer.end(),
                                   recv_buffer.begin(), recv_buffer.end());
@@ -362,17 +381,19 @@ BOOST_AUTO_TEST_CASE( DataTransfer_Benchmark )
 
     {
         DataTransferBenchmarkClock clock("COMPRESS", dataset.size());
+        dcl::transfer_id transfer_id = dcl::create_transfer_id();
         // Send uncompressed, receive compressed
-        dsp.connected_ds1->write(dataset.size(), dataset.data(), false, nullptr);
-        dsp.ds2->read(dataset_compressed.size(), dataset_compressed.data(), true, nullptr)->wait();
+        dsp.connected_ds1->write(transfer_id, dataset.size(), dataset.data(), false, nullptr);
+        dsp.ds2->read(transfer_id, dataset_compressed.size(), dataset_compressed.data(), true, nullptr)->wait();
     }
 
     std::vector<uint8_t> dataset_recompressed(dataset.size(), 0xFF);
     {
         DataTransferBenchmarkClock clock("PROXY", dataset_compressed.size());
+        dcl::transfer_id transfer_id = dcl::create_transfer_id();
         // Send compressed, receive compressed
-        dsp.connected_ds1->write(dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
-        dsp.ds2->read(dataset_recompressed.size(), dataset_recompressed.data(), true, nullptr)->wait();
+        dsp.connected_ds1->write(transfer_id, dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
+        dsp.ds2->read(transfer_id, dataset_recompressed.size(), dataset_recompressed.data(), true, nullptr)->wait();
     }
 
     BOOST_CHECK_EQUAL_COLLECTIONS(dataset_compressed.begin(), dataset_compressed.end(),
@@ -381,9 +402,10 @@ BOOST_AUTO_TEST_CASE( DataTransfer_Benchmark )
     std::vector<uint8_t> dataset_uncompressed(dataset.size(), 0xFF);
     {
         DataTransferBenchmarkClock clock("DECOMPRESS", dataset.size());
+        dcl::transfer_id transfer_id = dcl::create_transfer_id();
         // Send compressed, receive uncompressed
-        dsp.connected_ds1->write(dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
-        dsp.ds2->read(dataset_uncompressed.size(), dataset_uncompressed.data(), false, nullptr)->wait();
+        dsp.connected_ds1->write(transfer_id, dataset_compressed.size(), dataset_compressed.data(), true, nullptr);
+        dsp.ds2->read(transfer_id, dataset_uncompressed.size(), dataset_uncompressed.data(), false, nullptr)->wait();
     }
 
     BOOST_CHECK_EQUAL_COLLECTIONS(dataset.begin(), dataset.end(),

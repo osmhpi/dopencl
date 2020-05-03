@@ -151,14 +151,18 @@ void ProcessImpl::sendMessage(const message::Message& message) const {
     _messageQueue.send_message(message);
 }
 
-std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(size_t size,
-        const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
-    return getDataStream().write(size, ptr, skip_compress_step, trigger_event);
+std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(
+        dcl::transfer_id transfer_id,
+        size_t size, const void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+    return getDataStream().write(transfer_id, size, ptr, skip_compress_step, trigger_event);
 }
 
-std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(size_t size,
-        void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
-    return getDataStream().read(size, ptr, skip_compress_step, trigger_event);
+std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(
+        dcl::transfer_id transfer_id,
+        size_t size, void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+    return getDataStream().read(transfer_id, size, ptr, skip_compress_step, trigger_event);
 }
 
 comm::DataStream& ProcessImpl::getDataStream() {

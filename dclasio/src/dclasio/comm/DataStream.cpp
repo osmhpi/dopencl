@@ -210,7 +210,8 @@ namespace comm {
 
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
-        _socket(socket), _receiving(false), _sending(false)
+        _socket(socket),
+        _read_state(receiving_state::idle), _sending(false)
 #ifdef IO_LINK_COMPRESSION
         , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
@@ -235,7 +236,8 @@ DataStream::DataStream(
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
-        _socket(socket), _remote_endpoint(remote_endpoint), _receiving(false), _sending(false)
+        _socket(socket), _remote_endpoint(remote_endpoint),
+        _read_state(receiving_state::idle), _sending(false)
 #ifdef IO_LINK_COMPRESSION
         , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
@@ -312,7 +314,9 @@ void DataStream::disconnect() {
 }
 
 std::shared_ptr<DataReceipt> DataStream::read(
-        size_t size, void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
+        dcl::transfer_id transfer_id,
+        size_t size, void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
         // START UBER HACK
@@ -321,10 +325,14 @@ std::shared_ptr<DataReceipt> DataStream::read(
             size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
             std::shared_ptr<DataReceipt> callback;
 
-            for (size_t i = 0; i < num_superblocks; i++) {
+            dcl::transfer_id split_transfer_id = transfer_id;
+            for (size_t i = 0; i < num_superblocks; i++, dcl::next_transfer_id_uberhax(split_transfer_id)) {
                 size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
                 size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-                callback = read(superblock_size, static_cast<uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
+                callback = read(
+                    split_transfer_id, superblock_size,
+                    static_cast<uint8_t *>(ptr) + superblock_offset,
+                    skip_compress_step, trigger_event);
             }
 
             return callback;
@@ -333,121 +341,98 @@ std::shared_ptr<DataReceipt> DataStream::read(
     }
 #endif
 
-    auto read(std::make_shared<DataReceipt>(size, ptr, skip_compress_step, trigger_event));
-
-    std::unique_lock<std::mutex> lock(_readq_mtx);
-    if ((_receiving)) {
-        _readq.push(read);
-    } else {
-        // start read loop
-        _receiving = true;
-        lock.unlock();
-
-        schedule_read(new readq_type({ read }));
-    }
-
-    return read;
-}
-
-
-std::shared_ptr<DataSending> DataStream::write(
-        size_t size, const void *ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) {
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        // START UBER HACK
-        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
-        if (size > SUPERBLOCK_MAX_SIZE) {
-            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-            std::shared_ptr<DataSending> callback;
-
-            for (size_t i = 0; i < num_superblocks; i++) {
-                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-                callback = write(superblock_size, static_cast<const uint8_t *>(ptr) + superblock_offset, skip_compress_step, trigger_event);
-            }
-
-            return callback;
-        }
-        // END UBER HACK
-    }
-#endif
-
-    auto write(std::make_shared<DataSending>(size, ptr, skip_compress_step, trigger_event));
-
-    std::unique_lock<std::mutex> lock(_writeq_mtx);
-    if (_sending) {
-        _writeq.push(write);
-    } else {
-        // start write loop
-        _sending = true;
-        lock.unlock();
-
-        schedule_write(new writeq_type({ write }));
-    }
-
-    return write;
-}
-
-void DataStream::schedule_read(readq_type *readq) {
-    /* TODO Pass readq by rvalue reference rather than by pointer
-     * This is currently not supported by lambdas (see comment in start_write) */
-    assert(readq); // ouch!
-    if (readq->empty()) {
-        // pick new reads from the data stream's read queue
-        std::lock_guard<std::mutex> lock(_readq_mtx);
-        if (_readq.empty()) {
-            _receiving = false;
-            delete readq;
-            return; // no more reads - exit read loop
-        }
-        _readq.swap(*readq);
-    }
-    // readq is non-empty now
-
-    auto& read = readq->front();
-    if (read->trigger_event() != nullptr) {
+    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step));
+    if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
         // TODOXXX: Handle the case where the event to wait returns an error
-        // (the lines deleted when this comment was introduced could serve as a reference)
-        read->trigger_event()->setCallback([this, readq](cl_int status) {
+        trigger_event->setCallback([this, read](cl_int status) {
             assert(status == CL_SUCCESS); // TODOXXX Handle errors
-            start_read(readq);
+            enqueue_read(read);
         });
     } else {
         // If no event to wait was given, start the read immediately
-        start_read(readq);
+        enqueue_read(read);
+    }
+    return read;
+}
+
+void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
+    std::unique_lock<std::mutex> lock(_readq_mtx);
+    // If we were just waiting for this read to arrive to match a write,
+    // don't even enqueue it, go straight to data receiving
+    if (_read_state == receiving_state::waiting_for_read_matching_transfer_id &&
+        _read_transfer_id == read->transferId()) {
+        _read_state = receiving_state::receiving_data;
+        lock.unlock();
+
+        _read_op = read;
+        start_read();
+        return;
+    }
+
+    // Otherwise, enqueue the request and wait for the matching write to arrive
+    _readq.insert({ read->transferId(), read });
+    // If we are busy doing a receive for a transfer id or data, we are done,
+    // the read queue will be processed out when the operation in course is done
+    // But if we are idle, we need to start up the transfer ID matching process
+    if (_read_state == receiving_state::idle) {
+        _read_state = receiving_state::receiving_matching_transfer_id;
+        lock.unlock();
+        receive_matching_transfer_id();
     }
 }
 
-void DataStream::start_read(readq_type *readq) {
-    auto& read = readq->front();
+void DataStream::receive_matching_transfer_id() {
+    boost_asio_async_read_with_sentinels(
+        *_socket, boost::asio::buffer(_read_transfer_id.data, _read_transfer_id.size()),
+        [this](const boost::system::error_code& ec, size_t bytes_transferred) {
+            std::unique_lock<std::mutex> lock(_readq_mtx);
+            auto it = _readq.find(_read_transfer_id);
+            if (it != _readq.end()) {
+                // If the other end of the socket wants to do a send for a
+                // receive we have enqueued, we can start receiving data
+                auto readop = it->second;
+                _readq.erase(it);
+                _read_state = receiving_state::receiving_data;
+                lock.unlock();
+
+                _read_op = readop;
+                start_read();
+            } else {
+                // Otherwise, we need to wait until that receive is enqueued
+                _read_state = receiving_state::waiting_for_read_matching_transfer_id;
+            }
+        });
+}
+
+void DataStream::start_read() {
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
-        << "Start read of size " << read->size()
+        << "Start read of size " << _read_op->size()
         << std::endl;
 #endif
-    read->onStart();
+    _read_op->onStart();
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
         _decompress_working_thread_count = 0;
         _read_io_total_bytes_transferred = 0;
-        _read_io_num_blocks_remaining = read->size() / NETWORK_BLOCK_SIZE;
+        _read_io_num_blocks_remaining = _read_op->size() / NETWORK_BLOCK_SIZE;
 
-        read_next_compressed_block(readq, read);
+        read_next_compressed_block();
         return;
     }
 #endif
 
     boost_asio_async_read_with_sentinels(
-                *_socket, boost::asio::buffer(read->ptr(), read->size()),
-                [this, readq](const boost::system::error_code& ec, size_t bytes_transferred){
-                        handle_read(readq, ec, bytes_transferred); });
+                *_socket, boost::asio::buffer(_read_op->ptr(), _read_op->size()),
+                [this](const boost::system::error_code& ec, size_t bytes_transferred){
+                        handle_read(ec, bytes_transferred); });
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<DataReceipt> read) {
+void DataStream::read_next_compressed_block() {
     if (_read_io_num_blocks_remaining > 0) {
         // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 2> buffers = {
@@ -455,24 +440,24 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
                 boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_NETWORK_BLOCK * sizeof(size_t))
         };
         boost_asio_async_read_with_sentinels(*_socket, buffers,
-                [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred){
+                [this] (const boost::system::error_code& ec, size_t bytes_transferred){
             assert(!ec);
-            assert(_read_io_destination_offset <= read->size() - NETWORK_BLOCK_SIZE);
+            assert(_read_io_destination_offset <= _read_op->size() - NETWORK_BLOCK_SIZE);
             _read_io_total_bytes_transferred += bytes_transferred;
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_NETWORK_BLOCK> recv_buffers;
             for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                 assert(_read_io_buffer_sizes[i] > 0); // Chunk is read uncompressed
-                if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !read->skip_compress_step()) {
+                if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                     // Read the compressed chunk into a secondary buffer to be decompressed later
                     // TODOXXX Should probably avoid doing separate allocations for chunks in a network block
                     _read_io_buffers[i].resize(_read_io_buffer_sizes[i]);
                     recv_buffers[i] = boost::asio::buffer(_read_io_buffers[i].data(), _read_io_buffer_sizes[i]);
                 } else {
                     // Read the chunk directly in its final destination in the destination buffer
-                    uint8_t *destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE;
+                    uint8_t *destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE;
 
-                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && read->skip_compress_step()) {
+                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && _read_op->skip_compress_step()) {
                         std::copy(CL842_COMPRESSED_CHUNK_MAGIC, CL842_COMPRESSED_CHUNK_MAGIC + sizeof(CL842_COMPRESSED_CHUNK_MAGIC), destination);
                         *reinterpret_cast<uint64_t *>((destination + sizeof(CL842_COMPRESSED_CHUNK_MAGIC))) = _read_io_buffer_sizes[i];
                         destination += CHUNK_SIZE - _read_io_buffer_sizes[i]; // Write compressed data at the end
@@ -485,7 +470,7 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
             }
 
             boost_asio_async_read_with_sentinels(*_socket, recv_buffers,
-                [this, readq, read] (const boost::system::error_code& ec, size_t bytes_transferred) {
+                [this] (const boost::system::error_code& ec, size_t bytes_transferred) {
                 assert(!ec);
                 _read_io_total_bytes_transferred += bytes_transferred;
 
@@ -493,10 +478,10 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
                 decompress_message_decompress_block dm;
                 bool should_uncompress_any = false;
                 for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
-                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !read->skip_compress_step()) {
+                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                         dm.chunks[i] = decompress_chunk{
                                 .compressed_data = std::move(_read_io_buffers[i]),
-                                .destination = static_cast<uint8_t *>(read->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
+                                .destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
                         };
                         should_uncompress_any = true;
                     } else {
@@ -517,16 +502,16 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
 
                 _read_io_num_blocks_remaining--;
 
-                read_next_compressed_block(readq, read);
+                read_next_compressed_block();
             });
         });
     } else {
         // Always read the last incomplete block of the input uncompressed
-        auto last_block_destination_ptr =  static_cast<uint8_t *>(read->ptr()) + (read->size() & ~(NETWORK_BLOCK_SIZE - 1));
-        auto last_block_size = read->size() & (NETWORK_BLOCK_SIZE - 1);
+        auto last_block_destination_ptr =  static_cast<uint8_t *>(_read_op->ptr()) + (_read_op->size() & ~(NETWORK_BLOCK_SIZE - 1));
+        auto last_block_size = _read_op->size() & (NETWORK_BLOCK_SIZE - 1);
 
         boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
-                                [this, readq, read](const boost::system::error_code &ec, size_t bytes_transferred) {
+                                [this](const boost::system::error_code &ec, size_t bytes_transferred) {
             assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
 
@@ -536,7 +521,7 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
             // until they finish to finalize the entire operation
             // In this case, transfer the responsability of finalizing to the decompression threads
             if (!done) {
-                _decompress_queue.push(decompress_message_finalize{.readq = readq});
+                _decompress_queue.push(decompress_message_finalize{});
                 _decompress_queue_available.notify_all();
             }
             lock.unlock();
@@ -544,7 +529,7 @@ void DataStream::read_next_compressed_block(readq_type *readq, std::shared_ptr<D
             // Otherwise, if all decompression threads finished as well,
             // finalize the entire operation as soon as possible here
             if (done) {
-                handle_read(readq, boost::system::error_code(), _read_io_total_bytes_transferred);
+                handle_read(boost::system::error_code(), _read_io_total_bytes_transferred);
             }
         });
     }
@@ -583,7 +568,7 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
             if (thread_id == 0) {
                 auto finalize_message = boost::get<decompress_message_finalize>(_decompress_queue.front());
                 _decompress_queue.pop();
-                handle_read(finalize_message.readq, boost::system::error_code(), _read_io_total_bytes_transferred);
+                handle_read(boost::system::error_code(), _read_io_total_bytes_transferred);
             }
 
             // Once write is finalized, wait again
@@ -638,28 +623,93 @@ void DataStream::loop_decompress_thread(size_t thread_id) {
 #endif
 
 void DataStream::handle_read(
-        readq_type *readq,
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
-    // current read is first element in readq, so readq must be non-empty
-    assert(readq /* ouch! */ && !readq->empty());
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
         << "(DataStream to " << _remote_endpoint << ") "
-        << "End read of size " << readq->front()->size()
+        << "End read of size " << _read_op->size()
         << std::endl;
 #endif
-    readq->front()->onFinish(ec, bytes_transferred);
-    readq->pop();
+    _read_op->onFinish(ec, bytes_transferred);
+    _read_op.reset();
 
     if (ec) {
         // TODO Handle errors
     }
 
-    schedule_read(readq); // process remaining reads
+
+    std::unique_lock<std::mutex> lock(_readq_mtx);
+    if (!_readq.empty()) {
+        // There are still receives enqueued, so try to match another one
+        // now that we just finished one
+        _read_state = receiving_state::receiving_matching_transfer_id;
+        lock.unlock();
+        receive_matching_transfer_id();
+    } else {
+        // All enqueues receives processed, we can go idle
+        _read_state = receiving_state::idle;
+    }
 }
 
-void DataStream::schedule_write(writeq_type *writeq) {
+
+std::shared_ptr<DataSending> DataStream::write(
+        dcl::transfer_id transfer_id,
+        size_t size, const void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+#ifdef IO_LINK_COMPRESSION
+    if (is_io_link_compression_enabled()) {
+        // START UBER HACK
+        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
+        if (size > SUPERBLOCK_MAX_SIZE) {
+            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+            std::shared_ptr<DataSending> callback;
+
+            dcl::transfer_id split_transfer_id = transfer_id;
+            for (size_t i = 0; i < num_superblocks; i++, dcl::next_transfer_id_uberhax(split_transfer_id)) {
+                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+                callback = write(
+                    split_transfer_id, superblock_size,
+                    static_cast<const uint8_t *>(ptr) + superblock_offset,
+                    skip_compress_step, trigger_event);
+            }
+
+            return callback;
+        }
+        // END UBER HACK
+    }
+#endif
+
+    auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step));
+    if (trigger_event != nullptr) {
+        // If a event to wait was given, enqueue the write after the event callback
+        // TODOXXX: Handle the case where the event to wait returns an error
+        trigger_event->setCallback([this, write](cl_int status) {
+            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+            enqueue_write(write);
+        });
+    } else {
+        // If a event to wait was given, enqueue the write immediately
+        enqueue_write(write);
+    }
+    return write;
+}
+
+void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
+    std::unique_lock<std::mutex> lock(_writeq_mtx);
+    if (_sending) {
+        _writeq.push(write);
+    } else {
+        // start write loop
+        _sending = true;
+        lock.unlock();
+
+        notify_write_transfer_id(new writeq_type({ write }));
+    }
+}
+
+void DataStream::notify_write_transfer_id(writeq_type *writeq) {
     /* TODO Pass writeq by rvalue reference rather than by pointer
      * is currently not supported by lambdas (see comment in start_write) */
     assert(writeq); // ouch!
@@ -676,18 +726,11 @@ void DataStream::schedule_write(writeq_type *writeq) {
     // writeq is non-empty now
 
     auto& write = writeq->front();
-    if (write->trigger_event() != nullptr) {
-        // If a event to wait was given, start the write after the event callback
-        // TODOXXX: Handle the case where the event to wait returns an error
-        // (the lines deleted when this comment was introduced could serve as a reference)
-        write->trigger_event()->setCallback([this, writeq](cl_int status) {
-            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+    boost_asio_async_write_with_sentinels(
+        *_socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
+        [this, writeq, write](const boost::system::error_code& ec, size_t bytes_transferred) {
             start_write(writeq);
         });
-    } else {
-        // If a event to wait was given, start the write immediately
-        start_write(writeq);
-    }
 }
 
 void DataStream::start_write(writeq_type *writeq) {
@@ -735,7 +778,7 @@ void DataStream::start_write(writeq_type *writeq) {
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::try_write_next_compressed_block(writeq_type *writeq, std::shared_ptr<DataSending> write) {
+void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
     if (_write_io_channel_busy) {
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
@@ -926,7 +969,7 @@ void DataStream::handle_write(
         // TODO Handle errors
     }
 
-    schedule_write(writeq); // process remaining writes
+    notify_write_transfer_id(writeq); // process remaining writes
 }
 
 } // namespace comm

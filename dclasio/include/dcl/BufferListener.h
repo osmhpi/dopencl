@@ -44,6 +44,8 @@
 #ifndef DCL_BUFFERLISTENER_H_
 #define DCL_BUFFERLISTENER_H_
 
+#include "DCLTypes.h"
+
 #include <cstddef>
 
 namespace dcl {
@@ -62,7 +64,7 @@ public:
     /*!
      * \brief Notifies a listener about a buffer transfer.
      */
-    virtual void onRequestBufferTransfer(dcl::Process &process) = 0;
+    virtual void onRequestBufferTransfer(dcl::Process &process, dcl::transfer_id transferId) = 0;
 };
 
 } /* namespace dcl */

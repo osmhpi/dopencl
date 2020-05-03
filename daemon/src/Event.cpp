@@ -166,17 +166,20 @@ void RemoteEvent::synchronize(
          */
         /* TODO Use SychronizationListener interface to send message */
         /* TODO Send message to event owner (host or compute node) */
-        dclasio::message::EventSynchronizationMessage msg(_id);
+        dcl::transfer_id transferId = dcl::create_transfer_id();
+        dclasio::message::EventSynchronizationMessage msg(_id, transferId);
         _context->host().sendMessage(msg);
         dcl::util::Logger << dcl::util::Debug
                 << "Sent event synchronization message to host (ID=" << _id << ')'
                 << std::endl;
 
+        auto bufferTransferId = transferId;
         for (auto memoryObject : _memoryObjects) {
             cl::Event acquire; /* Event representing the acquire operation of the current memory object.
                                 * Serves as synchronization point for following commands and other devices */
-            memoryObject->acquire(_context->host(), commandQueue, &_event, &acquire);
+            memoryObject->acquire(_context->host(), commandQueue, bufferTransferId, &_event, &acquire);
             _syncEvents.push_back(acquire);
+            dcl::next_transfer_id(bufferTransferId);
         }
     }
 
@@ -196,7 +199,7 @@ void RemoteEvent::onExecutionStatusChanged(cl_int executionStatus) {
     _event.setStatus(executionStatus);
 }
 
-void RemoteEvent::onSynchronize(dcl::Process& process) {
+void RemoteEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
     dcl::util::Logger << dcl::util::Error
             << "Synchronization attempt on replacement event (ID=" << _id << ')'
             << std::endl;
@@ -233,7 +236,7 @@ LocalEvent::LocalEvent(dcl::object_id id,
 LocalEvent::~LocalEvent() {
 }
 
-void LocalEvent::onSynchronize(dcl::Process& process) {
+void LocalEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
     cl::CommandQueue commandQueue = _context->ioCommandQueue();
 
     dcl::util::Logger << dcl::util::Debug
@@ -245,8 +248,10 @@ void LocalEvent::onSynchronize(dcl::Process& process) {
      * The acquire operations are performed using the context's I/O command
      * queue. This queue is reserved for synchronization and thus does not
      * interfere (e.g., deadlock) with application commands. */
+    auto bufferTransferId = transferId;
     for (auto memoryObject : _memoryObjects) {
-        memoryObject->release(process, commandQueue, *this);
+        memoryObject->release(process, commandQueue, bufferTransferId, *this);
+        dcl::next_transfer_id(bufferTransferId);
     }
 
     /* The I/O command queue must be flushed to ensure instant execution of the

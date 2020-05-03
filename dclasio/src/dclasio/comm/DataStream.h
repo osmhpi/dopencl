@@ -62,6 +62,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <unordered_map>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -77,7 +78,6 @@ namespace comm {
  */
 class DataStream {
 public:
-    typedef std::queue<std::shared_ptr<DataReceipt>, std::list<std::shared_ptr<DataReceipt>>> readq_type;
     typedef std::queue<std::shared_ptr<DataSending>, std::list<std::shared_ptr<DataSending>>> writeq_type;
 
     // TODO Accept rvalue reference rather than pointer to socket (requires Boost 1.47)
@@ -125,6 +125,7 @@ public:
      * \return a handle for the data receipt
      */
     std::shared_ptr<DataReceipt> read(
+            dcl::transfer_id transfer_id,
             size_t size,
             void *ptr,
             bool skip_compress_step,
@@ -138,47 +139,42 @@ public:
      * \return a handle for the data sending
      */
     std::shared_ptr<DataSending> write(
+            dcl::transfer_id transfer_id,
             size_t size,
             const void *ptr,
             bool skip_compress_step,
             const std::shared_ptr<dcl::Completable> &trigger_event);
 
 private:
+    void enqueue_read(const std::shared_ptr<DataReceipt> &read);
+    void receive_matching_transfer_id();
     /*!
      * \brief Processes the next data transfer from the read queue.
-     *
-     * \param[in]  readq    list of incoming data transfers to process
-     *             If \c readq is empty, it is filled with data transfers from the stream's internal read queue
      */
-    void schedule_read(readq_type *readq);
-    void start_read(readq_type *readq);
-
+    void start_read();
 #ifdef IO_LINK_COMPRESSION
-    void read_next_compressed_block(readq_type *readq, std::shared_ptr<DataReceipt> read);
+    void read_next_compressed_block();
     void start_decompress_threads();
     void loop_decompress_thread(size_t thread_id);
 #endif
-
     void handle_read(
-            readq_type *readq,
             const boost::system::error_code& ec,
             size_t bytes_transferred);
 
+    void enqueue_write(const std::shared_ptr<DataSending> &write);
+    void notify_write_transfer_id(writeq_type *writeq);
     /*!
      * \brief Processes the next data transfer from the write queue.
      *
      * \param[in]  writeq   list of incoming data transfers to process
      *             If \c writeq is empty, it is filled with data transfers from the stream's internal write queue
      */
-    void schedule_write(writeq_type *writeq);
     void start_write(writeq_type *writeq);
-
 #ifdef IO_LINK_COMPRESSION
-    void try_write_next_compressed_block(writeq_type *writeq, std::shared_ptr<DataSending> write);
+    void try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write);
     void start_compress_threads();
     void loop_compress_thread(size_t thread_id);
 #endif
-
     void handle_write(
             writeq_type *writeq,
             const boost::system::error_code& ec,
@@ -188,10 +184,28 @@ private:
     std::shared_ptr<boost::asio::ip::tcp::socket> _socket; //!< I/O object for remote process
     boost::asio::ip::tcp::endpoint _remote_endpoint; //!< remote endpoint of data stream
 
-    bool _receiving; //!< \c true, if currently receiving data, otherwise \c false
+    enum class receiving_state {
+        // No read operation is in course and the read queue is empty
+        idle,
+        // We are receiving a transfer ID from the other end of the socket,
+        // in order to attempt to match a send with out of the enqueued receives
+        receiving_matching_transfer_id,
+        // The other end wants to do a send for which we don't yet have a receive
+        // operation associated, so we are waiting for it to arrive to the queue
+        waiting_for_read_matching_transfer_id,
+        // We have successfully matched a send and a receive and are transferring data
+        receiving_data
+    };
+
+    receiving_state _read_state; //!< \c state of the data receipts
+    dcl::transfer_id _read_transfer_id; //!< identifier of the transfer currently being received
+                                        // valid for receiving_state::waiting_for_read_matching_transfer_id
+    std::shared_ptr<DataReceipt> _read_op; //!< transfer currently being received
+                                           // valid for receiving_state::receiving_data
+    std::unordered_map<dcl::transfer_id, std::shared_ptr<DataReceipt>> _readq; //!< pending data receipts
+    std::mutex _readq_mtx; //!< protects read queue and related variables
+
     bool _sending; //!< \c true, if currently sending data, otherwise \c false
-    readq_type _readq; //!< pending data receipts
-    std::mutex _readq_mtx; //!< protects read queue and flag
     writeq_type _writeq; //!< pending data sendings
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
@@ -219,9 +233,7 @@ private:
     struct decompress_message_decompress_block {
         std::array<decompress_chunk, NUM_CHUNKS_PER_NETWORK_BLOCK> chunks;
     };
-    struct decompress_message_finalize {
-        readq_type *readq;
-    };
+    struct decompress_message_finalize {};
     struct decompress_message_quit {};
     using decompress_message_t = boost::variant<decompress_message_decompress_block,
                                                 decompress_message_finalize,

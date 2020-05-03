@@ -63,12 +63,14 @@ class EventSynchronizationMessage: public Message {
 public:
     EventSynchronizationMessage();
     EventSynchronizationMessage(
-            const dcl::object_id commandId);
+            const dcl::object_id commandId,
+            const dcl::transfer_id transferId);
     EventSynchronizationMessage(
             const EventSynchronizationMessage& rhs);
     virtual ~EventSynchronizationMessage();
 
     dcl::object_id commandId() const;
+    dcl::transfer_id transferId() const;
 
     static const class_type TYPE = 8802;
 
@@ -77,15 +79,16 @@ public:
     }
 
     void pack(dcl::OutputByteBuffer& buf) const {
-        buf << _commandId;
+        buf << _commandId << _transferId;
     }
 
     void unpack(dcl::InputByteBuffer& buf) {
-        buf >> _commandId;
+        buf >> _commandId >> _transferId;
     }
 
 private:
     dcl::object_id _commandId;
+    dcl::transfer_id _transferId;
 };
 
 } /* namespace message */

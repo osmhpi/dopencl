@@ -51,17 +51,17 @@ namespace dclasio {
 namespace message {
 
 EventSynchronizationMessage::EventSynchronizationMessage() :
-    _commandId(0) {
+    _commandId(0), _transferId() {
 }
 
 EventSynchronizationMessage::EventSynchronizationMessage(
-        dcl::object_id commandId) :
-        _commandId(commandId) {
+        dcl::object_id commandId, dcl::transfer_id transferId) :
+        _commandId(commandId), _transferId(transferId) {
 }
 
 EventSynchronizationMessage::EventSynchronizationMessage(
         const EventSynchronizationMessage& rhs) :
-        _commandId(rhs._commandId) {
+        _commandId(rhs._commandId), _transferId(rhs._transferId) {
 }
 
 EventSynchronizationMessage::~EventSynchronizationMessage() {
@@ -69,6 +69,10 @@ EventSynchronizationMessage::~EventSynchronizationMessage() {
 
 dcl::object_id EventSynchronizationMessage::commandId() const {
     return _commandId;
+}
+
+dcl::transfer_id EventSynchronizationMessage::transferId() const {
+    return _transferId;
 }
 
 } /* namespace message */

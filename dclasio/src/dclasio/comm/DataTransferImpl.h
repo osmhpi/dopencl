@@ -47,6 +47,7 @@
 #include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
+#include <dcl/DCLTypes.h>
 
 #include <dcl/util/Clock.h>
 #include <dcl/util/Logger.h>
@@ -77,8 +78,6 @@ namespace comm {
 struct Receive {
     typedef void * pointer_type;
     constexpr static const char *action_log_name = "Received";
-
-
 };
 
 struct Send {
@@ -104,8 +103,10 @@ private:
 
 public:
     DataTransferImpl(
-            size_t size, typename Operation::pointer_type ptr, bool skip_compress_step, const std::shared_ptr<dcl::Completable> &trigger_event) :
-            _size(size), _ptr(ptr), _skip_compress_step(skip_compress_step), _trigger_event(trigger_event),
+            dcl::transfer_id transferId, size_t size, typename Operation::pointer_type ptr,
+            bool skip_compress_step) :
+            _transferId(transferId), _size(size), _ptr(ptr),
+            _skip_compress_step(skip_compress_step),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
             _status(CL_SUBMITTED) { }
 
@@ -167,6 +168,10 @@ public:
         /* TODO Implement DataTransferImpl::abort */
     }
 
+    dcl::transfer_id transferId() const {
+        return _transferId;
+    }
+
     size_t size() const {
         return _size;
     }
@@ -177,10 +182,6 @@ public:
 
     bool skip_compress_step() const {
         return _skip_compress_step;
-    }
-
-    Completable *trigger_event() const {
-        return _trigger_event.get();
     }
 
     void onStart() {
@@ -224,10 +225,10 @@ public:
     }
 
 private:
+	const dcl::transfer_id _transferId;
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
 	const bool _skip_compress_step;
-	std::shared_ptr<dcl::Completable> _trigger_event;
 
 	cl_ulong _submit;
 	cl_ulong _start;

@@ -53,7 +53,7 @@ namespace dclasio {
 namespace message {
 
 EnqueueWriteBuffer::EnqueueWriteBuffer() :
-	_commandQueueId(0), _commandId(0), _bufferId(0), _event(false) {
+	_commandQueueId(0), _commandId(0), _bufferId(0), _transferId(), _event(false) {
 }
 
 EnqueueWriteBuffer::EnqueueWriteBuffer(
@@ -61,12 +61,14 @@ EnqueueWriteBuffer::EnqueueWriteBuffer(
 		dcl::object_id commandId,
 		dcl::object_id bufferId,
 		bool blocking_write,
+		dcl::transfer_id transferId,
 		size_t offset,
 		size_t cb,
 		const std::vector<dcl::object_id> *eventIdWaitList,
 		bool event) :
 	_commandQueueId(commandQueueId), _commandId(commandId), _bufferId(bufferId),
-			_blocking(blocking_write), _offset(offset), _cb(cb), _event(event) {
+			_blocking(blocking_write), _transferId(transferId),
+			_offset(offset), _cb(cb), _event(event) {
 
 	if (eventIdWaitList) {
 		_eventIdWaitList = *eventIdWaitList;
@@ -76,7 +78,8 @@ EnqueueWriteBuffer::EnqueueWriteBuffer(
 EnqueueWriteBuffer::EnqueueWriteBuffer(const EnqueueWriteBuffer& rhs) :
 	Request(rhs), _commandQueueId(rhs._commandQueueId),
 			_commandId(rhs._commandId), _bufferId(rhs._bufferId),
-			_blocking(rhs._blocking), _offset(rhs._offset), _cb(rhs._cb),
+			_blocking(rhs._blocking), _transferId(rhs._transferId),
+			_offset(rhs._offset), _cb(rhs._cb),
 			_eventIdWaitList(rhs._eventIdWaitList),	_event(rhs._event) {
 }
 
@@ -94,6 +97,10 @@ dcl::object_id EnqueueWriteBuffer::bufferId() const {
 
 bool EnqueueWriteBuffer::blocking() const {
 	return _blocking;
+}
+
+dcl::transfer_id EnqueueWriteBuffer::transferId() const {
+	return _transferId;
 }
 
 size_t EnqueueWriteBuffer::offset() const {

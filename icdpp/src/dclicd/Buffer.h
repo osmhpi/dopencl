@@ -48,6 +48,9 @@
 
 #include "detail/MappedMemory.h"
 
+#include <dcl/BufferListener.h>
+#include <dcl/DCLTypes.h>
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -56,7 +59,6 @@
 
 #include <cstddef>
 #include <map>
-#include <dcl/BufferListener.h>
 
 namespace dclicd {
 
@@ -93,7 +95,7 @@ public:
             void *mappedPtr) const;
 
     // Buffer listener API
-    void onRequestBufferTransfer(dcl::Process &process);
+    void onRequestBufferTransfer(dcl::Process &process, dcl::transfer_id transferId);
 
 protected:
     cl_mem_object_type type() const ;

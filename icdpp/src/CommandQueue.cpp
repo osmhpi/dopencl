@@ -431,7 +431,7 @@ void _cl_command_queue::enqueueRead(
 		void *ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> readBuffer;
+	std::shared_ptr<dclicd::command::ReadMemoryCommand> readBuffer;
 	std::vector<dcl::object_id> eventIds;
 
     if (!buffer) throw dclicd::Error(CL_INVALID_MEM_OBJECT);
@@ -462,9 +462,8 @@ void _cl_command_queue::enqueueRead(
 	// Enqueue read buffer command on command queue's compute node
 	try {
 		dclasio::message::EnqueueReadBuffer request(_id, readBuffer->remoteId(),
-				buffer->remoteId(), blocking_read, offset, cb, &eventIds,
-				(event != nullptr));
-		readBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
+				buffer->remoteId(), blocking_read, readBuffer->transferId(),
+				offset, cb, &eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(request);
 		dcl::util::Logger << dcl::util::Info
 				<< "Enqueued data download from buffer (command queue ID="
@@ -495,7 +494,7 @@ void _cl_command_queue::enqueueWrite(
 		const void *ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> writeBuffer;
+	std::shared_ptr<dclicd::command::WriteMemoryCommand> writeBuffer;
 	std::vector<dcl::object_id> eventIds;
 
     if (!buffer) throw dclicd::Error(CL_INVALID_MEM_OBJECT);
@@ -525,10 +524,9 @@ void _cl_command_queue::enqueueWrite(
 
 	// Enqueue write buffer command on command queue's compute node
 	try {
-		dclasio::message::EnqueueWriteBuffer enqueueWriteBuffer(_id,
-				writeBuffer->remoteId(), buffer->remoteId(), blocking_write,
+		dclasio::message::EnqueueWriteBuffer enqueueWriteBuffer(_id, writeBuffer->remoteId(),
+				buffer->remoteId(), blocking_write, writeBuffer->transferId(),
 				offset, cb, &eventIds, (event != nullptr));
-		writeBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
 		_device->remote().getComputeNode().executeCommand(enqueueWriteBuffer);
 		dcl::util::Logger << dcl::util::Info
 				<< "Enqueued data upload to buffer (command queue ID=" << _id
@@ -609,7 +607,7 @@ void * _cl_command_queue::enqueueMap(
 		size_t cb,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> mapBuffer;
+	std::shared_ptr<dclicd::command::MapBufferCommand> mapBuffer;
 	std::vector<dcl::object_id> eventIds;
 	void *ptr;
 
@@ -638,10 +636,9 @@ void * _cl_command_queue::enqueueMap(
 
 	try {
         dclasio::message::EnqueueMapBuffer request(_id, mapBuffer->remoteId(),
-                buffer->remoteId(), blocking_map, map_flags,
+                buffer->remoteId(), blocking_map, mapBuffer->transferId(), map_flags,
                 offset, cb,
                 &eventIds, (event != nullptr));
-        mapBuffer->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
         _device->remote().getComputeNode().executeCommand(request);
         dcl::util::Logger << dcl::util::Info
                 << "Enqueued map buffer (command queue ID=" << _id
@@ -670,7 +667,7 @@ void _cl_command_queue::enqueueUnmap(
 		void *mapped_ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> unmapMemory;
+	std::shared_ptr<dclicd::command::UnmapBufferCommand> unmapMemory;
 	std::vector<dcl::object_id> eventIds;
     cl_mem_object_type type;
 
@@ -718,10 +715,9 @@ void _cl_command_queue::enqueueUnmap(
         case CL_MEM_OBJECT_BUFFER:
         {
             dclasio::message::EnqueueUnmapBuffer request(_id, unmapMemory->remoteId(),
-                    memobj->remoteId(), mapping->flags(),
+                    memobj->remoteId(), unmapMemory->transferId(), mapping->flags(),
                     mapping->offset(), mapping->cb(),
                     &eventIds, (event != nullptr));
-            unmapMemory->onExecutionStatusChanged(CL_SUBMITTED); // schedule data transfer
             _device->remote().getComputeNode().executeCommand(request);
             break;
         }

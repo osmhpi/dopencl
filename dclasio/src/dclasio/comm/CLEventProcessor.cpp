@@ -152,7 +152,7 @@ void CLComputeNodeEventProcessor::synchronizeEvent(
         dcl::Process& process) const {
     auto synchronizationlistener = _objectRegistry.lookup<dcl::SynchronizationListener>(notification.commandId());
     if (synchronizationlistener) {
-        synchronizationlistener->onSynchronize(process);
+        synchronizationlistener->onSynchronize(process, notification.transferId());
     } else {
         dcl::util::Logger << dcl::util::Error
                 << "Synchronization listener not found (command ID=" << notification.commandId()
@@ -185,7 +185,7 @@ void CLComputeNodeEventProcessor::requestBufferTransfer(
         // pass function call to worker thread
         _taskList.push(
                 std::bind(&dcl::BufferListener::onRequestBufferTransfer,
-                          bufferListener, std::ref(process)));
+                          bufferListener, std::ref(process), notification.transferId()));
     } else {
         dcl::util::Logger << dcl::util::Error
                           << "Buffer listener not found (ID=" << notification.bufferId()
@@ -286,7 +286,7 @@ void CLHostEventProcessor::synchronizeEvent(
         HostImpl& host) const {
     auto event = getObjectRegistry(host).lookup<std::shared_ptr<dcl::Event>>(notification.commandId());
     if (event) {
-        event->onSynchronize(host);
+        event->onSynchronize(host, notification.transferId());
     } else {
         dcl::util::Logger << dcl::util::Error
                 << "Event not found (command ID=" << notification.commandId()
