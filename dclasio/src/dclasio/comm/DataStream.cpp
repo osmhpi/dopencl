@@ -98,6 +98,14 @@ struct profile_send_receive_buffer_times {
 
 #ifdef IO_LINK_COMPRESSION
 
+// Declarations for static constexpr are sometimes required to avoid build errors
+// See https://stackoverflow.com/questions/8016780/undefined-reference-to-static-constexpr-char
+constexpr size_t dclasio::comm::DataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+constexpr size_t dclasio::comm::DataStream::CHUNK_SIZE;
+constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
+constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
+constexpr size_t dclasio::comm::DataStream::SUPERBLOCK_MAX_SIZE;
+
 static unsigned int determine_num_threads(const char *env_name) {
     // Configuration for the number of threads to use for compression or decompression
     const char *env_value = std::getenv(env_name);
