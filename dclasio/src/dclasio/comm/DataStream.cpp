@@ -806,28 +806,34 @@ void DataStream::readToClBuffer(
 #endif
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
-    profile_times->id = profile_next_id++;
-    profile_times->transfer_size = size;
-    profile_times->enqueue_time = std::chrono::steady_clock::now();
+    auto profile_times = new profile_send_receive_buffer_times();
+    try {
+        profile_times->id = profile_next_id++;
+        profile_times->transfer_size = size;
+        profile_times->enqueue_time = std::chrono::steady_clock::now();
 
-    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->start_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-                          << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-                          << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-            profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-    }, profile_times);
+        startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+            profile_times->start_time = std::chrono::steady_clock::now();
+            dcl::util::Logger << dcl::util::Debug
+                              << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
+                              << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
+        }, profile_times);
 
-    endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->end_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-                          << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-                          << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-            profile_times->end_time - profile_times->start_time).count() << std::endl;
-    }, profile_times);
+        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+            std::unique_ptr<profile_send_receive_buffer_times> profile_times(
+                        static_cast<profile_send_receive_buffer_times *>(user_data));
+            profile_times->end_time = std::chrono::steady_clock::now();
+            dcl::util::Logger << dcl::util::Debug
+                              << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
+                              << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                profile_times->end_time - profile_times->start_time).count() << std::endl;
+        }, profile_times);
+    } catch (...) {
+        delete profile_times;
+        throw;
+    }
 #endif
 }
 
@@ -1182,28 +1188,34 @@ void DataStream::writeFromClBuffer(
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
-    profile_times->id = profile_next_id++;
-    profile_times->transfer_size = size;
-    profile_times->enqueue_time = std::chrono::steady_clock::now();
+    auto profile_times = new profile_send_receive_buffer_times();
+    try {
+        profile_times->id = profile_next_id++;
+        profile_times->transfer_size = size;
+        profile_times->enqueue_time = std::chrono::steady_clock::now();
 
-    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->start_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-    }, profile_times);
+        startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
+            profile_times->start_time = std::chrono::steady_clock::now();
+            dcl::util::Logger << dcl::util::Debug
+                << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
+                << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                        profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
+        }, profile_times);
 
-    endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->end_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->end_time - profile_times->start_time).count() << std::endl;
-    }, profile_times);
+        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
+            std::unique_ptr<profile_send_receive_buffer_times> profile_times(
+                        static_cast<profile_send_receive_buffer_times *>(user_data));
+            profile_times->end_time = std::chrono::steady_clock::now();
+            dcl::util::Logger << dcl::util::Debug
+                << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
+                << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
+                        profile_times->end_time - profile_times->start_time).count() << std::endl;
+        }, profile_times);
+    } catch (...) {
+        delete profile_times;
+        throw;
+    }
 #endif
 }
 

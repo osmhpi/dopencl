@@ -71,12 +71,16 @@ public:
         // We need to dynamically allocate a copy the function and pass it through user_data
         // in order to keep the lambda captures through the C-style callback OpenCL offers
         auto notify_ptr = new std::function<void(cl_int)>(notify);
-
-        _event.setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
-            std::unique_ptr<std::function<void(cl_int)>> notify_ptr(
-                    static_cast<std::function<void(cl_int)> *>(user_data));
-            (*notify_ptr)(status);
-        }, notify_ptr);
+        try {
+            _event.setCallback(CL_COMPLETE, [](cl_event, cl_int status, void *user_data) {
+                std::unique_ptr<std::function<void(cl_int)>> notify_ptr(
+                        static_cast<std::function<void(cl_int)> *>(user_data));
+                (*notify_ptr)(status);
+            }, notify_ptr);
+        } catch(...) {
+            delete notify_ptr;
+            throw;
+        }
     }
 
 private:
