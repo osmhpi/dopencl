@@ -46,11 +46,18 @@
 #ifndef CLEVENTCOMPLETABLE_H_
 #define CLEVENTCOMPLETABLE_H_
 
+#include "Completable.h"
+
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.h>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.h>
+#include <CL/cl2.hpp>
 #endif
+
+#include <memory>
 
 namespace dcl {
 
