@@ -158,12 +158,21 @@ public:
             const void *ptr,
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
+    void sendDataFromClBuffer(dcl::transfer_id transferId, size_t size, const cl::Context &context,
+                              const cl::CommandQueue &commandQueue, const cl::Buffer &buffer, size_t offset,
+                              const cl::vector<cl::Event> *eventWaitList, cl::Event *startEvent, cl::Event *endEvent);
+
     std::shared_ptr<dcl::DataTransfer> receiveData(
             dcl::transfer_id transfer_id,
             size_t  size,
             void *  ptr,
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
+    void receiveDataToClBuffer(dcl::transfer_id transferId, size_t size, const cl::Context &context,
+                               const CL842DeviceDecompressor *cl842DeviceDecompressor,
+                               const cl::CommandQueue &commandQueue,
+                               const cl::Buffer &buffer, size_t offset, const cl::vector<cl::Event> *eventWaitList,
+                               cl::Event *startEvent, cl::Event *endEvent);
 
     /*!
      * \brief (Un)sets the processes data stream

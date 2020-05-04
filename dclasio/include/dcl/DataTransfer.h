@@ -55,6 +55,10 @@
 #include <dcl/Completable.h>
 #include <functional>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#include <cl842.h>
+#endif
+
 namespace dcl {
 
 /*!
@@ -89,7 +93,6 @@ public:
 #ifdef IO_LINK_COMPRESSION
     // START UBER HACK
     static constexpr size_t COMPR842_CHUNK_SIZE = 65536;
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
     // END UBER HACK
 #endif
 };
@@ -100,6 +103,14 @@ public:
 // TODOXXX: Move this to a better place
 static bool is_io_link_compression_enabled() {
 	static bool enabled = std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr;
+	return enabled;
+}
+#endif
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+// TODOXXX: Move this to a better place
+static bool is_cl_io_link_compression_enabled() {
+	static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
 	return enabled;
 }
 #endif

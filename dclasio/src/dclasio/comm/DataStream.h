@@ -53,7 +53,16 @@
 #include <boost/variant.hpp>
 #include <boost/thread/barrier.hpp>
 
-#ifdef IO_LINK_COMPRESSION
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl2.hpp>
+#else
+#include <CL/cl2.hpp>
+#endif
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 #include <cl842.h>
 #endif
 
@@ -131,6 +140,18 @@ public:
             bool skip_compress_step,
             const std::shared_ptr<dcl::Completable> &trigger_event);
 
+    void readToClBuffer(
+            dcl::transfer_id transferId,
+            size_t size,
+            const cl::Context &context,
+            const CL842DeviceDecompressor *cl842DeviceDecompressor,
+            const cl::CommandQueue &commandQueue,
+            const cl::Buffer &buffer,
+            size_t offset,
+            const cl::vector<cl::Event> *eventWaitList,
+            cl::Event *startEvent,
+            cl::Event *endEvent);
+
     /*!
      * \brief Submits a data sending for this data stream
      *
@@ -144,6 +165,17 @@ public:
             const void *ptr,
             bool skip_compress_step,
             const std::shared_ptr<dcl::Completable> &trigger_event);
+
+    void writeFromClBuffer(
+            dcl::transfer_id transferId,
+            size_t size,
+            const cl::Context &context,
+            const cl::CommandQueue &commandQueue,
+            const cl::Buffer &buffer,
+            size_t offset,
+            const cl::vector<cl::Event> *eventWaitList,
+            cl::Event *startEvent,
+            cl::Event *endEvent);
 
 private:
     void enqueue_read(const std::shared_ptr<DataReceipt> &read);
@@ -216,6 +248,7 @@ private:
     // Those constants must be synchronized with the constants in lib842 (cl842)
     // for the integration with OpenCL-based decompression to work
     static constexpr size_t COMPRESSIBLE_THRESHOLD = ((CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
+    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
     // ---
 
     struct decompress_chunk {

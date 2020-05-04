@@ -56,6 +56,10 @@
 #include <memory>
 #include <string>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#include <cl842.h>
+#endif
+
 namespace dcl {
 
 class DataTransfer;
@@ -97,6 +101,17 @@ public:
 			bool skip_compress_step = false,
 			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
 
+	virtual void sendDataFromClBuffer(
+			dcl::transfer_id transferId,
+			size_t size,
+			const cl::Context &context,
+			const cl::CommandQueue &commandQueue,
+			const cl::Buffer &buffer,
+			size_t offset,
+			const cl::vector<cl::Event> *eventWaitList,
+			cl::Event *startEvent,
+			cl::Event *endEvent) = 0;
+
 	/*!
 	 * \brief Receive data from host.
 	 * This is a non-blocking operation.
@@ -111,6 +126,18 @@ public:
 			void *  ptr,
 			bool skip_compress_step = false,
 			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
+
+	virtual void receiveDataToClBuffer(
+			dcl::transfer_id transferId,
+			size_t size,
+			const cl::Context &context,
+			const CL842DeviceDecompressor *cl842DeviceDecompressor,
+			const cl::CommandQueue &commandQueue,
+			const cl::Buffer &buffer,
+			size_t offset,
+			const cl::vector<cl::Event> *eventWaitList,
+			cl::Event *startEvent,
+			cl::Event *endEvent) = 0;
 };
 
 } /* namespace dcl */

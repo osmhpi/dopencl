@@ -158,11 +158,40 @@ std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(
     return getDataStream().write(transfer_id, size, ptr, skip_compress_step, trigger_event);
 }
 
+void ProcessImpl::sendDataFromClBuffer(
+        dcl::transfer_id transferId,
+        size_t size,
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue,
+        const cl::Buffer &buffer,
+        size_t offset,
+        const cl::vector<cl::Event> *eventWaitList,
+        cl::Event *startEvent,
+        cl::Event *endEvent) {
+    return getDataStream().writeFromClBuffer(transferId, size, context, commandQueue, buffer,
+                                             offset, eventWaitList, startEvent, endEvent);
+}
+
 std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
     return getDataStream().read(transfer_id, size, ptr, skip_compress_step, trigger_event);
+}
+
+void ProcessImpl::receiveDataToClBuffer(
+    dcl::transfer_id transferId,
+    size_t size,
+    const cl::Context &context,
+    const CL842DeviceDecompressor *cl842DeviceDecompressor,
+    const cl::CommandQueue &commandQueue,
+    const cl::Buffer &buffer,
+    size_t offset,
+    const cl::vector<cl::Event> *eventWaitList,
+    cl::Event *startEvent,
+    cl::Event *endEvent) {
+    return getDataStream().readToClBuffer(transferId, size, context, cl842DeviceDecompressor,
+                                          commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
 }
 
 comm::DataStream& ProcessImpl::getDataStream() {

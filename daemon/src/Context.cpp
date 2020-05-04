@@ -44,7 +44,6 @@
 #include "Context.h"
 #include "Device.h"
 
-#include <dcl/Binary.h>
 #include <dcl/ComputeNode.h>
 #include <dcl/ContextListener.h>
 #include <dcl/Device.h>
@@ -62,37 +61,11 @@
 
 #include <cassert>
 #include <cstddef>
-#include <cstdlib>
 #include <memory>
-#include <string>
 #include <vector>
-#include <algorithm>
 
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
-
-#include <dcl/util/Logger.h>
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-#error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
-#endif
-
-#define PROFILE_SEND_RECEIVE_BUFFER
-
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-#include <chrono>
-#include <atomic>
-
-std::atomic<unsigned> profile_next_id;
-
-struct profile_send_receive_buffer_times {
-    unsigned id;
-    size_t transfer_size;
-    std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
-    std::chrono::time_point<std::chrono::steady_clock> start_time;
-    std::chrono::time_point<std::chrono::steady_clock> end_time;
-};
-#endif
 
 namespace {
 
@@ -182,134 +155,8 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                        const cl::vector<cl::Event> *eventWaitList,
                                        cl::Event *startEvent,
                                        cl::Event *endEvent) {
-    cl::Event myStartEvent, myEndEvent;
-
-    if (startEvent == nullptr)
-        startEvent = &myStartEvent;
-    if (endEvent == nullptr)
-        endEvent = &myEndEvent;
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
-    bool can_use_cl_io_link_compression = false;
-
-    if (size > 0 && is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
-        if (offset != 0) {
-            // TODOXXX It should be possible to handle nonzero offset cases here by passing this
-            //         information to lib842, at least for 8-byte aligned cases
-            dcl::util::Logger << dcl::util::Warning
-                                << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
-                                << std::endl;
-        } else {
-            can_use_cl_io_link_compression = true;
-        }
-    }
-
-    if (can_use_cl_io_link_compression) {
-        static constexpr size_t SUPERBLOCK_MAX_SIZE = dcl::DataTransfer::SUPERBLOCK_MAX_SIZE;
-        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-
-        std::vector<cl::Event> mapEvents(num_superblocks),
-                               unmapEvents(num_superblocks),
-                               decompressEvents(num_superblocks);
-        std::vector<void *> ptrs(num_superblocks);
-
-        /* Enqueue map buffer */
-        for (size_t i = 0; i < num_superblocks; i++) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-            ptrs[i] = commandQueue.enqueueMapBuffer(
-                    buffer,
-                    CL_FALSE,     // non-blocking map
-#if defined(CL_VERSION_1_2)
-                    CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
-#else
-                    CL_MAP_WRITE, // map for writing
-#endif
-                    superblock_offset, superblock_size,
-                    eventWaitList, &mapEvents[i]);
-        }
-
-        dcl::transfer_id split_transfer_id = transferId;
-        for (size_t i = 0; i < num_superblocks; i++, dcl::next_transfer_id_uberhax(split_transfer_id)) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - i * SUPERBLOCK_MAX_SIZE, SUPERBLOCK_MAX_SIZE);
-
-            // schedule local data transfer
-            cl::UserEvent receiveEvent(_context);
-            std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
-            process.receiveData(split_transfer_id, superblock_size, ptrs[i], true, mapDataCompletable)
-                    ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
-
-
-            /* Enqueue unmap buffer (implicit upload) */
-            cl::vector<cl::Event> unmapWaitList = {receiveEvent};
-            commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
-            // Rounds down (partial chunks are not compressed by DataStream)
-            size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
-            if (chunksSize > 0) {
-                cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
-                _cl842DeviceDecompressor->decompress(commandQueue,
-                                                     buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
-                                                     buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
-                                                     cl::Buffer(nullptr),
-                                                     &decompressWaitList, &decompressEvents[i]);
-            } else {
-                decompressEvents[i] = unmapEvents[i];
-            }
-        }
-
-        
-        *startEvent = mapEvents.front();
-        *endEvent = decompressEvents.back();
-    } else {
-#endif
-    /* Enqueue map buffer */
-    void *ptr = commandQueue.enqueueMapBuffer(
-            buffer,
-            CL_FALSE,     // non-blocking map
-#if defined(CL_VERSION_1_2)
-        CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
-#else
-        CL_MAP_WRITE, // map for writing
-#endif
-        offset, size,
-        eventWaitList, startEvent);
-    // schedule local data transfer
-    cl::UserEvent receiveEvent(_context);
-    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-    process.receiveData(transferId, size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
-    /* Enqueue unmap buffer (implicit upload) */
-    cl::vector<cl::Event> unmapWaitList = {receiveEvent};
-    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
-    }
-#endif
-
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
-    profile_times->id = profile_next_id++;
-    profile_times->transfer_size = size;
-    profile_times->enqueue_time = std::chrono::steady_clock::now();
-
-    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->start_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-    }, profile_times);
-
-    endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->end_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->end_time - profile_times->start_time).count() << std::endl;
-    }, profile_times);
-#endif
+    return process.receiveDataToClBuffer(transferId, size, _context, _cl842DeviceDecompressor.get(),
+                                         commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
 }
 
 void Context::sendBufferToProcess(dcl::Process &process,
@@ -321,51 +168,8 @@ void Context::sendBufferToProcess(dcl::Process &process,
                                   const cl::vector<cl::Event> *eventWaitList,
                                   cl::Event *startEvent,
                                   cl::Event *endEvent) {
-    cl::Event myStartEvent;
-    if (startEvent == nullptr)
-        startEvent = &myStartEvent;
-
-    cl::UserEvent sendData(_context);
-
-    /* Enqueue map buffer */
-    void *ptr = commandQueue.enqueueMapBuffer(
-            buffer,
-            CL_FALSE,     // non-blocking map
-            CL_MAP_READ, // map for reading
-            offset, size,
-            eventWaitList, startEvent);
-    // schedule local data transfer
-    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
-    process.sendData(transferId, size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, sendData, std::placeholders::_1));
-    /* Enqueue unmap buffer (implicit upload) */
-    cl::vector<cl::Event> unmapWaitList = {sendData};
-    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
-
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times(); // TODOXXX: Release memory
-    profile_times->id = profile_next_id++;
-    profile_times->transfer_size = size;
-    profile_times->enqueue_time = std::chrono::steady_clock::now();
-
-    startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->start_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-    }, profile_times);
-
-    endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-        auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-        profile_times->end_time = std::chrono::steady_clock::now();
-        dcl::util::Logger << dcl::util::Debug
-            << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-            << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                    profile_times->end_time - profile_times->start_time).count() << std::endl;
-    }, profile_times);
-#endif
+    return process.sendDataFromClBuffer(transferId, size, _context,
+                                        commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
 }
 
 } /* namespace dcld */
