@@ -43,19 +43,22 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-#include "DataDecompressionWorkPool.h"
-
 #include <dcl/util/Logger.h>
 
 #include <sw842.h>
-#ifdef USE_HW_IO_LINK_COMPRESSION
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 // TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
 #include <hw842.h>
 #endif
 
+#include "DataDecompressionWorkPool.h"
+
+// If INDEPTH_TRACE is defined, more traces and statistics are generated
+//#define INDEPTH_TRACE
+
 static int lib842_decompress(const uint8_t *in, size_t ilen,
                              uint8_t *out, size_t *olen) {
-#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
     if (is_hw_io_link_compression_enabled())
         return hw842_decompress(in ,ilen, out, olen);
 #endif
@@ -99,7 +102,7 @@ void DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress
     _decompress_queue_available.notify_one();
 }
 
-void DataDecompressionWorkPool::finalize(std::function<void()> finalize_callback) {
+void DataDecompressionWorkPool::finalize(const std::function<void()> &finalize_callback) {
     std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
     bool done = _decompress_working_thread_count == 0 && _decompress_queue.empty();
     // If there are still decompression operations active, we need to wait

@@ -45,13 +45,13 @@
 #define DATASTREAM_H_
 
 #include "DataTransferImpl.h"
+#include "DataDecompressionWorkPool.h"
+#include "DataCompressionWorkPool.h"
 
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/variant.hpp>
-#include <boost/thread/barrier.hpp>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -72,16 +72,10 @@
 #include <mutex>
 #include <queue>
 #include <unordered_map>
-#include <string>
-#include <thread>
-#include <type_traits>
-#include <atomic>
 
 namespace dclasio {
 
 namespace comm {
-
-class DataDecompressionWorkPool;
 
 // TODO Split DataStream into InputDataStream and OutputDataStream to model simplex connections and reduce code redundancy
 /*!
@@ -206,8 +200,6 @@ private:
     void start_write(writeq_type *writeq);
 #ifdef IO_LINK_COMPRESSION
     void try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write);
-    void start_compress_threads();
-    void loop_compress_thread(size_t thread_id);
 #endif
     void handle_write(
             writeq_type *writeq,
@@ -247,8 +239,7 @@ private:
     static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK;
     static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
     static constexpr size_t COMPRESSIBLE_THRESHOLD = dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
-
-    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * CHUNK_SIZE;
+    static constexpr size_t NETWORK_BLOCK_SIZE = dcl::DataTransfer::NETWORK_BLOCK_SIZE;
     static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
     // ---
 
@@ -268,54 +259,8 @@ private:
     // Target buffer of the current read operation
     std::array<std::vector<uint8_t>, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffers;
 
-    // A custom deleter for std::unique_ptr<const uint8_t[]> that conditionally deletes a value
-    // If is_owner = true, the pointer owns the value (works like a regular std::unique_ptr)
-    // If is_owner = false, it doesn't own the value (works like a raw pointer)
-    // (in this case, the pointer must be kept alive by other means during the lifetime of the class)
-    class ConditionalOwnerDeleter {
-        bool is_owner;
-    public:
-        ConditionalOwnerDeleter() : is_owner(true) {}
-        explicit ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
-        void operator()(const uint8_t *ptr)
-        {
-            if (is_owner) {
-                delete[] ptr;
-            }
-        }
-    };
-
-    struct write_block {
-        // Offset into the source buffer where the data associated with the block comes from
-        size_t source_offset;
-        // Data for each (possibly compressed) chunk in the block
-        std::array<std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>, NUM_CHUNKS_PER_NETWORK_BLOCK> datas;
-        // Size for each (possibly compressed) chunk in the block
-        std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> sizes;
-    };
-
     // ** Variables related to the compression thread (associated to writes) **
-    // Instance of the compression thread
-    std::vector<std::thread> _compress_threads;
-    // Mutex for protecting concurrent accesses to
-    // (_compress_trigger, _compress_quit)
-    std::mutex _compress_trigger_mutex;
-    // true if a new operation must be started in the compression thread
-    bool _compress_trigger;
-    // Wakes up the compression thread when a new operation must be started
-    std::condition_variable _compress_trigger_changed;
-    // If set to true, causes the compression to quit (for cleanup)
-    bool _compress_quit;
-    // Necessary data for triggering an asynchronous I/O write operation from the compression thread
-    writeq_type *_compress_current_writeq;
-    std::shared_ptr<DataSending> _compress_current_write;
-    std::atomic<std::size_t> _compress_current_offset;
-    // Barrier for starting compression, necessary for ensuring that all compression
-    // threads have seen the trigger to start compressing before unsetting it
-    boost::barrier _compress_start_barrier;
-    // Barrier for finishing compression, necessary for ensuring that resources
-    // are not released until all threads have finished
-    boost::barrier _compress_finish_barrier;
+    std::unique_ptr<DataCompressionWorkPool> _compress_thread_pool;
 
     // ** Variables related to the current asynchronous I/O write operation **
     // Total bytes transferred through the network by current write (for statistical purposes)
@@ -326,7 +271,7 @@ private:
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
-    std::queue<write_block> _write_io_queue;
+    std::queue<DataCompressionWorkPool::write_block> _write_io_queue;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;
 #endif

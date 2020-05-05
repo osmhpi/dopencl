@@ -62,7 +62,6 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
-#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -105,23 +104,6 @@ constexpr size_t dclasio::comm::DataStream::CHUNK_SIZE;
 constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
 constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
 constexpr size_t dclasio::comm::DataStream::SUPERBLOCK_MAX_SIZE;
-
-#include <sw842.h>
-#ifdef USE_HW_IO_LINK_COMPRESSION
-// TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
-#include <hw842.h>
-#endif
-#include "DataDecompressionWorkPool.h"
-
-static int lib842_compress(const uint8_t *in, size_t ilen,
-                           uint8_t *out, size_t *olen) {
-#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-    if (is_hw_io_link_compression_enabled())
-        return hw842_compress(in ,ilen, out, olen);
-#endif
-
-    return optsw842_compress(in, ilen, out, olen);
-}
 
 // TODOXXX: This is a variation of the above but used to get some hacky code to work. Remove me.
 static void next_transfer_id_uberhax(dcl::transfer_id &transfer_id) {
@@ -215,12 +197,6 @@ DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
         _socket(socket),
         _read_state(receiving_state::idle), _sending(false)
-#ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
-        _compress_trigger(false), _compress_quit(false),
-        _compress_start_barrier(_compress_threads.size()),
-        _compress_finish_barrier(_compress_threads.size()+1)
-#endif
 {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
@@ -228,7 +204,7 @@ DataStream::DataStream(
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
         _decompress_thread_pool.reset(new DataDecompressionWorkPool());
-        start_compress_threads();
+        _compress_thread_pool.reset(new DataCompressionWorkPool());
     }
 #endif
 }
@@ -238,38 +214,18 @@ DataStream::DataStream(
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint),
         _read_state(receiving_state::idle), _sending(false)
-#ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
-        _compress_trigger(false), _compress_quit(false),
-        _compress_start_barrier(_compress_threads.size()),
-        _compress_finish_barrier(_compress_threads.size()+1)
-#endif
 {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
         _decompress_thread_pool.reset(new DataDecompressionWorkPool());
-        start_compress_threads();
+        _compress_thread_pool.reset(new DataCompressionWorkPool());
     }
 #endif
 }
 
 DataStream::~DataStream() {
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        _decompress_thread_pool.reset(nullptr);
-
-        {
-            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            _compress_trigger = true;
-            _compress_quit = true;
-            _compress_trigger_changed.notify_all();
-        }
-        for (auto &t : _compress_threads)
-            t.join();
-    }
-#endif
 }
 
 dcl::process_id DataStream::connect(
@@ -791,16 +747,19 @@ void DataStream::start_write(writeq_type *writeq) {
         _write_io_num_blocks_remaining = write->size() / NETWORK_BLOCK_SIZE;
 
         if (write->size() >= NETWORK_BLOCK_SIZE) {
-            _compress_current_writeq = writeq;
-            _compress_current_write = write;
-            _compress_current_offset = 0;
+            _compress_thread_pool->start(
+                write->ptr(), write->size(), write->skip_compress_step(),
+                [this, writeq, write](DataCompressionWorkPool::write_block &&block) {
+                {
+                    std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
+                    _write_io_queue.push(std::move(block));
+                }
 
-            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            _compress_trigger = true;
-            _compress_trigger_changed.notify_all();
+                try_write_next_compressed_block(writeq, write);
+            });
+        } else {
+            try_write_next_compressed_block(writeq, write);
         }
-
-        try_write_next_compressed_block(writeq, write);
         return;
     }
 #endif
@@ -857,7 +816,6 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         _write_io_channel_busy = true;
         lock.unlock();
 
-
         auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(NETWORK_BLOCK_SIZE - 1));
         auto last_block_size = write->size() & (NETWORK_BLOCK_SIZE - 1);
 
@@ -875,112 +833,12 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
              // The data transfer thread also joins the final barrier for the compression
              // threads before finishing the write, to ensure resources are not released
              // while a compression thread still hasn't realized all work is finished
-             if (write->size() >= NETWORK_BLOCK_SIZE) {
-                _compress_finish_barrier.wait();
-             }
+             if (write->size() >= NETWORK_BLOCK_SIZE)
+                _compress_thread_pool->finish();
 
              handle_write(writeq, boost::system::error_code(), _write_io_total_bytes_transferred);
          });
     }
-}
-
-void DataStream::start_compress_threads() {
-    for (size_t i = 0; i < _compress_threads.size(); i++) {
-        _compress_threads[i] = std::thread{&DataStream::loop_compress_thread, this, i};
-    }
-}
-
-void DataStream::loop_compress_thread(size_t thread_id) {
-#ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
-        << "Start compression thread with id " << thread_id
-        << std::endl;
-    size_t stat_handled_blocks = 0;
-#endif
-    while (true) {
-        {
-            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
-            if (_compress_quit)
-                break;
-        }
-
-        _compress_start_barrier.wait();
-        _compress_trigger = false;
-
-        auto writeq = _compress_current_writeq;
-        auto write = _compress_current_write;
-        auto last_valid_offset = write->size() & ~(NETWORK_BLOCK_SIZE-1);
-
-        while (true) {
-            size_t offset = _compress_current_offset.fetch_add(NETWORK_BLOCK_SIZE);
-            if (offset >= last_valid_offset) {
-                break;
-            }
-
-#ifdef INDEPTH_TRACE
-            stat_handled_blocks++;
-#endif
-
-            write_block block;
-            block.source_offset = offset;
-            for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
-                auto source = static_cast<const uint8_t *>(write->ptr()) + offset + i * CHUNK_SIZE;
-
-                if (write->skip_compress_step()) {
-                    auto is_compressed = std::equal(source,source + sizeof(CL842_COMPRESSED_CHUNK_MAGIC), CL842_COMPRESSED_CHUNK_MAGIC);
-
-                    auto chunk_buffer_size = is_compressed
-                                             ? *reinterpret_cast<const uint64_t *>((source + sizeof(CL842_COMPRESSED_CHUNK_MAGIC)))
-                                             : CHUNK_SIZE;
-                    auto chunk_buffer = is_compressed
-                            ? source + CHUNK_SIZE - chunk_buffer_size
-                            : source;
-
-                    block.datas[i] = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
-                                chunk_buffer, ConditionalOwnerDeleter(false));
-                    block.sizes[i] = chunk_buffer_size;
-                } else {
-                    // Compress chunk
-                    // TODOXXX Should probably avoid doing separate allocations for chunks in a network block
-                    std::unique_ptr<uint8_t[]> compress_buffer(new uint8_t[2 * CHUNK_SIZE]);
-                    size_t compressed_size = 2 * CHUNK_SIZE;
-
-                    int ret = lib842_compress(source, CHUNK_SIZE, compress_buffer.get(),
-                                              &compressed_size);
-                    assert(ret == 0);
-
-                    // Push into the chunk queue
-                    auto compressible = compressed_size <= COMPRESSIBLE_THRESHOLD;
-
-                    // If the chunk is compressible, transfer ownership of the compressed buffer,
-                    // otherwise use the uncompressed buffer and destroy the compressed buffer
-                    block.datas[i] = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
-                                    compressible ? compress_buffer.release() : source,
-                                    ConditionalOwnerDeleter(compressible));
-                    block.sizes[i] = compressible ? compressed_size : CHUNK_SIZE;
-                }
-
-            }
-
-            {
-                std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
-                _write_io_queue.push(std::move(block));
-            }
-
-            try_write_next_compressed_block(writeq, write);
-        }
-
-        _compress_finish_barrier.wait();
-    }
-
-#ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
-        << "End compression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
-        << std::endl;
-#endif
 }
 #endif
 

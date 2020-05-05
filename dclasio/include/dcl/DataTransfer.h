@@ -100,31 +100,31 @@ public:
 	virtual void abort() = 0;
 
 #ifdef IO_LINK_COMPRESSION
-    // START UBER HACK
+    // TODOXXX can this be moved to a better place?
     static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
     static constexpr size_t COMPR842_CHUNK_SIZE = 65536;
+    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * COMPR842_CHUNK_SIZE;
     // This constant must be synchronized with the constant in lib842 (cl842)
     // for the integration with OpenCL-based decompression to work
     static constexpr size_t COMPRESSIBLE_THRESHOLD = ((COMPR842_CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
-    // END UBER HACK
 #endif
 };
 
 } /* namespace dcl */
 
-#ifdef IO_LINK_COMPRESSION
 // TODOXXX: Move this to a better place
+
+#ifdef IO_LINK_COMPRESSION
 static bool is_io_link_compression_enabled() {
-	static bool enabled = std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr;
-	return enabled;
+    static bool enabled = std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
 }
 #endif
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
-// TODOXXX: Move this to a better place
 static bool is_cl_io_link_compression_enabled() {
-	static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
-	return enabled;
+    static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
 }
 #endif
 

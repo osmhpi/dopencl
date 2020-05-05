@@ -55,12 +55,13 @@
 #include <mutex>
 #include <thread>
 
-#include <functional>
-#include <cstdint>
-#include <cstddef>
 #include <array>
 #include <vector>
 #include <queue>
+
+#include <functional>
+#include <cstdint>
+#include <cstddef>
 
 namespace dclasio {
 
@@ -88,7 +89,7 @@ public:
     ~DataDecompressionWorkPool();
     void start();
     void push_block(DataDecompressionWorkPool::decompress_message_decompress_block &&dm);
-    void finalize(std::function<void()> finalize_callback);
+    void finalize(const std::function<void()> &finalize_callback);
 
 private:
     void loop_decompress_thread(size_t thread_id);
