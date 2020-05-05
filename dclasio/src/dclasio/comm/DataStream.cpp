@@ -74,12 +74,9 @@
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
 #include <chrono>
-#include <atomic>
-
-std::atomic<unsigned> profile_next_id;
 
 struct profile_send_receive_buffer_times {
-    unsigned id;
+    dcl::transfer_id id;
     size_t transfer_size;
     std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
     std::chrono::time_point<std::chrono::steady_clock> start_time;
@@ -615,7 +612,7 @@ void DataStream::readToClBuffer(
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
     auto profile_times = new profile_send_receive_buffer_times();
     try {
-        profile_times->id = profile_next_id++;
+        profile_times->id = transferId;
         profile_times->transfer_size = size;
         profile_times->enqueue_time = std::chrono::steady_clock::now();
 
@@ -899,7 +896,7 @@ void DataStream::writeFromClBuffer(
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
     auto profile_times = new profile_send_receive_buffer_times();
     try {
-        profile_times->id = profile_next_id++;
+        profile_times->id = transferId;
         profile_times->transfer_size = size;
         profile_times->enqueue_time = std::chrono::steady_clock::now();
 
