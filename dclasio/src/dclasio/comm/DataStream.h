@@ -144,7 +144,9 @@ public:
             dcl::transfer_id transferId,
             size_t size,
             const cl::Context &context,
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
             const CL842DeviceDecompressor *cl842DeviceDecompressor,
+#endif
             const cl::CommandQueue &commandQueue,
             const cl::Buffer &buffer,
             size_t offset,

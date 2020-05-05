@@ -169,7 +169,9 @@ public:
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
     void receiveDataToClBuffer(dcl::transfer_id transferId, size_t size, const cl::Context &context,
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
                                const CL842DeviceDecompressor *cl842DeviceDecompressor,
+#endif
                                const cl::CommandQueue &commandQueue,
                                const cl::Buffer &buffer, size_t offset, const cl::vector<cl::Event> *eventWaitList,
                                cl::Event *startEvent, cl::Event *endEvent);

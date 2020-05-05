@@ -46,6 +46,15 @@
 #ifndef DCL_PROCESS_H_
 #define DCL_PROCESS_H_
 
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
+#ifdef __APPLE__
+#include <OpenCL/cl2.hpp>
+#else
+#include <CL/cl2.hpp>
+#endif
+
 /* TODO Remove message headers from process interface */
 #include <dclasio/message/Message.h>
 
@@ -131,7 +140,9 @@ public:
 			dcl::transfer_id transferId,
 			size_t size,
 			const cl::Context &context,
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 			const CL842DeviceDecompressor *cl842DeviceDecompressor,
+#endif
 			const cl::CommandQueue &commandQueue,
 			const cl::Buffer &buffer,
 			size_t offset,
