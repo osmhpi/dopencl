@@ -81,6 +81,8 @@ namespace dclasio {
 
 namespace comm {
 
+class DataDecompressionWorkPool;
+
 // TODO Split DataStream into InputDataStream and OutputDataStream to model simplex connections and reduce code redundancy
 /*!
  * \brief A data stream maintains a set of incoming and outgoing data transfers from/to a single remote process
@@ -188,8 +190,6 @@ private:
     void start_read();
 #ifdef IO_LINK_COMPRESSION
     void read_next_compressed_block();
-    void start_decompress_threads();
-    void loop_decompress_thread(size_t thread_id);
 #endif
     void handle_read(
             const boost::system::error_code& ec,
@@ -244,52 +244,16 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK;
     static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
+    static constexpr size_t COMPRESSIBLE_THRESHOLD = dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
+
     static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * CHUNK_SIZE;
-    // Those constants must be synchronized with the constants in lib842 (cl842)
-    // for the integration with OpenCL-based decompression to work
-    static constexpr size_t COMPRESSIBLE_THRESHOLD = ((CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
     static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
     // ---
 
-    struct decompress_chunk {
-        std::vector<uint8_t> compressed_data;
-        void *destination;
-
-        // Disable default copy constructor/assignment to prevent accidental performance hit
-        decompress_chunk() = default;
-        decompress_chunk(const decompress_chunk &) = delete;
-        decompress_chunk& operator=(const decompress_chunk &) = delete;
-        decompress_chunk(decompress_chunk &&) = default;
-        decompress_chunk& operator=(decompress_chunk &&) = default;
-    };
-
-    struct decompress_message_decompress_block {
-        std::array<decompress_chunk, NUM_CHUNKS_PER_NETWORK_BLOCK> chunks;
-    };
-    struct decompress_message_finalize {};
-    struct decompress_message_quit {};
-    using decompress_message_t = boost::variant<decompress_message_decompress_block,
-                                                decompress_message_finalize,
-                                                decompress_message_quit>;
-
     // ** Variables related to the decompression thread (associated to reads) **
-    // Instance of the decompression thread
-    std::vector<std::thread> _decompress_threads;
-    // Mutex for protecting concurrent accesses to
-    // (_decompress_queue, _decompress_working_thread_count)
-    std::mutex _decompress_queue_mutex;
-    // Stores pending decompression operations after reads,
-    // and can also receive other kinds of messages for lifetime management
-    std::queue<decompress_message_t> _decompress_queue;
-    // Wakes up the decompression threads when new operations have been added to the queue
-    std::condition_variable _decompress_queue_available;
-    // Number of threads currently running decompression operations
-    unsigned int _decompress_working_thread_count;
-    // Barrier for finishing decompression, necessary for ensuring that resources
-    // are not released until all threads have finished
-    boost::barrier _decompress_finish_barrier;
+    std::unique_ptr<DataDecompressionWorkPool> _decompress_thread_pool;
 
     // ** Variables related to the current asynchronous I/O read operation **
     // Total bytes transferred through the network by current read (for statistical purposes)

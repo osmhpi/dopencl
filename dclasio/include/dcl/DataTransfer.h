@@ -54,9 +54,18 @@
 
 #include <dcl/Completable.h>
 #include <functional>
+#include <cstdint>
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 #include <cl842.h>
+#endif
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
+#include <hw842.h>
+#endif
+#if defined(IO_LINK_COMPRESSION)
+#include <cstdlib>
+#include <thread>
+#include <dcl/util/Logger.h>
 #endif
 
 namespace dcl {
@@ -92,7 +101,11 @@ public:
 
 #ifdef IO_LINK_COMPRESSION
     // START UBER HACK
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
     static constexpr size_t COMPR842_CHUNK_SIZE = 65536;
+    // This constant must be synchronized with the constant in lib842 (cl842)
+    // for the integration with OpenCL-based decompression to work
+    static constexpr size_t COMPRESSIBLE_THRESHOLD = ((COMPR842_CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
     // END UBER HACK
 #endif
 };
@@ -112,6 +125,35 @@ static bool is_io_link_compression_enabled() {
 static bool is_cl_io_link_compression_enabled() {
 	static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
 	return enabled;
+}
+#endif
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+static bool is_hw_io_link_compression_enabled() {
+    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
+}
+#endif
+
+#ifdef IO_LINK_COMPRESSION
+static unsigned int determine_io_link_compression_num_threads(const char *env_name) {
+    // Configuration for the number of threads to use for compression or decompression
+    const char *env_value = std::getenv(env_name);
+    if (env_value != nullptr && std::atoi(env_value) > 0) {
+        return (unsigned int)std::atoi(env_value);
+    }
+
+    // If the value is not specified (or invalid),
+    // the hardware concurrency level (~= number of logical cores) is used
+    static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
+    if (hardware_concurrency == 0) {
+        dcl::util::Logger << dcl::util::Warning << __func__ << ": "
+                          << "std::thread::hardware_concurrency() returned 0, using 1 thread"
+                          << std::endl;
+        return 1;
+    }
+
+    return hardware_concurrency;
 }
 #endif
 

@@ -106,38 +106,12 @@ constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
 constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
 constexpr size_t dclasio::comm::DataStream::SUPERBLOCK_MAX_SIZE;
 
-static unsigned int determine_num_threads(const char *env_name) {
-    // Configuration for the number of threads to use for compression or decompression
-    const char *env_value = std::getenv(env_name);
-    if (env_value != nullptr && std::atoi(env_value) > 0) {
-        return (unsigned int)std::atoi(env_value);
-    }
-
-    // If the value is not specified (or invalid),
-    // the hardware concurrency level (~= number of logical cores) is used
-    static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
-    if (hardware_concurrency == 0) {
-        dcl::util::Logger << dcl::util::Warning << __func__ << ": "
-            << "std::thread::hardware_concurrency() returned 0, using 1 thread"
-            << std::endl;
-        return 1;
-    }
-
-    return hardware_concurrency;
-}
-
 #include <sw842.h>
 #ifdef USE_HW_IO_LINK_COMPRESSION
 // TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
 #include <hw842.h>
 #endif
-
-#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-static bool is_hw_io_link_compression_enabled() {
-    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
-    return enabled;
-}
-#endif
+#include "DataDecompressionWorkPool.h"
 
 static int lib842_compress(const uint8_t *in, size_t ilen,
                            uint8_t *out, size_t *olen) {
@@ -147,16 +121,6 @@ static int lib842_compress(const uint8_t *in, size_t ilen,
 #endif
 
     return optsw842_compress(in, ilen, out, olen);
-}
-
-static int lib842_decompress(const uint8_t *in, size_t ilen,
-                             uint8_t *out, size_t *olen) {
-#if defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-    if (is_hw_io_link_compression_enabled())
-        return hw842_decompress(in ,ilen, out, olen);
-#endif
-
-    return optsw842_decompress(in, ilen, out, olen);
 }
 
 // TODOXXX: This is a variation of the above but used to get some hacky code to work. Remove me.
@@ -252,13 +216,10 @@ DataStream::DataStream(
         _socket(socket),
         _read_state(receiving_state::idle), _sending(false)
 #ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
+        , _compress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
-        _compress_finish_barrier(_compress_threads.size()+1),
-
-        _decompress_threads(determine_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
-        _decompress_finish_barrier(_decompress_threads.size())
+        _compress_finish_barrier(_compress_threads.size()+1)
 #endif
 {
     // TODO Ensure that socket is connected
@@ -266,7 +227,7 @@ DataStream::DataStream(
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        start_decompress_threads();
+        _decompress_thread_pool.reset(new DataDecompressionWorkPool());
         start_compress_threads();
     }
 #endif
@@ -278,20 +239,17 @@ DataStream::DataStream(
         _socket(socket), _remote_endpoint(remote_endpoint),
         _read_state(receiving_state::idle), _sending(false)
 #ifdef IO_LINK_COMPRESSION
-        , _compress_threads(determine_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
+        , _compress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
         _compress_trigger(false), _compress_quit(false),
         _compress_start_barrier(_compress_threads.size()),
-        _compress_finish_barrier(_compress_threads.size()+1),
-
-        _decompress_threads(determine_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
-        _decompress_finish_barrier(_decompress_threads.size())
+        _compress_finish_barrier(_compress_threads.size()+1)
 #endif
 {
     assert(!socket->is_open()); // socket must not be connect
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        start_decompress_threads();
+        _decompress_thread_pool.reset(new DataDecompressionWorkPool());
         start_compress_threads();
     }
 #endif
@@ -300,13 +258,7 @@ DataStream::DataStream(
 DataStream::~DataStream() {
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        {
-            std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-            _decompress_queue.push(decompress_message_quit());
-            _decompress_queue_available.notify_all();
-        }
-        for (auto &t : _decompress_threads)
-            t.join();
+        _decompress_thread_pool.reset(nullptr);
 
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
@@ -454,7 +406,7 @@ void DataStream::start_read() {
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        _decompress_working_thread_count = 0;
+        _decompress_thread_pool->start();
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = _read_op->size() / NETWORK_BLOCK_SIZE;
 
@@ -513,17 +465,17 @@ void DataStream::read_next_compressed_block() {
                 _read_io_total_bytes_transferred += bytes_transferred;
 
                 // Push into the queue for decompression
-                decompress_message_decompress_block dm;
+                DataDecompressionWorkPool::decompress_message_decompress_block dm;
                 bool should_uncompress_any = false;
                 for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                        dm.chunks[i] = decompress_chunk{
+                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk{
                                 .compressed_data = std::move(_read_io_buffers[i]),
                                 .destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
                         };
                         should_uncompress_any = true;
                     } else {
-                        dm.chunks[i] = decompress_chunk{
+                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk{
                                 .compressed_data = std::vector<uint8_t>(),
                                 .destination = nullptr
                         };
@@ -531,11 +483,7 @@ void DataStream::read_next_compressed_block() {
                 }
 
                 if (should_uncompress_any) {
-                    decompress_message_t msg(std::move(dm));
-
-                    std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-                    _decompress_queue.push(std::move(msg));
-                    _decompress_queue_available.notify_one();
+                    _decompress_thread_pool->push_block(std::move(dm));
                 }
 
                 _read_io_num_blocks_remaining--;
@@ -553,110 +501,11 @@ void DataStream::read_next_compressed_block() {
             assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
 
-            std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-            bool done = _decompress_working_thread_count == 0 && _decompress_queue.empty();
-            // If there are still decompression operations active, we need to wait
-            // until they finish to finalize the entire operation
-            // In this case, transfer the responsability of finalizing to the decompression threads
-            if (!done) {
-                _decompress_queue.push(decompress_message_finalize{});
-                _decompress_queue_available.notify_all();
-            }
-            lock.unlock();
-
-            // Otherwise, if all decompression threads finished as well,
-            // finalize the entire operation as soon as possible here
-            if (done) {
+            _decompress_thread_pool->finalize([this] {
                 handle_read(boost::system::error_code(), _read_io_total_bytes_transferred);
-            }
+            });
         });
     }
-}
-
-void DataStream::start_decompress_threads() {
-    for (size_t i = 0; i < _decompress_threads.size(); i++) {
-        _decompress_threads[i] = std::thread{&DataStream::loop_decompress_thread, this, i};
-    }
-}
-
-void DataStream::loop_decompress_thread(size_t thread_id) {
-#ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
-        << "Start decompression thread with id " << thread_id
-        << std::endl;
-    size_t stat_handled_blocks = 0;
-#endif
-
-    static constexpr int VARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
-    static constexpr int VARIANT_WHICH_MESSAGE_FINALIZE = 1;
-    static constexpr int VARIANT_WHICH_MESSAGE_QUIT = 2;
-
-    while (true) {
-        // (Blocking) pop from the chunk queue
-        std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
-        if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_FINALIZE) {
-            lock.unlock();
-
-            // Wait until all threads have got the "finalize" message
-            _decompress_finish_barrier.wait();
-
-            // "Leader" thread finalizes the write and pops the message from the queue
-            if (thread_id == 0) {
-                auto finalize_message = boost::get<decompress_message_finalize>(_decompress_queue.front());
-                _decompress_queue.pop();
-                handle_read(boost::system::error_code(), _read_io_total_bytes_transferred);
-            }
-
-            // Once write is finalized, wait again
-            _decompress_finish_barrier.wait();
-        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_QUIT) {
-            break;
-        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_DECOMPRESS) {
-            auto blockVariant = std::move(_decompress_queue.front());
-            _decompress_queue.pop();
-            _decompress_working_thread_count++;
-
-            lock.unlock();
-#ifdef INDEPTH_TRACE
-            stat_handled_blocks++;
-#endif
-            auto block = std::move(boost::get<decompress_message_decompress_block>(blockVariant));
-            for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
-                const auto &chunk = block.chunks[i];
-                if (chunk.compressed_data.empty() && chunk.destination == nullptr) {
-                    // Chunk was transferred uncompressed, nothing to do
-                    continue;
-                }
-
-
-                auto destination = static_cast<uint8_t *>(chunk.destination);
-
-                assert(chunk.compressed_data.size() > 0 &&
-                       chunk.compressed_data.size() <= COMPRESSIBLE_THRESHOLD);
-
-                size_t uncompressed_size = CHUNK_SIZE;
-                int ret = lib842_decompress(chunk.compressed_data.data(),
-                                            chunk.compressed_data.size(),
-                                            destination, &uncompressed_size);
-                assert(ret == 0);
-                assert(uncompressed_size == CHUNK_SIZE);
-            }
-
-            lock.lock();
-            _decompress_working_thread_count--;
-            lock.unlock();
-        } else {
-            assert(0);
-        }
-    }
-#ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
-        << "End decompression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
-        << std::endl;
-#endif
 }
 #endif
 
