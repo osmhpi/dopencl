@@ -106,32 +106,32 @@ private:
     void loop_compress_thread(size_t thread_id);
 
     // Instance of the compression thread
-    std::vector<std::thread> _compress_threads;
+    std::vector<std::thread> _threads;
     // Mutex for protecting concurrent accesses to
-    // (_compress_trigger, _compress_quit)
-    std::mutex _compress_trigger_mutex;
+    // (_trigger, _quit)
+    std::mutex _trigger_mutex;
     // true if a new operation must be started in the compression thread
-    bool _compress_trigger;
+    bool _trigger;
     // Wakes up the compression thread when a new operation must be started
-    std::condition_variable _compress_trigger_changed;
+    std::condition_variable _trigger_changed;
     // If set to true, causes the compression to quit (for cleanup)
-    bool _compress_quit;
+    bool _quit;
     // Necessary data for triggering an asynchronous I/O write operation from the compression thread
-    std::function<void(write_block &&)> _compress_block_available_callback;
+    std::function<void(write_block &&)> _block_available_callback;
     // Parameters for the compression operation in course
-    const void *_compress_ptr;
-    size_t _compress_size;
-    bool _compress_skip_compress_step;
+    const void *_ptr;
+    size_t _size;
+    bool _skip_compress_step;
     // Stores the offset of the next block to be compressed
-    std::atomic<std::size_t> _compress_current_offset;
+    std::atomic<std::size_t> _current_offset;
     // true if an error has happened and the compression operation should be cancelled, false otherwise
-    std::atomic<bool> _compress_error;
+    std::atomic<bool> _error;
     // Barrier for starting compression, necessary for ensuring that all compression
     // threads have seen the trigger to start compressing before unsetting it
-    boost::barrier _compress_start_barrier;
+    boost::barrier _start_barrier;
     // Barrier for finishing compression, necessary for ensuring that resources
     // are not released until all threads have finished
-    boost::barrier _compress_finish_barrier;
+    boost::barrier _finish_barrier;
 };
 
 } // namespace comm

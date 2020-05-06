@@ -71,58 +71,58 @@ namespace dclasio {
 namespace comm {
 
 DataDecompressionWorkPool::DataDecompressionWorkPool() :
-    _decompress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
-    _decompress_state(decompress_state::processing),
-    _decompress_working_thread_count(0),
-    _decompress_finish_barrier(_decompress_threads.size()),
-    _decompress_report_error(false) {
+    _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
+    _state(decompress_state::processing),
+    _working_thread_count(0),
+    _finish_barrier(_threads.size()),
+    _report_error(false) {
 
-    for (size_t i = 0; i < _decompress_threads.size(); i++) {
-        _decompress_threads[i] = std::thread{&DataDecompressionWorkPool::loop_decompress_thread, this, i};
+    for (size_t i = 0; i < _threads.size(); i++) {
+        _threads[i] = std::thread{&DataDecompressionWorkPool::loop_decompress_thread, this, i};
     }
 }
 
 DataDecompressionWorkPool::~DataDecompressionWorkPool() {
     {
-        std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_state = decompress_state::quitting;
-        _decompress_queue_available.notify_all();
+        std::unique_lock<std::mutex> lock(_queue_mutex);
+        _state = decompress_state::quitting;
+        _queue_available.notify_all();
     }
-    for (auto &t : _decompress_threads)
+    for (auto &t : _threads)
         t.join();
 }
 
 void DataDecompressionWorkPool::start() {
-    _decompress_working_thread_count = 0;
+    _working_thread_count = 0;
 }
 
-bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress_message_decompress_block &&dm) {
-    std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-    if (_decompress_report_error) {
-        _decompress_report_error = false;
+bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::dedecompress_block &&dm) {
+    std::unique_lock<std::mutex> lock(_queue_mutex);
+    if (_report_error) {
+        _report_error = false;
         return false;
     }
 
-    _decompress_queue.push(std::move(dm));
-    _decompress_queue_available.notify_one();
+    _queue.push(std::move(dm));
+    _queue_available.notify_one();
     return true;
 }
 
 void DataDecompressionWorkPool::finalize(bool cancel, const std::function<void(bool)> &finalize_callback) {
-    std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-    bool done = _decompress_state == decompress_state::processing &&
-                _decompress_working_thread_count == 0 && _decompress_queue.empty();
+    std::unique_lock<std::mutex> lock(_queue_mutex);
+    bool done = _state == decompress_state::processing &&
+                _working_thread_count == 0 && _queue.empty();
     // If there are still decompression operations active, we need to wait
     // until they finish to finalize the entire operation
     // In this case, transfer the responsibility of finalizing to the decompression threads
     if (!done) {
-        _decompress_state = cancel ? decompress_state::cancelling : decompress_state::finalizing;
-        _decompress_finalize_callback = finalize_callback;
-        _decompress_queue_available.notify_all();
+        _state = cancel ? decompress_state::cancelling : decompress_state::finalizing;
+        _finalize_callback = finalize_callback;
+        _queue_available.notify_all();
     }
 
-    bool report_error = _decompress_report_error;
-    _decompress_report_error = false;
+    bool report_error = _report_error;
+    _report_error = false;
     lock.unlock();
 
     // Otherwise, if all decompression threads finished as well,
@@ -143,51 +143,51 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 
     while (true) {
         // (Blocking) pop from the chunk queue
-        std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_queue_available.wait(lock, [this] {
-            return !_decompress_queue.empty() || _decompress_state != decompress_state::processing;
+        std::unique_lock<std::mutex> lock(_queue_mutex);
+        _queue_available.wait(lock, [this] {
+            return !_queue.empty() || _state != decompress_state::processing;
         });
-        if (_decompress_state == decompress_state::handling_error || _decompress_state == decompress_state::cancelling) {
+        if (_state == decompress_state::handling_error || _state == decompress_state::cancelling) {
             lock.unlock();
 
             // Wait until all threads have got the "error" message
-            _decompress_finish_barrier.wait();
+            _finish_barrier.wait();
 
             // "Leader" thread clears the queue
             if (thread_id == 0) {
                 lock.lock();
-                _decompress_queue = {};
-                _decompress_state = decompress_state::processing;
-                _decompress_report_error = _decompress_state == decompress_state::handling_error;
+                _queue = {};
+                _state = decompress_state::processing;
+                _report_error = _state == decompress_state::handling_error;
                 lock.unlock();
             }
 
             // Once write is finalized, wait again
-            _decompress_finish_barrier.wait();
-        } else if (_decompress_state == decompress_state::finalizing && _decompress_queue.empty()) {
+            _finish_barrier.wait();
+        } else if (_state == decompress_state::finalizing && _queue.empty()) {
             lock.unlock();
 
             // Wait until all threads have got the "finalize" message
-            _decompress_finish_barrier.wait();
+            _finish_barrier.wait();
 
             // "Leader" thread finalizes the write
             if (thread_id == 0) {
                 lock.lock();
-                auto report_error = _decompress_report_error;
-                _decompress_report_error = false;
-                _decompress_state = decompress_state::processing;
+                auto report_error = _report_error;
+                _report_error = false;
+                _state = decompress_state::processing;
                 lock.unlock();
-                _decompress_finalize_callback(!report_error);
+                _finalize_callback(!report_error);
             }
 
             // Once write is finalized, wait again
-            _decompress_finish_barrier.wait();
-        } else if (_decompress_state == decompress_state::quitting) {
+            _finish_barrier.wait();
+        } else if (_state == decompress_state::quitting) {
             break;
         } else {
-            auto block = std::move(_decompress_queue.front());
-            _decompress_queue.pop();
-            _decompress_working_thread_count++;
+            auto block = std::move(_queue.front());
+            _queue.pop();
+            _working_thread_count++;
 
             lock.unlock();
 #ifdef INDEPTH_TRACE
@@ -216,8 +216,8 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
                             << std::endl;
 
                     lock.lock();
-                    _decompress_state = decompress_state::handling_error;
-                    _decompress_queue_available.notify_all();
+                    _state = decompress_state::handling_error;
+                    _queue_available.notify_all();
                     lock.unlock();
                     break;
                 }
@@ -226,7 +226,7 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
             }
 
             lock.lock();
-            _decompress_working_thread_count--;
+            _working_thread_count--;
             lock.unlock();
         }
     }

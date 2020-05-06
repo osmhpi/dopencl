@@ -71,48 +71,48 @@ namespace dclasio {
 namespace comm {
 
 DataCompressionWorkPool::DataCompressionWorkPool() :
-    _compress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
-    _compress_trigger(false), _compress_quit(false),
-    _compress_ptr(nullptr), _compress_size(0), _compress_skip_compress_step(false),
-    _compress_current_offset(0),
-    _compress_error(false),
-    _compress_start_barrier(_compress_threads.size()),
-    _compress_finish_barrier(_compress_threads.size()+1) {
-    for (size_t i = 0; i < _compress_threads.size(); i++) {
-        _compress_threads[i] = std::thread{&DataCompressionWorkPool::loop_compress_thread, this, i};
+    _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
+    _trigger(false), _quit(false),
+    _ptr(nullptr), _size(0), _skip_compress_step(false),
+    _current_offset(0),
+    _error(false),
+    _start_barrier(_threads.size()),
+    _finish_barrier(_threads.size()+1) {
+    for (size_t i = 0; i < _threads.size(); i++) {
+        _threads[i] = std::thread{&DataCompressionWorkPool::loop_compress_thread, this, i};
     }
 }
 
 DataCompressionWorkPool::~DataCompressionWorkPool() {
     {
-        std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-        _compress_trigger = true;
-        _compress_quit = true;
-        _compress_trigger_changed.notify_all();
+        std::unique_lock<std::mutex> lock(_trigger_mutex);
+        _trigger = true;
+        _quit = true;
+        _trigger_changed.notify_all();
     }
-    for (auto &t : _compress_threads)
+    for (auto &t : _threads)
         t.join();
 }
 
 void DataCompressionWorkPool::start(
     const void *ptr, size_t size, bool skip_compress_step,
     std::function<void(write_block &&)> block_available_callback) {
-    _compress_block_available_callback = std::move(block_available_callback);
-    _compress_ptr = ptr;
-    _compress_size = size;
-    _compress_skip_compress_step = skip_compress_step;
-    _compress_current_offset = 0;
+    _block_available_callback = std::move(block_available_callback);
+    _ptr = ptr;
+    _size = size;
+    _skip_compress_step = skip_compress_step;
+    _current_offset = 0;
 
-    std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-    _compress_trigger = true;
-    _compress_trigger_changed.notify_all();
+    std::unique_lock<std::mutex> lock(_trigger_mutex);
+    _trigger = true;
+    _trigger_changed.notify_all();
 }
 
 void DataCompressionWorkPool::finish(bool cancel) {
     if (cancel) {
-        _compress_error = true;
+        _error = true;
     }
-    _compress_finish_barrier.wait();
+    _finish_barrier.wait();
 }
 
 void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
@@ -126,27 +126,27 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
     size_t stat_handled_blocks = 0;
 #endif
     while (true) {
-        if (thread_id == 0 && _compress_error) {
-            _compress_error = false;
+        if (thread_id == 0 && _error) {
+            _error = false;
         }
 
         {
-            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
-            if (_compress_quit)
+            std::unique_lock<std::mutex> lock(_trigger_mutex);
+            _trigger_changed.wait(lock, [this] { return _trigger; });
+            if (_quit)
                 break;
         }
 
-        _compress_start_barrier.wait();
+        _start_barrier.wait();
         if (thread_id == 0) {
-            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
-            _compress_trigger = false;
+            std::unique_lock<std::mutex> lock(_trigger_mutex);
+            _trigger = false;
         }
 
-        auto last_valid_offset = _compress_size & ~(dcl::DataTransfer::NETWORK_BLOCK_SIZE-1);
+        auto last_valid_offset = _size & ~(dcl::DataTransfer::NETWORK_BLOCK_SIZE-1);
 
         while (true) {
-            size_t offset = _compress_current_offset.fetch_add(dcl::DataTransfer::NETWORK_BLOCK_SIZE);
+            size_t offset = _current_offset.fetch_add(dcl::DataTransfer::NETWORK_BLOCK_SIZE);
             if (offset >= last_valid_offset) {
                 break;
             }
@@ -158,9 +158,9 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
             write_block block;
             block.source_offset = offset;
             for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
-                auto source = static_cast<const uint8_t *>(_compress_ptr) + offset + i * CHUNK_SIZE;
+                auto source = static_cast<const uint8_t *>(_ptr) + offset + i * CHUNK_SIZE;
 
-                if (_compress_skip_compress_step) {
+                if (_skip_compress_step) {
                     auto is_compressed = std::equal(source,source + sizeof(CL842_COMPRESSED_CHUNK_MAGIC), CL842_COMPRESSED_CHUNK_MAGIC);
 
                     auto chunk_buffer_size = is_compressed
@@ -201,12 +201,12 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
                 }
             }
 
-            if (!_compress_error || block.source_offset == SIZE_MAX) {
-                _compress_block_available_callback(std::move(block));
+            if (!_error || block.source_offset == SIZE_MAX) {
+                _block_available_callback(std::move(block));
             }
         }
 
-        _compress_finish_barrier.wait();
+        _finish_barrier.wait();
     }
 
 #ifdef INDEPTH_TRACE

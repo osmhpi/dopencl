@@ -296,7 +296,6 @@ std::shared_ptr<DataReceipt> DataStream::read(
     auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step));
     if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
-        // TODOXXX: Handle the case where the event to wait returns an error
         trigger_event->setCallback([this, read](cl_int status) {
             if (status != CL_COMPLETE) {
                 dcl::util::Logger << dcl::util::Error
@@ -445,7 +444,7 @@ void DataStream::read_next_compressed_block() {
                 }
 
                 // Push into the queue for decompression
-                DataDecompressionWorkPool::decompress_message_decompress_block dm;
+                DataDecompressionWorkPool::dedecompress_block dm;
                 bool should_uncompress_any = false;
                 for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
@@ -707,7 +706,6 @@ std::shared_ptr<DataSending> DataStream::write(
     auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step));
     if (trigger_event != nullptr) {
         // If a event to wait was given, enqueue the write after the event callback
-        // TODOXXX: Handle the case where the event to wait returns an error
         trigger_event->setCallback([this, write](cl_int status) {
             if (status != CL_COMPLETE) {
                 dcl::util::Logger << dcl::util::Error

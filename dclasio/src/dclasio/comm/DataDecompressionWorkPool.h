@@ -80,7 +80,7 @@ public:
         decompress_chunk& operator=(decompress_chunk &&) = default;
     };
 
-    struct decompress_message_decompress_block {
+    struct dedecompress_block {
         std::array<decompress_chunk, dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK> chunks;
     };
 
@@ -89,7 +89,7 @@ public:
     /* Starts a new decompression operation. */
     void start();
     /* Enqueues a new to be decompressed */
-    bool push_block(DataDecompressionWorkPool::decompress_message_decompress_block &&dm);
+    bool push_block(DataDecompressionWorkPool::dedecompress_block &&dm);
     /* Wait for the decompression queue to be cleared up and then call the specified callback.
      * If cancel = false, the decompression queue will be fully processed before
      *                    invoking the callback (unless an error happens).
@@ -118,25 +118,25 @@ private:
     };
 
     // Instance of the decompression threads
-    std::vector<std::thread> _decompress_threads;
+    std::vector<std::thread> _threads;
     // Mutex for protecting concurrent accesses to
-    // (_decompress_state, _decompress_queue, _decompress_report_error, _decompress_working_thread_count)
-    std::mutex _decompress_queue_mutex;
+    // (_state, _queue, _report_error, _working_thread_count)
+    std::mutex _queue_mutex;
     // Stores the current action being performed by the threads
-    decompress_state _decompress_state;
+    decompress_state _state;
     // Stores pending decompression operations
-    std::queue<decompress_message_decompress_block> _decompress_queue;
+    std::queue<dedecompress_block> _queue;
     // Indicates that a decompression error happened and the user of this class should be notified
-    bool _decompress_report_error;
+    bool _report_error;
     // Number of threads currently running decompression operations
-    unsigned int _decompress_working_thread_count;
+    unsigned int _working_thread_count;
     // Callback to be called after finalizing or cancelling is done
-    std::function<void(bool)> _decompress_finalize_callback;
+    std::function<void(bool)> _finalize_callback;
     // Wakes up the decompression threads when new operations have been added to the queue
-    std::condition_variable _decompress_queue_available;
+    std::condition_variable _queue_available;
     // Barrier for finishing decompression, necessary for ensuring that resources
     // are not released until all threads have finished
-    boost::barrier _decompress_finish_barrier;
+    boost::barrier _finish_barrier;
 };
 
 } // namespace comm
