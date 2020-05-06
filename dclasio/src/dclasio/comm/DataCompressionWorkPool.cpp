@@ -75,6 +75,7 @@ DataCompressionWorkPool::DataCompressionWorkPool() :
     _compress_trigger(false), _compress_quit(false),
     _compress_ptr(nullptr), _compress_size(0), _compress_skip_compress_step(false),
     _compress_current_offset(0),
+    _compress_error(false),
     _compress_start_barrier(_compress_threads.size()),
     _compress_finish_barrier(_compress_threads.size()+1) {
     for (size_t i = 0; i < _compress_threads.size(); i++) {
@@ -107,7 +108,10 @@ void DataCompressionWorkPool::start(
     _compress_trigger_changed.notify_all();
 }
 
-void DataCompressionWorkPool::finish() {
+void DataCompressionWorkPool::finish(bool cancel) {
+    if (cancel) {
+        _compress_error = true;
+    }
     _compress_finish_barrier.wait();
 }
 
@@ -122,6 +126,10 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
     size_t stat_handled_blocks = 0;
 #endif
     while (true) {
+        if (thread_id == 0 && _compress_error) {
+            _compress_error = false;
+        }
+
         {
             std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
             _compress_trigger_changed.wait(lock, [this] { return _compress_trigger; });
@@ -130,7 +138,10 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
         }
 
         _compress_start_barrier.wait();
-        _compress_trigger = false;
+        if (thread_id == 0) {
+            std::unique_lock<std::mutex> lock(_compress_trigger_mutex);
+            _compress_trigger = false;
+        }
 
         auto last_valid_offset = _compress_size & ~(dcl::DataTransfer::NETWORK_BLOCK_SIZE-1);
 
@@ -170,7 +181,13 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
 
                     int ret = lib842_compress(source, CHUNK_SIZE, compress_buffer.get(),
                                               &compressed_size);
-                    assert(ret == 0);
+                    if (ret != 0) {
+                        dcl::util::Logger << dcl::util::Error
+                            << "Data compression failed, aborting operation"
+                            << std::endl;
+                        block.source_offset = SIZE_MAX;
+                        break;
+                    }
 
                     // Push into the chunk queue
                     auto compressible = compressed_size <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
@@ -184,7 +201,9 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
                 }
             }
 
-            _compress_block_available_callback(std::move(block));
+            if (!_compress_error || block.source_offset == SIZE_MAX) {
+                _compress_block_available_callback(std::move(block));
+            }
         }
 
         _compress_finish_barrier.wait();

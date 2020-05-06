@@ -114,7 +114,7 @@ public:
             const std::function<void (cl_int)>& notify) {
         std::lock_guard<std::mutex> lock(_mutex);
 
-        if (_status == CL_SUCCESS || _status < 0) { // data transfer is already finished
+        if (_status == CL_COMPLETE || _status < 0) { // data transfer is already finished
             /* The data transfer is already finished, but it is undefined whether
              * the callback list has already been processed or not.
              * Hence, if a new callback is added to the callback list it might
@@ -150,12 +150,12 @@ public:
 
     bool isComplete() const {
         std::lock_guard<std::mutex> lock(_mutex);
-        return (_status == CL_SUCCESS || _status < 0);
+        return (_status == CL_COMPLETE || _status < 0);
     }
 
     void wait() const {
         std::lock_guard<std::mutex> lock(_mutex);
-        while (_status != CL_SUCCESS && _status > 0) {
+        while (_status != CL_COMPLETE && _status > 0) {
             _statusChanged.wait(_mutex);
         }
         if (_status < 0) {

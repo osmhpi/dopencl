@@ -60,6 +60,7 @@
 #include <boost/uuid/uuid_io.hpp>
 
 #include <array>
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <memory>
@@ -175,8 +176,16 @@ static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const Mutab
             s, buffers_with_sentinels,
             [handler, sentinels](const boost::system::error_code &ec, size_t bytes_transferred) {
                 if (!ec) { // On error, we expect the original handler to handle the failure
-                    for (const auto &s : *sentinels) {
-                        assert(s.start == SENTINEL_START && s.end == SENTINEL_END);
+                    if (!std::all_of(sentinels->begin(), sentinels->end(),
+                        [](const sentinel_t &s) {
+                            return s.start == SENTINEL_START && s.end == SENTINEL_END;
+                        })) {
+                        dcl::util::Logger << dcl::util::Error
+                                << "DataStream: Mismatched read/write calls (sentinel mismatch)"
+                                << std::endl;
+                        handler(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                bytes_transferred);
+                        return;
                     }
                 }
                 handler(ec, bytes_transferred);
@@ -289,7 +298,14 @@ std::shared_ptr<DataReceipt> DataStream::read(
         // If a event to wait was given, start the read after the event callback
         // TODOXXX: Handle the case where the event to wait returns an error
         trigger_event->setCallback([this, read](cl_int status) {
-            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+            if (status != CL_COMPLETE) {
+                dcl::util::Logger << dcl::util::Error
+                        << "DataStream: Wait for event (completable) for read enqueue failed"
+                        << std::endl;
+                read->onFinish(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                               0);
+                return;
+            }
             enqueue_read(read);
         });
     } else {
@@ -384,9 +400,15 @@ void DataStream::read_next_compressed_block() {
         };
         boost_asio_async_read_with_sentinels(*_socket, buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred){
-            assert(!ec);
-            assert(_read_io_destination_offset <= _read_op->size() - NETWORK_BLOCK_SIZE);
             _read_io_total_bytes_transferred += bytes_transferred;
+            if (ec) {
+                _decompress_thread_pool->finalize(true, [this, ec](bool) {
+                    handle_read(ec, _read_io_total_bytes_transferred);
+                });
+                return;
+            }
+
+            assert(_read_io_destination_offset <= _read_op->size() - NETWORK_BLOCK_SIZE);
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_NETWORK_BLOCK> recv_buffers;
             for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
@@ -414,8 +436,13 @@ void DataStream::read_next_compressed_block() {
 
             boost_asio_async_read_with_sentinels(*_socket, recv_buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred) {
-                assert(!ec);
                 _read_io_total_bytes_transferred += bytes_transferred;
+                if (ec) {
+                    _decompress_thread_pool->finalize(true, [this, ec](bool) {
+                        handle_read(ec, _read_io_total_bytes_transferred);
+                    });
+                    return;
+                }
 
                 // Push into the queue for decompression
                 DataDecompressionWorkPool::decompress_message_decompress_block dm;
@@ -435,8 +462,10 @@ void DataStream::read_next_compressed_block() {
                     }
                 }
 
-                if (should_uncompress_any) {
-                    _decompress_thread_pool->push_block(std::move(dm));
+                if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(dm))) {
+                    handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                _read_io_total_bytes_transferred);
+                    return;
                 }
 
                 _read_io_num_blocks_remaining--;
@@ -451,11 +480,18 @@ void DataStream::read_next_compressed_block() {
 
         boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
                                 [this](const boost::system::error_code &ec, size_t bytes_transferred) {
-            assert(!ec);
             _read_io_total_bytes_transferred += bytes_transferred;
+            if (ec) {
+                _decompress_thread_pool->finalize(true, [this, ec](bool) {
+                    handle_read(ec, _read_io_total_bytes_transferred);
+                });
+                return;
+            }
 
-            _decompress_thread_pool->finalize([this] {
-                handle_read(boost::system::error_code(), _read_io_total_bytes_transferred);
+            _decompress_thread_pool->finalize(false, [this](bool success) {
+                auto ec = success ? boost::system::error_code()
+                                  : boost::system::errc::make_error_code(boost::system::errc::io_error);
+                handle_read(ec, _read_io_total_bytes_transferred);
             });
         });
     }
@@ -673,7 +709,14 @@ std::shared_ptr<DataSending> DataStream::write(
         // If a event to wait was given, enqueue the write after the event callback
         // TODOXXX: Handle the case where the event to wait returns an error
         trigger_event->setCallback([this, write](cl_int status) {
-            assert(status == CL_SUCCESS); // TODOXXX Handle errors
+            if (status != CL_COMPLETE) {
+                dcl::util::Logger << dcl::util::Error
+                        << "DataStream: Wait for event (completable) for write enqueue failed"
+                        << std::endl;
+                write->onFinish(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                0);
+                return;
+            }
             enqueue_write(write);
         });
     } else {
@@ -739,6 +782,7 @@ void DataStream::start_write(writeq_type *writeq) {
 
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
+        _write_io_compression_error = false;
         _write_io_channel_busy = false;
         _write_io_total_bytes_transferred = 0;
         _write_io_num_blocks_remaining = write->size() / NETWORK_BLOCK_SIZE;
@@ -749,7 +793,10 @@ void DataStream::start_write(writeq_type *writeq) {
                 [this, writeq, write](DataCompressionWorkPool::write_block &&block) {
                 {
                     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
-                    _write_io_queue.push(std::move(block));
+                    if (block.source_offset == SIZE_MAX)
+                        _write_io_compression_error = true;
+                    if (!_write_io_compression_error)
+                        _write_io_queue.push(std::move(block));
                 }
 
                 try_write_next_compressed_block(writeq, write);
@@ -778,6 +825,16 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         // Last block was already written (calls to this function by compression threads can be spurious)
         return;
     }
+    if (_write_io_compression_error) {
+        _write_io_num_blocks_remaining = SIZE_MAX;
+        lock.unlock();
+
+        assert(write->size() >= NETWORK_BLOCK_SIZE);
+        _compress_thread_pool->finish(false);
+        handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                     _write_io_total_bytes_transferred);
+        return;
+    }
 
     if (_write_io_num_blocks_remaining > 0) {
         if (_write_io_queue.empty()) {
@@ -797,14 +854,20 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
             send_buffers[2 + i] = boost::asio::buffer(block.datas[i].get(), block.sizes[i]);
         boost_asio_async_write_with_sentinels(*_socket, send_buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
-             assert(!ec);
-
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
              _write_io_queue.pop();
              _write_io_total_bytes_transferred += bytes_transferred;
              _write_io_num_blocks_remaining--;
              lock.unlock();
+
+             if (ec) {
+                 assert(write->size() >= NETWORK_BLOCK_SIZE);
+                 _compress_thread_pool->finish(true);
+                 handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                              _write_io_total_bytes_transferred);
+                 return;
+             }
 
              try_write_next_compressed_block(writeq, write);
          });
@@ -819,8 +882,6 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         boost_asio_async_write_with_sentinels(*_socket,
                 boost::asio::buffer(last_block_source_ptr, last_block_size),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
-             assert(!ec);
-
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
              _write_io_total_bytes_transferred += bytes_transferred;
@@ -831,9 +892,9 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
              // threads before finishing the write, to ensure resources are not released
              // while a compression thread still hasn't realized all work is finished
              if (write->size() >= NETWORK_BLOCK_SIZE)
-                _compress_thread_pool->finish();
+                _compress_thread_pool->finish(false);
 
-             handle_write(writeq, boost::system::error_code(), _write_io_total_bytes_transferred);
+             handle_write(writeq, ec, _write_io_total_bytes_transferred);
          });
     }
 }

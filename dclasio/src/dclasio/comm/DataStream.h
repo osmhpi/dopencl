@@ -272,6 +272,7 @@ private:
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
     std::queue<DataCompressionWorkPool::write_block> _write_io_queue;
+    bool _write_io_compression_error;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;
 #endif

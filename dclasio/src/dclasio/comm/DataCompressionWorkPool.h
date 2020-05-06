@@ -77,7 +77,7 @@ public:
     public:
         ConditionalOwnerDeleter() : is_owner(true) {}
         explicit ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
-        void operator()(const uint8_t *ptr)
+        void operator()(const uint8_t *ptr) const
         {
             if (is_owner) {
                 delete[] ptr;
@@ -100,7 +100,7 @@ public:
 
     void start(const void *ptr, size_t size, bool skip_compress_step,
                std::function<void(write_block &&)> block_available_callback);
-    void finish();
+    void finish(bool cancel);
 
 private:
     void loop_compress_thread(size_t thread_id);
@@ -118,11 +118,14 @@ private:
     bool _compress_quit;
     // Necessary data for triggering an asynchronous I/O write operation from the compression thread
     std::function<void(write_block &&)> _compress_block_available_callback;
-    // Data for the compression operation in course
+    // Parameters for the compression operation in course
     const void *_compress_ptr;
     size_t _compress_size;
     bool _compress_skip_compress_step;
+    // Stores the offset of the next block to be compressed
     std::atomic<std::size_t> _compress_current_offset;
+    // true if an error has happened and the compression operation should be cancelled, false otherwise
+    std::atomic<bool> _compress_error;
     // Barrier for starting compression, necessary for ensuring that all compression
     // threads have seen the trigger to start compressing before unsetting it
     boost::barrier _compress_start_barrier;

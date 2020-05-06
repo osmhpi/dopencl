@@ -72,8 +72,10 @@ namespace comm {
 
 DataDecompressionWorkPool::DataDecompressionWorkPool() :
     _decompress_threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
+    _decompress_state(decompress_state::processing),
     _decompress_working_thread_count(0),
-    _decompress_finish_barrier(_decompress_threads.size()) {
+    _decompress_finish_barrier(_decompress_threads.size()),
+    _decompress_report_error(false) {
 
     for (size_t i = 0; i < _decompress_threads.size(); i++) {
         _decompress_threads[i] = std::thread{&DataDecompressionWorkPool::loop_decompress_thread, this, i};
@@ -83,7 +85,7 @@ DataDecompressionWorkPool::DataDecompressionWorkPool() :
 DataDecompressionWorkPool::~DataDecompressionWorkPool() {
     {
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_queue.push(decompress_message_quit());
+        _decompress_state = decompress_state::quitting;
         _decompress_queue_available.notify_all();
     }
     for (auto &t : _decompress_threads)
@@ -94,32 +96,39 @@ void DataDecompressionWorkPool::start() {
     _decompress_working_thread_count = 0;
 }
 
-void DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress_message_decompress_block &&dm) {
-    decompress_message_t msg(std::move(dm));
-
+bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress_message_decompress_block &&dm) {
     std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-    _decompress_queue.push(std::move(msg));
+    if (_decompress_report_error) {
+        _decompress_report_error = false;
+        return false;
+    }
+
+    _decompress_queue.push(std::move(dm));
     _decompress_queue_available.notify_one();
+    return true;
 }
 
-void DataDecompressionWorkPool::finalize(const std::function<void()> &finalize_callback) {
+void DataDecompressionWorkPool::finalize(bool cancel, const std::function<void(bool)> &finalize_callback) {
     std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-    bool done = _decompress_working_thread_count == 0 && _decompress_queue.empty();
+    bool done = _decompress_state == decompress_state::processing &&
+                _decompress_working_thread_count == 0 && _decompress_queue.empty();
     // If there are still decompression operations active, we need to wait
     // until they finish to finalize the entire operation
-    // In this case, transfer the responsability of finalizing to the decompression threads
+    // In this case, transfer the responsibility of finalizing to the decompression threads
     if (!done) {
-        _decompress_queue.push(decompress_message_finalize{
-            .finalize_callback = finalize_callback
-        });
+        _decompress_state = cancel ? decompress_state::cancelling : decompress_state::finalizing;
+        _decompress_finalize_callback = finalize_callback;
         _decompress_queue_available.notify_all();
     }
+
+    bool report_error = _decompress_report_error;
+    _decompress_report_error = false;
     lock.unlock();
 
     // Otherwise, if all decompression threads finished as well,
     // finalize the entire operation as soon as possible here
     if (done) {
-        finalize_callback();
+        finalize_callback(!report_error);
     }
 }
 
@@ -132,33 +141,51 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
     size_t stat_handled_blocks = 0;
 #endif
 
-    static constexpr int VARIANT_WHICH_MESSAGE_DECOMPRESS = 0;
-    static constexpr int VARIANT_WHICH_MESSAGE_FINALIZE = 1;
-    static constexpr int VARIANT_WHICH_MESSAGE_QUIT = 2;
-
     while (true) {
         // (Blocking) pop from the chunk queue
         std::unique_lock<std::mutex> lock(_decompress_queue_mutex);
-        _decompress_queue_available.wait(lock, [this] { return !_decompress_queue.empty(); });
-        if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_FINALIZE) {
+        _decompress_queue_available.wait(lock, [this] {
+            return !_decompress_queue.empty() || _decompress_state != decompress_state::processing;
+        });
+        if (_decompress_state == decompress_state::handling_error || _decompress_state == decompress_state::cancelling) {
+            lock.unlock();
+
+            // Wait until all threads have got the "error" message
+            _decompress_finish_barrier.wait();
+
+            // "Leader" thread clears the queue
+            if (thread_id == 0) {
+                lock.lock();
+                _decompress_queue = {};
+                _decompress_state = decompress_state::processing;
+                _decompress_report_error = _decompress_state == decompress_state::handling_error;
+                lock.unlock();
+            }
+
+            // Once write is finalized, wait again
+            _decompress_finish_barrier.wait();
+        } else if (_decompress_state == decompress_state::finalizing && _decompress_queue.empty()) {
             lock.unlock();
 
             // Wait until all threads have got the "finalize" message
             _decompress_finish_barrier.wait();
 
-            // "Leader" thread finalizes the write and pops the message from the queue
+            // "Leader" thread finalizes the write
             if (thread_id == 0) {
-                auto finalize_message = boost::get<decompress_message_finalize>(_decompress_queue.front());
-                _decompress_queue.pop();
-                finalize_message.finalize_callback();
+                lock.lock();
+                auto report_error = _decompress_report_error;
+                _decompress_report_error = false;
+                _decompress_state = decompress_state::processing;
+                lock.unlock();
+                _decompress_finalize_callback(!report_error);
             }
 
             // Once write is finalized, wait again
             _decompress_finish_barrier.wait();
-        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_QUIT) {
+        } else if (_decompress_state == decompress_state::quitting) {
             break;
-        } else if (_decompress_queue.front().which() == VARIANT_WHICH_MESSAGE_DECOMPRESS) {
-            auto blockVariant = std::move(_decompress_queue.front());
+        } else {
+            auto block = std::move(_decompress_queue.front());
             _decompress_queue.pop();
             _decompress_working_thread_count++;
 
@@ -166,7 +193,6 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 #ifdef INDEPTH_TRACE
             stat_handled_blocks++;
 #endif
-            auto block = std::move(boost::get<decompress_message_decompress_block>(blockVariant));
             for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                 const auto &chunk = block.chunks[i];
                 if (chunk.compressed_data.empty() && chunk.destination == nullptr) {
@@ -177,22 +203,31 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 
                 auto destination = static_cast<uint8_t *>(chunk.destination);
 
-                assert(chunk.compressed_data.size() > 0 &&
+                assert(!chunk.compressed_data.empty() &&
                        chunk.compressed_data.size() <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD);
 
                 size_t uncompressed_size = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
                 int ret = lib842_decompress(chunk.compressed_data.data(),
                                             chunk.compressed_data.size(),
                                             destination, &uncompressed_size);
-                assert(ret == 0);
+                if (ret != 0) {
+                    dcl::util::Logger << dcl::util::Error
+                            << "Data decompression failed, aborting operation"
+                            << std::endl;
+
+                    lock.lock();
+                    _decompress_state = decompress_state::handling_error;
+                    _decompress_queue_available.notify_all();
+                    lock.unlock();
+                    break;
+                }
+
                 assert(uncompressed_size == dcl::DataTransfer::COMPR842_CHUNK_SIZE);
             }
 
             lock.lock();
             _decompress_working_thread_count--;
             lock.unlock();
-        } else {
-            assert(0);
         }
     }
 
