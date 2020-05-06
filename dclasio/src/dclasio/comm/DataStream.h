@@ -257,7 +257,7 @@ private:
     // Size of the current read operation
     std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
     // Target buffer of the current read operation
-    std::array<std::vector<uint8_t>, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffers;
+    std::unique_ptr<uint8_t> _read_io_compressed_buffer;
 
     // ** Variables related to the compression thread (associated to writes) **
     std::unique_ptr<DataCompressionWorkPool> _compress_thread_pool;
@@ -271,7 +271,7 @@ private:
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
-    std::queue<DataCompressionWorkPool::write_block> _write_io_queue;
+    std::queue<DataCompressionWorkPool::compress_block> _write_io_queue;
     bool _write_io_compression_error;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;

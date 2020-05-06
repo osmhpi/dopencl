@@ -96,7 +96,7 @@ DataCompressionWorkPool::~DataCompressionWorkPool() {
 
 void DataCompressionWorkPool::start(
     const void *ptr, size_t size, bool skip_compress_step,
-    std::function<void(write_block &&)> block_available_callback) {
+    std::function<void(compress_block &&)> block_available_callback) {
     _block_available_callback = std::move(block_available_callback);
     _ptr = ptr;
     _size = size;
@@ -155,12 +155,12 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
             stat_handled_blocks++;
 #endif
 
-            write_block block;
+            compress_block block;
             block.source_offset = offset;
-            for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
-                auto source = static_cast<const uint8_t *>(_ptr) + offset + i * CHUNK_SIZE;
+            if (_skip_compress_step) {
+                for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
+                    auto source = static_cast<const uint8_t *>(_ptr) + offset + i * CHUNK_SIZE;
 
-                if (_skip_compress_step) {
                     auto is_compressed = std::equal(source,source + sizeof(CL842_COMPRESSED_CHUNK_MAGIC), CL842_COMPRESSED_CHUNK_MAGIC);
 
                     auto chunk_buffer_size = is_compressed
@@ -170,17 +170,25 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
                             ? source + CHUNK_SIZE - chunk_buffer_size
                             : source;
 
-                    block.datas[i] = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
-                                chunk_buffer, ConditionalOwnerDeleter(false));
+                    block.datas[i] = chunk_buffer;
                     block.sizes[i] = chunk_buffer_size;
-                } else {
-                    // Compress chunk
-                    // TODOXXX Should probably avoid doing separate allocations for chunks in a network block
-                    std::unique_ptr<uint8_t[]> compress_buffer(new uint8_t[2 * CHUNK_SIZE]);
-                    size_t compressed_size = 2 * CHUNK_SIZE;
+                }
+            } else {
+                // TODOXXX: This can be reduced to e.g. COMPRESSIBLE_THRESHOLD or CHUNK_SIZE,
+                // as long as the lib842 compressor respects the destination buffer size
+                static constexpr size_t CHUNK_PADDING = 2 * CHUNK_SIZE;
+                block.compress_buffer.reset(
+                    new uint8_t[CHUNK_PADDING * dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK]);
 
-                    int ret = lib842_compress(source, CHUNK_SIZE, compress_buffer.get(),
-                                              &compressed_size);
+                bool any_compressible = false;
+                for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
+                    auto source = static_cast<const uint8_t *>(_ptr) + offset + i * CHUNK_SIZE;
+                    auto compressed_destination = block.compress_buffer.get() + i * CHUNK_PADDING;
+
+                    // Compress chunk
+                    size_t compressed_size = CHUNK_PADDING;
+
+                    int ret = lib842_compress(source, CHUNK_SIZE, compressed_destination, &compressed_size);
                     if (ret != 0) {
                         dcl::util::Logger << dcl::util::Error
                             << "Data compression failed, aborting operation"
@@ -192,13 +200,14 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
                     // Push into the chunk queue
                     auto compressible = compressed_size <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
 
-                    // If the chunk is compressible, transfer ownership of the compressed buffer,
-                    // otherwise use the uncompressed buffer and destroy the compressed buffer
-                    block.datas[i] = std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>(
-                                    compressible ? compress_buffer.release() : source,
-                                    ConditionalOwnerDeleter(compressible));
+                    block.datas[i] = compressible ? compressed_destination : source;
                     block.sizes[i] = compressible ? compressed_size : CHUNK_SIZE;
+                    any_compressible |= compressible;
                 }
+
+                // If no chunk is compressible, release the unused compression buffer now
+                if (!any_compressible)
+                    block.compress_buffer.reset();
             }
 
             if (!_error || block.source_offset == SIZE_MAX) {

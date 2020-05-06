@@ -61,6 +61,7 @@
 #include <functional>
 #include <cstdint>
 #include <cstddef>
+#include <memory>
 
 namespace dclasio {
 
@@ -69,7 +70,8 @@ namespace comm {
 class DataDecompressionWorkPool {
 public:
     struct decompress_chunk {
-        std::vector<uint8_t> compressed_data;
+        const uint8_t *compressed_data;
+        size_t compressed_length;
         void *destination;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
@@ -80,8 +82,11 @@ public:
         decompress_chunk& operator=(decompress_chunk &&) = default;
     };
 
-    struct dedecompress_block {
+    struct decompress_block {
         std::array<decompress_chunk, dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK> chunks;
+
+        // Buffer that owns the pointers used in 'compressed_data'. Used internally.
+        std::unique_ptr<const uint8_t[]> compress_buffer;
     };
 
     DataDecompressionWorkPool();
@@ -89,7 +94,7 @@ public:
     /* Starts a new decompression operation. */
     void start();
     /* Enqueues a new to be decompressed */
-    bool push_block(DataDecompressionWorkPool::dedecompress_block &&dm);
+    bool push_block(DataDecompressionWorkPool::decompress_block &&dm);
     /* Wait for the decompression queue to be cleared up and then call the specified callback.
      * If cancel = false, the decompression queue will be fully processed before
      *                    invoking the callback (unless an error happens).
@@ -125,7 +130,7 @@ private:
     // Stores the current action being performed by the threads
     decompress_state _state;
     // Stores pending decompression operations
-    std::queue<dedecompress_block> _queue;
+    std::queue<decompress_block> _queue;
     // Indicates that a decompression error happened and the user of this class should be notified
     bool _report_error;
     // Number of threads currently running decompression operations

@@ -68,38 +68,23 @@ namespace comm {
 
 class DataCompressionWorkPool {
 public:
-    // A custom deleter for std::unique_ptr<const uint8_t[]> that conditionally deletes a value
-    // If is_owner = true, the pointer owns the value (works like a regular std::unique_ptr)
-    // If is_owner = false, it doesn't own the value (works like a raw pointer)
-    // (in this case, the pointer must be kept alive by other means during the lifetime of the class)
-    class ConditionalOwnerDeleter {
-        bool is_owner;
-    public:
-        ConditionalOwnerDeleter() : is_owner(true) {}
-        explicit ConditionalOwnerDeleter(bool is_owner) : is_owner(is_owner) {}
-        void operator()(const uint8_t *ptr) const
-        {
-            if (is_owner) {
-                delete[] ptr;
-            }
-        }
-    };
-
-    struct write_block {
+    struct compress_block {
         // Offset into the source buffer where the data associated with the block comes from
         size_t source_offset;
         // Data for each (possibly compressed) chunk in the block
-        std::array<std::unique_ptr<const uint8_t[], ConditionalOwnerDeleter>,
-                   dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK> datas;
+        std::array<const uint8_t *, dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK> datas;
         // Size for each (possibly compressed) chunk in the block
         std::array<size_t, dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK> sizes;
+
+        // Buffer that owns the pointers used in 'datas'. Used internally.
+        std::unique_ptr<uint8_t[]> compress_buffer;
     };
 
     DataCompressionWorkPool();
     ~DataCompressionWorkPool();
 
     void start(const void *ptr, size_t size, bool skip_compress_step,
-               std::function<void(write_block &&)> block_available_callback);
+               std::function<void(compress_block &&)> block_available_callback);
     void finish(bool cancel);
 
 private:
@@ -117,7 +102,7 @@ private:
     // If set to true, causes the compression to quit (for cleanup)
     bool _quit;
     // Necessary data for triggering an asynchronous I/O write operation from the compression thread
-    std::function<void(write_block &&)> _block_available_callback;
+    std::function<void(compress_block &&)> _block_available_callback;
     // Parameters for the compression operation in course
     const void *_ptr;
     size_t _size;

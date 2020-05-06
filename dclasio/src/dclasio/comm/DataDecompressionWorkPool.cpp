@@ -96,7 +96,7 @@ void DataDecompressionWorkPool::start() {
     _working_thread_count = 0;
 }
 
-bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::dedecompress_block &&dm) {
+bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress_block &&dm) {
     std::unique_lock<std::mutex> lock(_queue_mutex);
     if (_report_error) {
         _report_error = false;
@@ -195,7 +195,8 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 #endif
             for (size_t i = 0; i < dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                 const auto &chunk = block.chunks[i];
-                if (chunk.compressed_data.empty() && chunk.destination == nullptr) {
+                if (chunk.compressed_data == nullptr && chunk.compressed_length == 0 &&
+                    chunk.destination == nullptr) {
                     // Chunk was transferred uncompressed, nothing to do
                     continue;
                 }
@@ -203,12 +204,12 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 
                 auto destination = static_cast<uint8_t *>(chunk.destination);
 
-                assert(!chunk.compressed_data.empty() &&
-                       chunk.compressed_data.size() <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD);
+                assert(chunk.compressed_length > 0 &&
+                       chunk.compressed_length <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD);
 
                 size_t uncompressed_size = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
-                int ret = lib842_decompress(chunk.compressed_data.data(),
-                                            chunk.compressed_data.size(),
+                int ret = lib842_decompress(chunk.compressed_data,
+                                            chunk.compressed_length,
                                             destination, &uncompressed_size);
                 if (ret != 0) {
                     dcl::util::Logger << dcl::util::Error
