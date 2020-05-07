@@ -58,6 +58,11 @@
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
 #include <cl842.h>
+#else
+// TODOXXX very dirty hack to allow building with OpenCL I/O link compression disabled
+static const uint8_t CL842_COMPRESSED_CHUNK_MAGIC[16] = {
+    0xbe, 0x5a, 0x46, 0xbf, 0x97, 0xe5, 0x2d, 0xd7, 0xb2, 0x7c, 0x94, 0x1a, 0xee, 0xd6, 0x70, 0x76
+};
 #endif
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <hw842.h>
