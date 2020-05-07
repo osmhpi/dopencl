@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
         cl::Platform::get(&platform);
 
         std::vector<cl::Device> devices;
-        platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+        platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
         if (devices.size() < 1)
             throw std::runtime_error("No OpenCL devices available");
         std::cout << "(Using " << devices.size() << " devices)\n";

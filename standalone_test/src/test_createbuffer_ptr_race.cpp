@@ -31,7 +31,7 @@ int main(void)
     cl::Platform::get(&platform);
 
     std::vector<cl::Device> devices;
-    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+    platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
     if (devices.size() < 1)
         throw std::runtime_error("Not enough OpenCL devices available");
     devices.resize(1);

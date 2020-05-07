@@ -52,7 +52,7 @@ int main(void)
     cl::Platform::get(&platform);
 
     std::vector<cl::Device> devices;
-    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
+    platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
 #if 0 // For testing with a single device
     devices = std::vector<cl::Device>(NUM_DEVICES, devices[0]);
 #endif
