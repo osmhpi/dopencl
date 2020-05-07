@@ -195,14 +195,15 @@ public:
     void onFinish(
             const boost::system::error_code& ec,
             size_t bytes_transferred) {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _end = dcl::util::clock.getTime(); // take time stamp
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _end = dcl::util::clock.getTime(); // take time stamp
 
-        // TODO Use more specific error codes
-        _status = ec ? CL_IO_ERROR_WWU : CL_SUCCESS;
-        // signal completion
-        _statusChanged.notify_all();
-        lock.unlock();
+            // TODO Use more specific error codes
+            _status = ec ? CL_IO_ERROR_WWU : CL_SUCCESS;
+            // signal completion
+            _statusChanged.notify_all();
+        }
 
         triggerCallbacks();
 

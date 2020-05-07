@@ -85,7 +85,7 @@ DataCompressionWorkPool::DataCompressionWorkPool() :
 
 DataCompressionWorkPool::~DataCompressionWorkPool() {
     {
-        std::unique_lock<std::mutex> lock(_trigger_mutex);
+        std::lock_guard<std::mutex> lock(_trigger_mutex);
         _trigger = true;
         _quit = true;
         _trigger_changed.notify_all();
@@ -103,7 +103,7 @@ void DataCompressionWorkPool::start(
     _skip_compress_step = skip_compress_step;
     _current_offset = 0;
 
-    std::unique_lock<std::mutex> lock(_trigger_mutex);
+    std::lock_guard<std::mutex> lock(_trigger_mutex);
     _trigger = true;
     _trigger_changed.notify_all();
 }
@@ -139,7 +139,7 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
 
         _start_barrier.wait();
         if (thread_id == 0) {
-            std::unique_lock<std::mutex> lock(_trigger_mutex);
+            std::lock_guard<std::mutex> lock(_trigger_mutex);
             _trigger = false;
         }
 

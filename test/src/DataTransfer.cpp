@@ -104,7 +104,7 @@ private:
     void data_stream_connected(
             dclasio::comm::DataStream& dataStream,
             dcl::process_id process_id) override {
-        std::unique_lock<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> lock(mutex);
         connected_ds = &dataStream;
         cv.notify_one();
     }

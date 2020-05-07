@@ -807,7 +807,7 @@ void DataStream::start_write(writeq_type *writeq) {
                 write->ptr(), write->size(), write->skip_compress_step(),
                 [this, writeq, write](DataCompressionWorkPool::compress_block &&block) {
                 {
-                    std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
+                    std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
                     if (block.source_offset == SIZE_MAX)
                         _write_io_compression_error = true;
                     if (!_write_io_compression_error)
@@ -897,11 +897,12 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         boost_asio_async_write_with_sentinels(*_socket,
                 boost::asio::buffer(last_block_source_ptr, last_block_size),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
-             std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
-             _write_io_channel_busy = false;
-             _write_io_total_bytes_transferred += bytes_transferred;
-             _write_io_num_blocks_remaining = SIZE_MAX;
-             lock.unlock();
+             {
+                 std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
+                 _write_io_channel_busy = false;
+                 _write_io_total_bytes_transferred += bytes_transferred;
+                 _write_io_num_blocks_remaining = SIZE_MAX;
+             }
 
              // The data transfer thread also joins the final barrier for the compression
              // threads before finishing the write, to ensure resources are not released

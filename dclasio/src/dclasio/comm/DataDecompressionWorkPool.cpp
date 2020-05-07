@@ -84,7 +84,7 @@ DataDecompressionWorkPool::DataDecompressionWorkPool() :
 
 DataDecompressionWorkPool::~DataDecompressionWorkPool() {
     {
-        std::unique_lock<std::mutex> lock(_queue_mutex);
+        std::lock_guard<std::mutex> lock(_queue_mutex);
         _state = decompress_state::quitting;
         _queue_available.notify_all();
     }
@@ -97,7 +97,7 @@ void DataDecompressionWorkPool::start() {
 }
 
 bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress_block &&dm) {
-    std::unique_lock<std::mutex> lock(_queue_mutex);
+    std::lock_guard<std::mutex> lock(_queue_mutex);
     if (_report_error) {
         _report_error = false;
         return false;
@@ -109,21 +109,23 @@ bool DataDecompressionWorkPool::push_block(DataDecompressionWorkPool::decompress
 }
 
 void DataDecompressionWorkPool::finalize(bool cancel, const std::function<void(bool)> &finalize_callback) {
-    std::unique_lock<std::mutex> lock(_queue_mutex);
-    bool done = _state == decompress_state::processing &&
-                _working_thread_count == 0 && _queue.empty();
-    // If there are still decompression operations active, we need to wait
-    // until they finish to finalize the entire operation
-    // In this case, transfer the responsibility of finalizing to the decompression threads
-    if (!done) {
-        _state = cancel ? decompress_state::cancelling : decompress_state::finalizing;
-        _finalize_callback = finalize_callback;
-        _queue_available.notify_all();
-    }
+    bool done, report_error;
+    {
+        std::lock_guard<std::mutex> lock(_queue_mutex);
+        done = _state == decompress_state::processing &&
+               _working_thread_count == 0 && _queue.empty();
+        // If there are still decompression operations active, we need to wait
+        // until they finish to finalize the entire operation
+        // In this case, transfer the responsibility of finalizing to the decompression threads
+        if (!done) {
+            _state = cancel ? decompress_state::cancelling : decompress_state::finalizing;
+            _finalize_callback = finalize_callback;
+            _queue_available.notify_all();
+        }
 
-    bool report_error = _report_error;
-    _report_error = false;
-    lock.unlock();
+        report_error = _report_error;
+        _report_error = false;
+    }
 
     // Otherwise, if all decompression threads finished as well,
     // finalize the entire operation as soon as possible here
