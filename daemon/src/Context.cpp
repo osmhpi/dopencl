@@ -156,7 +156,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                        cl::Event *startEvent,
                                        cl::Event *endEvent) {
     return process.receiveDataToClBuffer(transferId, size, _context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
                                          _cl842DeviceDecompressor.get(),
 #endif
                                          commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);

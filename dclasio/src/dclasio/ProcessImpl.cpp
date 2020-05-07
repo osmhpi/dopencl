@@ -183,7 +183,7 @@ void ProcessImpl::receiveDataToClBuffer(
     dcl::transfer_id transferId,
     size_t size,
     const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
     const CL842DeviceDecompressor *cl842DeviceDecompressor,
 #endif
     const cl::CommandQueue &commandQueue,
@@ -193,7 +193,7 @@ void ProcessImpl::receiveDataToClBuffer(
     cl::Event *startEvent,
     cl::Event *endEvent) {
     return getDataStream().readToClBuffer(transferId, size, context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
                                           cl842DeviceDecompressor,
 #endif
                                           commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
