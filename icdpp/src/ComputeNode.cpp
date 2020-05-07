@@ -63,7 +63,6 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-#include <iostream>
 
 _cl_compute_node_WWU::_cl_compute_node_WWU(
 		cl_platform_id platform,
@@ -96,7 +95,6 @@ void _cl_compute_node_WWU::destroy() {
 void _cl_compute_node_WWU::getDevices(
 		cl_device_type type,
 		std::vector<cl_device_id>& devices) const {
-    type = CL_DEVICE_TYPE_ALL;
     switch (type) {
     case CL_DEVICE_TYPE_DEFAULT:
     case CL_DEVICE_TYPE_CPU:

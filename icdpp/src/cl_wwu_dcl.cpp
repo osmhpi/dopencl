@@ -73,7 +73,6 @@
 #include <iterator>
 #include <memory>
 #include <stdexcept>
-#include <iostream>
 
 /**
  * @brief Initialization routine.
@@ -208,7 +207,6 @@ cl_int clGetComputeNodeInfoWWU(
 cl_int clGetDeviceIDsFromComputeNodeWWU(cl_compute_node_WWU compute_node,
         cl_device_type device_type, cl_uint num_entries, cl_device_id *devices,
         cl_uint *num_devices) {
-    std::cout << "Retrieving Device IDs!" << std::endl;
     /* TODO Validate compute node */
     if (!compute_node) return CL_INVALID_NODE_WWU;
 
