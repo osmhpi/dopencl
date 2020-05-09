@@ -298,7 +298,7 @@ void CommunicationManagerImpl::data_stream_connected(
     } else {
         dcl::util::Logger << dcl::util::Warning
                 << "Incoming data stream connection from unknown process"
-                << " (pid=" << process->get_id() << ')'
+                << " (pid=" << pid << ')'
                 << std::endl;
     }
 }
