@@ -98,11 +98,12 @@ constexpr size_t dclasio::comm::DataStream::CHUNK_SIZE;
 constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
 constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-constexpr size_t dclasio::comm::DataStream::SUPERBLOCK_MAX_SIZE;
+constexpr size_t dclasio::comm::DataStream::CL_UPLOAD_BLOCK_SIZE;
 #endif
 
-// TODOXXX: This is a variation of the above but used to get some hacky code to work. Remove me.
-static void next_transfer_id_uberhax(dcl::transfer_id &transfer_id) {
+// TODOXXX: This is a variation of next_cl_split_transfer_id,
+//          but used to get some hacky code to work, see call sites. Remove me.
+static void next_cl_split_transfer_id(dcl::transfer_id &transfer_id) {
     for (size_t i = 4; i < boost::uuids::uuid::static_size(); i++) {
         transfer_id.data[boost::uuids::uuid::static_size()-i-1]++;
         if (transfer_id.data[boost::uuids::uuid::static_size()-i-1] != 0)
@@ -158,6 +159,8 @@ static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const Mutab
 
     // Since the sentinels need to survive the asynchronous read call, we need to use a
     // std::shared_ptr for the sentinels to survive until the read completes
+    // TODO: This can be a std::unique_ptr in C++14 with lambda generalized capture
+    //       https://stackoverflow.com/a/16968463
     auto sentinels(std::make_shared<std::vector<sentinel_t>>(
             std::distance(buffers.begin(), buffers.end())));
 
@@ -294,30 +297,35 @@ void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
-        read->size() > SUPERBLOCK_MAX_SIZE) {
-        // TODOXXX START UBER HACK
+        read->size() > CL_UPLOAD_BLOCK_SIZE) {
+        // TODOXXX: The OpenCL-based decompression code does work in blocks of
+        //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
+        //          in blocks of this size. However, in order for all read/writes
+        //          to match correctly, *all* transfers need to be split in blocks
+        //          of this size. This is a huge hack and OpenCL-based decompression
+        //          should eventually be integrated better so this isn't necessary
         reads.clear();
 
-        size_t num_superblocks = (read->size() + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-
+        size_t num_splits = (read->size() + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
         dcl::transfer_id split_transfer_id = read->transferId();
-        for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(read->size() - superblock_offset, SUPERBLOCK_MAX_SIZE);
+        for (size_t i = 0; i < num_splits; i++, next_cl_split_transfer_id(split_transfer_id)) {
+            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
+            size_t split_size = std::min(read->size() - split_offset, CL_UPLOAD_BLOCK_SIZE);
             auto subread(std::make_shared<DataReceipt>(
-                split_transfer_id, superblock_size,
-                static_cast<uint8_t *>(read->ptr()) + superblock_offset,
+                split_transfer_id, split_size,
+                static_cast<uint8_t *>(read->ptr()) + split_offset,
                 read->skip_compress_step()));
             reads.push_back(subread);
         }
 
+        // Complete the main (non-split) transfer when the last split part finishes
+        // TODOXXX error handling is not at all solid here
         reads.back()->setCallback([read](cl_int status) {
             auto ec = status == CL_SUCCESS
                  ? boost::system::error_code()
                  : boost::system::errc::make_error_code(boost::system::errc::io_error);
             read->onFinish(ec, read->size());
         });
-        // END UBER HACK
     }
 #endif
 
@@ -603,35 +611,35 @@ void DataStream::readToClBuffer(
         //          so we don't need to allocate those buffers for every since transfer
         std::array<cl::Buffer, NUM_BUFFERS> workBuffers;
         for (auto &wb : workBuffers)
-            wb = cl::Buffer(context, CL_MEM_READ_WRITE, SUPERBLOCK_MAX_SIZE);
+            wb = cl::Buffer(context, CL_MEM_READ_WRITE, CL_UPLOAD_BLOCK_SIZE);
 
-        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+        size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
-        std::vector<cl::Event> mapEvents(num_superblocks),
-            unmapEvents(num_superblocks),
-            decompressEvents(num_superblocks);
+        std::vector<cl::Event> mapEvents(num_splits),
+            unmapEvents(num_splits),
+            decompressEvents(num_splits);
         std::vector<cl::UserEvent> receiveEvents;
-        std::vector<void *> ptrs(num_superblocks);
+        std::vector<void *> ptrs(num_splits);
 
         /* Setup */
         dcl::transfer_id split_transfer_id = transferId;
-        for (size_t i = 0; i < num_superblocks + NUM_BUFFERS; i++) {
+        for (size_t i = 0; i < num_splits + NUM_BUFFERS; i++) {
             const auto &wb = workBuffers[i % NUM_BUFFERS];
 
             if (i >= NUM_BUFFERS) {
-                size_t superblock_offset = (i - NUM_BUFFERS) * SUPERBLOCK_MAX_SIZE;
-                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+                size_t split_offset = (i - NUM_BUFFERS) * CL_UPLOAD_BLOCK_SIZE;
+                size_t split_size = std::min(size - split_offset, CL_UPLOAD_BLOCK_SIZE);
 
                 /* Enqueue unmap buffer (implicit upload) */
                 cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS], &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
                 // Rounds down (partial chunks are not compressed by DataStream)
-                size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
+                size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
                 if (chunksSize > 0) {
                     cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
                     cl842DeviceDecompressor->decompress(commandQueue,
                                                         wb, 0, chunksSize, cl::Buffer(nullptr),
-                                                        buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
+                                                        buffer, split_offset, chunksSize, cl::Buffer(nullptr),
                                                         cl::Buffer(nullptr),
                                                         &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
                 } else {
@@ -639,60 +647,60 @@ void DataStream::readToClBuffer(
                 }
             }
 
-            if (i < num_superblocks) {
-                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+            if (i < num_splits) {
+                size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
+                size_t split_size = std::min(size - split_offset, CL_UPLOAD_BLOCK_SIZE);
 
                 /* Enqueue map buffer */
                 ptrs[i] = commandQueue.enqueueMapBuffer(
                     wb,
                     CL_FALSE,     // non-blocking map
                     DOPENCL_MAP_WRITE_INVALIDATE_REGION,
-                    0, superblock_size,
+                    0, split_size,
                     eventWaitList, &mapEvents[i]);
 
                 // schedule local data transfer
                 cl::UserEvent receiveEvent(context);
                 std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
-                read(split_transfer_id, superblock_size, ptrs[i], true, mapDataCompletable)
+                read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
                     ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
                 receiveEvents.push_back(receiveEvent);
 
-                next_transfer_id_uberhax(split_transfer_id);
+                next_cl_split_transfer_id(split_transfer_id);
             }
         }
 
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
 #else // Inplace compressed
-        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+        size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
-        std::vector<cl::Event> mapEvents(num_superblocks),
-            unmapEvents(num_superblocks),
-            decompressEvents(num_superblocks);
-        std::vector<void *> ptrs(num_superblocks);
+        std::vector<cl::Event> mapEvents(num_splits),
+            unmapEvents(num_splits),
+            decompressEvents(num_splits);
+        std::vector<void *> ptrs(num_splits);
 
         /* Enqueue map buffer */
-        for (size_t i = 0; i < num_superblocks; i++) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+        for (size_t i = 0; i < num_splits; i++) {
+            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
+            size_t split_size = std::min(size - split_offset, CL_UPLOAD_BLOCK_SIZE);
             ptrs[i] = commandQueue.enqueueMapBuffer(
                 buffer,
                 CL_FALSE,     // non-blocking map
                 DOPENCL_MAP_WRITE_INVALIDATE_REGION,
-                superblock_offset, superblock_size,
+                split_offset, split_size,
                 eventWaitList, &mapEvents[i]);
         }
 
         dcl::transfer_id split_transfer_id = transferId;
-        for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(size - i * SUPERBLOCK_MAX_SIZE, SUPERBLOCK_MAX_SIZE);
+        for (size_t i = 0; i < num_splits; i++, next_cl_split_transfer_id(split_transfer_id)) {
+            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
+            size_t split_size = std::min(size - i * CL_UPLOAD_BLOCK_SIZE, CL_UPLOAD_BLOCK_SIZE);
 
             // schedule local data transfer
             cl::UserEvent receiveEvent(context);
             std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
-            read(split_transfer_id, superblock_size, ptrs[i], true, mapDataCompletable)
+            read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
                 ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
 
 
@@ -700,12 +708,12 @@ void DataStream::readToClBuffer(
             cl::vector<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
             // Rounds down (partial chunks are not compressed by DataStream)
-            size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
+            size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
                 cl842DeviceDecompressor->decompress(commandQueue,
-                                                    buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
-                                                    buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
+                                                    buffer, split_offset, chunksSize, cl::Buffer(nullptr),
+                                                    buffer, split_offset, chunksSize, cl::Buffer(nullptr),
                                                     cl::Buffer(nullptr),
                                                     &decompressWaitList, &decompressEvents[i]);
             } else {
@@ -800,30 +808,35 @@ void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
-        write->size() > SUPERBLOCK_MAX_SIZE) {
-        // TODOXXX START UBER HACK
+        write->size() > CL_UPLOAD_BLOCK_SIZE) {
+        // TODOXXX: The OpenCL-based decompression code does work in blocks of
+        //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
+        //          in blocks of this size. However, in order for all read/writes
+        //          to match correctly, *all* transfers need to be split in blocks
+        //          of this size. This is a huge hack and OpenCL-based decompression
+        //          should eventually be integrated better so this isn't necessary
         writes.clear();
 
-        size_t num_superblocks = (write->size() + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-
+        size_t num_splits = (write->size() + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
         dcl::transfer_id split_transfer_id = write->transferId();
-        for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
-            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-            size_t superblock_size = std::min(write->size() - superblock_offset, SUPERBLOCK_MAX_SIZE);
+        for (size_t i = 0; i < num_splits; i++, next_cl_split_transfer_id(split_transfer_id)) {
+            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
+            size_t split_size = std::min(write->size() - split_offset, CL_UPLOAD_BLOCK_SIZE);
             auto subwrite = std::make_shared<DataSending>(
-                split_transfer_id, superblock_size,
-                static_cast<const uint8_t *>(write->ptr()) + superblock_offset,
+                split_transfer_id, split_size,
+                static_cast<const uint8_t *>(write->ptr()) + split_offset,
                 write->skip_compress_step());
             writes.push_back(subwrite);
         }
 
+        // Complete the main (non-split) transfer when the last split part finishes
+        // TODOXXX error handling is not at all solid here
         writes.back()->setCallback([write](cl_int status) {
             auto ec = status == CL_SUCCESS
                  ? boost::system::error_code()
                  : boost::system::errc::make_error_code(boost::system::errc::io_error);
             write->onFinish(ec, write->size());
         });
-        // END UBER HACK
     }
 #endif
 

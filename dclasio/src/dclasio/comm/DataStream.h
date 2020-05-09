@@ -241,7 +241,7 @@ private:
     static constexpr size_t COMPRESSIBLE_THRESHOLD = dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
     static constexpr size_t NETWORK_BLOCK_SIZE = dcl::DataTransfer::NETWORK_BLOCK_SIZE;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    static constexpr size_t SUPERBLOCK_MAX_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
 #endif
     // ---
 
