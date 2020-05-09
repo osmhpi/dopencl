@@ -266,29 +266,6 @@ std::shared_ptr<DataReceipt> DataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        // TODOXXX START UBER HACK
-        if (size > SUPERBLOCK_MAX_SIZE) {
-            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-            std::shared_ptr<DataReceipt> callback;
-
-            dcl::transfer_id split_transfer_id = transfer_id;
-            for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
-                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-                callback = read(
-                    split_transfer_id, superblock_size,
-                    static_cast<uint8_t *>(ptr) + superblock_offset,
-                    skip_compress_step, i == 0 ? trigger_event : callback);
-            }
-
-            return callback;
-        }
-        // END UBER HACK
-    }
-#endif
-
     auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step));
     if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
@@ -311,21 +288,54 @@ std::shared_ptr<DataReceipt> DataStream::read(
 }
 
 void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
+    std::vector<std::shared_ptr<DataReceipt>> reads = {read};
+
+#ifdef IO_LINK_COMPRESSION
+    if (is_io_link_compression_enabled() && read->size() > SUPERBLOCK_MAX_SIZE) {
+        // TODOXXX START UBER HACK
+        reads.clear();
+
+        size_t num_superblocks = (read->size() + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+
+        dcl::transfer_id split_transfer_id = read->transferId();
+        for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
+            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+            size_t superblock_size = std::min(read->size() - superblock_offset, SUPERBLOCK_MAX_SIZE);
+            auto subread(std::make_shared<DataReceipt>(
+                split_transfer_id, superblock_size,
+                static_cast<uint8_t *>(read->ptr()) + superblock_offset,
+                read->skip_compress_step()));
+            reads.push_back(subread);
+        }
+
+        reads.back()->setCallback([read](cl_int status) {
+            auto ec = status == CL_SUCCESS
+                 ? boost::system::error_code()
+                 : boost::system::errc::make_error_code(boost::system::errc::io_error);
+            read->onFinish(ec, read->size());
+        });
+        // END UBER HACK
+    }
+#endif
+
     std::unique_lock<std::mutex> lock(_readq_mtx);
     // If we were just waiting for this read to arrive to match a write,
     // don't even enqueue it, go straight to data receiving
     if (_read_state == receiving_state::waiting_for_read_matching_transfer_id &&
-        _read_transfer_id == read->transferId()) {
+        _read_transfer_id == reads.front()->transferId()) {
         _read_state = receiving_state::receiving_data;
+        for (auto it = ++reads.cbegin(); it != reads.cend(); it++)
+            _readq.insert({ (*it)->transferId(), (*it) });
         lock.unlock();
 
-        _read_op = read;
+        _read_op = reads.front();
         start_read();
         return;
     }
 
     // Otherwise, enqueue the request and wait for the matching write to arrive
-    _readq.insert({ read->transferId(), read });
+    for (const auto &r : reads)
+        _readq.insert({ r->transferId(), r });
     // If we are busy doing a receive for a transfer id or data, we are done,
     // the read queue will be processed out when the operation in course is done
     // But if we are idle, we need to start up the transfer ID matching process
@@ -761,29 +771,6 @@ std::shared_ptr<DataSending> DataStream::write(
         dcl::transfer_id transfer_id,
         size_t size, const void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        // TODOXXX START UBER HACK
-        if (size > SUPERBLOCK_MAX_SIZE) {
-            size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
-            std::shared_ptr<DataSending> callback;
-
-            dcl::transfer_id split_transfer_id = transfer_id;
-            for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
-                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
-                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
-                callback = write(
-                    split_transfer_id, superblock_size,
-                    static_cast<const uint8_t *>(ptr) + superblock_offset,
-                    skip_compress_step, i == 0 ? trigger_event : callback);
-            }
-
-            return callback;
-        }
-        // END UBER HACK
-    }
-#endif
-
     auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step));
     if (trigger_event != nullptr) {
         // If a event to wait was given, enqueue the write after the event callback
@@ -806,15 +793,47 @@ std::shared_ptr<DataSending> DataStream::write(
 }
 
 void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
+    std::vector<std::shared_ptr<DataSending>> writes = {write};
+
+#ifdef IO_LINK_COMPRESSION
+    if (is_io_link_compression_enabled() && write->size() > SUPERBLOCK_MAX_SIZE) {
+        // TODOXXX START UBER HACK
+        writes.clear();
+
+        size_t num_superblocks = (write->size() + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+
+        dcl::transfer_id split_transfer_id = write->transferId();
+        for (size_t i = 0; i < num_superblocks; i++, next_transfer_id_uberhax(split_transfer_id)) {
+            size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+            size_t superblock_size = std::min(write->size() - superblock_offset, SUPERBLOCK_MAX_SIZE);
+            auto subwrite = std::make_shared<DataSending>(
+                split_transfer_id, superblock_size,
+                static_cast<const uint8_t *>(write->ptr()) + superblock_offset,
+                write->skip_compress_step());
+            writes.push_back(subwrite);
+        }
+
+        writes.back()->setCallback([write](cl_int status) {
+            auto ec = status == CL_SUCCESS
+                 ? boost::system::error_code()
+                 : boost::system::errc::make_error_code(boost::system::errc::io_error);
+            write->onFinish(ec, write->size());
+        });
+        // END UBER HACK
+    }
+#endif
+
     std::unique_lock<std::mutex> lock(_writeq_mtx);
     if (_sending) {
-        _writeq.push(write);
+        for (const auto &w : writes)
+            _writeq.push(w);
     } else {
         // start write loop
         _sending = true;
         lock.unlock();
 
-        notify_write_transfer_id(new writeq_type({ write }));
+        notify_write_transfer_id(new writeq_type(
+            std::list<std::shared_ptr<DataSending>>(writes.begin(), writes.end())));
     }
 }
 
