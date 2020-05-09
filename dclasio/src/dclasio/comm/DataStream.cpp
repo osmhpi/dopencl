@@ -97,7 +97,9 @@ constexpr size_t dclasio::comm::DataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
 constexpr size_t dclasio::comm::DataStream::CHUNK_SIZE;
 constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
 constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
 constexpr size_t dclasio::comm::DataStream::SUPERBLOCK_MAX_SIZE;
+#endif
 
 // TODOXXX: This is a variation of the above but used to get some hacky code to work. Remove me.
 static void next_transfer_id_uberhax(dcl::transfer_id &transfer_id) {
@@ -290,8 +292,9 @@ std::shared_ptr<DataReceipt> DataStream::read(
 void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
     std::vector<std::shared_ptr<DataReceipt>> reads = {read};
 
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled() && read->size() > SUPERBLOCK_MAX_SIZE) {
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
+        read->size() > SUPERBLOCK_MAX_SIZE) {
         // TODOXXX START UBER HACK
         reads.clear();
 
@@ -795,8 +798,9 @@ std::shared_ptr<DataSending> DataStream::write(
 void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
     std::vector<std::shared_ptr<DataSending>> writes = {write};
 
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled() && write->size() > SUPERBLOCK_MAX_SIZE) {
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
+        write->size() > SUPERBLOCK_MAX_SIZE) {
         // TODOXXX START UBER HACK
         writes.clear();
 
