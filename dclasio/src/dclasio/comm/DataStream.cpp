@@ -284,7 +284,7 @@ std::shared_ptr<DataReceipt> DataStream::read(
                 callback = read(
                     split_transfer_id, superblock_size,
                     static_cast<uint8_t *>(ptr) + superblock_offset,
-                    skip_compress_step, trigger_event);
+                    skip_compress_step, i == 0 ? trigger_event : callback);
             }
 
             return callback;
@@ -711,7 +711,7 @@ std::shared_ptr<DataSending> DataStream::write(
                 callback = write(
                     split_transfer_id, superblock_size,
                     static_cast<const uint8_t *>(ptr) + superblock_offset,
-                    skip_compress_step, trigger_event);
+                    skip_compress_step, i == 0 ? trigger_event : callback);
             }
 
             return callback;
