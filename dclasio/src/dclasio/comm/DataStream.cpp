@@ -67,10 +67,6 @@
 #include <mutex>
 #include <utility>
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-#error Not implemented yet (use USE_CL_IO_LINK_COMPRESSION_INPLACE instead).
-#endif
-
 #define PROFILE_SEND_RECEIVE_BUFFER
 
 #ifdef PROFILE_SEND_RECEIVE_BUFFER
@@ -544,11 +540,18 @@ void DataStream::handle_read(
     }
 }
 
+
+#if defined(CL_VERSION_1_2)
+#define DOPENCL_MAP_WRITE_INVALIDATE_REGION CL_MAP_WRITE_INVALIDATE_REGION
+#else
+#define DOPENCL_MAP_WRITE_INVALIDATE_REGION CL_MAP_WRITE
+#endif
+
 void DataStream::readToClBuffer(
         dcl::transfer_id transferId,
         size_t size,
         const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
         const CL842DeviceDecompressor *cl842DeviceDecompressor,
 #endif
         const cl::CommandQueue &commandQueue,
@@ -564,7 +567,7 @@ void DataStream::readToClBuffer(
     if (endEvent == nullptr)
         endEvent = &myEndEvent;
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     bool can_use_cl_io_link_compression = false;
 
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
@@ -581,6 +584,74 @@ void DataStream::readToClBuffer(
     }
 
     if (can_use_cl_io_link_compression) {
+#if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
+        static const size_t NUM_BUFFERS = 2;
+        // TODOXXX: Allocate those somewhere more permanent, like on the command queue,
+        //          so we don't need to allocate those buffers for every since transfer
+        std::array<cl::Buffer, NUM_BUFFERS> workBuffers;
+        for (auto &wb : workBuffers)
+            wb = cl::Buffer(context, CL_MEM_READ_WRITE, SUPERBLOCK_MAX_SIZE);
+
+        size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
+
+        std::vector<cl::Event> mapEvents(num_superblocks),
+            unmapEvents(num_superblocks),
+            decompressEvents(num_superblocks);
+        std::vector<cl::UserEvent> receiveEvents;
+        std::vector<void *> ptrs(num_superblocks);
+
+        /* Setup */
+        dcl::transfer_id split_transfer_id = transferId;
+        for (size_t i = 0; i < num_superblocks + NUM_BUFFERS; i++) {
+            const auto &wb = workBuffers[i % NUM_BUFFERS];
+
+            if (i >= NUM_BUFFERS) {
+                size_t superblock_offset = (i - NUM_BUFFERS) * SUPERBLOCK_MAX_SIZE;
+                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+
+                /* Enqueue unmap buffer (implicit upload) */
+                cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
+                commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS], &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
+                // Rounds down (partial chunks are not compressed by DataStream)
+                size_t chunksSize = superblock_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
+                if (chunksSize > 0) {
+                    cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
+                    cl842DeviceDecompressor->decompress(commandQueue,
+                                                        wb, 0, chunksSize, cl::Buffer(nullptr),
+                                                        buffer, superblock_offset, chunksSize, cl::Buffer(nullptr),
+                                                        cl::Buffer(nullptr),
+                                                        &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
+                } else {
+                    decompressEvents[i - NUM_BUFFERS] = unmapEvents[i - NUM_BUFFERS];
+                }
+            }
+
+            if (i < num_superblocks) {
+                size_t superblock_offset = i * SUPERBLOCK_MAX_SIZE;
+                size_t superblock_size = std::min(size - superblock_offset, SUPERBLOCK_MAX_SIZE);
+
+                /* Enqueue map buffer */
+                ptrs[i] = commandQueue.enqueueMapBuffer(
+                    wb,
+                    CL_FALSE,     // non-blocking map
+                    DOPENCL_MAP_WRITE_INVALIDATE_REGION,
+                    0, superblock_size,
+                    eventWaitList, &mapEvents[i]);
+
+                // schedule local data transfer
+                cl::UserEvent receiveEvent(context);
+                std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
+                read(split_transfer_id, superblock_size, ptrs[i], true, mapDataCompletable)
+                    ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
+                receiveEvents.push_back(receiveEvent);
+
+                next_transfer_id_uberhax(split_transfer_id);
+            }
+        }
+
+        *startEvent = mapEvents.front();
+        *endEvent = decompressEvents.back();
+#else // Inplace compressed
         size_t num_superblocks = (size + SUPERBLOCK_MAX_SIZE - 1) / SUPERBLOCK_MAX_SIZE;
 
         std::vector<cl::Event> mapEvents(num_superblocks),
@@ -595,11 +666,7 @@ void DataStream::readToClBuffer(
             ptrs[i] = commandQueue.enqueueMapBuffer(
                 buffer,
                 CL_FALSE,     // non-blocking map
-#if defined(CL_VERSION_1_2)
-                CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
-#else
-                CL_MAP_WRITE, // map for writing
-#endif
+                DOPENCL_MAP_WRITE_INVALIDATE_REGION,
                 superblock_offset, superblock_size,
                 eventWaitList, &mapEvents[i]);
         }
@@ -636,17 +703,14 @@ void DataStream::readToClBuffer(
 
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
+#endif
     } else {
 #endif
         /* Enqueue map buffer */
         void *ptr = commandQueue.enqueueMapBuffer(
             buffer,
             CL_FALSE,     // non-blocking map
-#if defined(CL_VERSION_1_2)
-            CL_MAP_WRITE_INVALIDATE_REGION, // map for writing
-#else
-            CL_MAP_WRITE, // map for writing
-#endif
+            DOPENCL_MAP_WRITE_INVALIDATE_REGION,
             offset, size,
             eventWaitList, startEvent);
         // schedule local data transfer
@@ -657,7 +721,7 @@ void DataStream::readToClBuffer(
         /* Enqueue unmap buffer (implicit upload) */
         cl::vector<cl::Event> unmapWaitList = {receiveEvent};
         commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     }
 #endif
 

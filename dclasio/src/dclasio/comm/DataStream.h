@@ -62,7 +62,7 @@
 #include <CL/cl2.hpp>
 #endif
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #include <cl842.h>
 #endif
 
@@ -140,7 +140,7 @@ public:
             dcl::transfer_id transferId,
             size_t size,
             const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
             const CL842DeviceDecompressor *cl842DeviceDecompressor,
 #endif
             const cl::CommandQueue &commandQueue,

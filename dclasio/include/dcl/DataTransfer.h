@@ -56,7 +56,7 @@
 #include <functional>
 #include <cstdint>
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #include <cl842.h>
 #else
 // TODOXXX very dirty hack to allow building with OpenCL I/O link compression disabled
@@ -126,7 +126,7 @@ static bool is_io_link_compression_enabled() {
 }
 #endif
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
 static bool is_cl_io_link_compression_enabled() {
     static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
     return enabled;

@@ -116,14 +116,19 @@ Context::Context(
 	_context = cl::Context(nativeDevices, properties, &onContextError, _listener.get());
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
         _cl842DeviceDecompressor = std::unique_ptr<CL842DeviceDecompressor>(
             new CL842DeviceDecompressor(
                 _context, nativeDevices,
                 dcl::DataTransfer::COMPR842_CHUNK_SIZE,
                 dcl::DataTransfer::COMPR842_CHUNK_SIZE,
-                CL842InputFormat::INPLACE_COMPRESSED_CHUNKS));
+#if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
+                CL842InputFormat::MAYBE_COMPRESSED_CHUNKS
+#else // Inplace compressed
+                CL842InputFormat::INPLACE_COMPRESSED_CHUNKS
+#endif
+        ));
     }
 #endif
 }
@@ -156,7 +161,7 @@ void Context::receiveBufferFromProcess(dcl::Process &process,
                                        cl::Event *startEvent,
                                        cl::Event *endEvent) {
     return process.receiveDataToClBuffer(transferId, size, _context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION_INPLACE) && defined(LIB842_HAVE_OPENCL)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
                                          _cl842DeviceDecompressor.get(),
 #endif
                                          commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
