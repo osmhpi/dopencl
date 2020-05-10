@@ -112,6 +112,7 @@ public:
     // This constant must be synchronized with the constant in lib842 (cl842)
     // for the integration with OpenCL-based decompression to work
     static constexpr size_t COMPRESSIBLE_THRESHOLD = ((COMPR842_CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
+    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
 #endif
 };
 

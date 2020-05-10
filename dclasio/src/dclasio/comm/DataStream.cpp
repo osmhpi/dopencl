@@ -93,12 +93,16 @@ struct profile_send_receive_buffer_times {
 
 // Declarations for static constexpr are sometimes required to avoid build errors
 // See https://stackoverflow.com/questions/8016780/undefined-reference-to-static-constexpr-char
-constexpr size_t dclasio::comm::DataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-constexpr size_t dclasio::comm::DataStream::CHUNK_SIZE;
-constexpr size_t dclasio::comm::DataStream::NETWORK_BLOCK_SIZE;
-constexpr size_t dclasio::comm::DataStream::COMPRESSIBLE_THRESHOLD;
+constexpr size_t dclasio::comm::InputDataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+constexpr size_t dclasio::comm::OutputDataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+constexpr size_t dclasio::comm::InputDataStream::CHUNK_SIZE;
+constexpr size_t dclasio::comm::OutputDataStream::CHUNK_SIZE;
+constexpr size_t dclasio::comm::InputDataStream::NETWORK_BLOCK_SIZE;
+constexpr size_t dclasio::comm::OutputDataStream::NETWORK_BLOCK_SIZE;
+constexpr size_t dclasio::comm::InputDataStream::COMPRESSIBLE_THRESHOLD;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-constexpr size_t dclasio::comm::DataStream::CL_UPLOAD_BLOCK_SIZE;
+constexpr size_t dclasio::comm::InputDataStream::CL_UPLOAD_BLOCK_SIZE;
+constexpr size_t dclasio::comm::OutputDataStream::CL_UPLOAD_BLOCK_SIZE;
 #endif
 
 // TODOXXX: This is a variation of next_cl_split_transfer_id,
@@ -203,36 +207,19 @@ namespace comm {
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket) :
         _socket(socket),
-        _read_state(receiving_state::idle), _sending(false)
+        InputDataStream(*socket), OutputDataStream(*socket)
 {
     // TODO Ensure that socket is connected
     _remote_endpoint = _socket->remote_endpoint();
-
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        _decompress_thread_pool.reset(new DataDecompressionWorkPool());
-        _compress_thread_pool.reset(new DataCompressionWorkPool());
-    }
-#endif
 }
 
 DataStream::DataStream(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
         _socket(socket), _remote_endpoint(remote_endpoint),
-        _read_state(receiving_state::idle), _sending(false)
+        InputDataStream(*socket), OutputDataStream(*socket)
 {
     assert(!socket->is_open()); // socket must not be connect
-
-#ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
-        _decompress_thread_pool.reset(new DataDecompressionWorkPool());
-        _compress_thread_pool.reset(new DataCompressionWorkPool());
-    }
-#endif
-}
-
-DataStream::~DataStream() {
 }
 
 dcl::process_id DataStream::connect(
@@ -267,7 +254,16 @@ void DataStream::disconnect() {
     _socket->close();
 }
 
-std::shared_ptr<DataReceipt> DataStream::read(
+InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
+    : _socket(socket), _read_state(receiving_state::idle) {
+#ifdef IO_LINK_COMPRESSION
+    if (is_io_link_compression_enabled()) {
+        _decompress_thread_pool.reset(new DataDecompressionWorkPool());
+    }
+#endif
+}
+
+std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
@@ -277,7 +273,7 @@ std::shared_ptr<DataReceipt> DataStream::read(
         trigger_event->setCallback([this, read](cl_int status) {
             if (status != CL_COMPLETE) {
                 dcl::util::Logger << dcl::util::Error
-                        << "DataStream: Wait for event (completable) for read enqueue failed"
+                        << "InputDataStream: Wait for event (completable) for read enqueue failed"
                         << std::endl;
                 read->onFinish(boost::system::errc::make_error_code(boost::system::errc::io_error),
                                0);
@@ -292,7 +288,7 @@ std::shared_ptr<DataReceipt> DataStream::read(
     return read;
 }
 
-void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
+void InputDataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
     std::vector<std::shared_ptr<DataReceipt>> reads = {read};
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
@@ -357,9 +353,9 @@ void DataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
     }
 }
 
-void DataStream::receive_matching_transfer_id() {
+void InputDataStream::receive_matching_transfer_id() {
     boost_asio_async_read_with_sentinels(
-        *_socket, boost::asio::buffer(_read_transfer_id.data, _read_transfer_id.size()),
+        _socket, boost::asio::buffer(_read_transfer_id.data, _read_transfer_id.size()),
         [this](const boost::system::error_code& ec, size_t bytes_transferred) {
             std::unique_lock<std::mutex> lock(_readq_mtx);
             auto it = _readq.find(_read_transfer_id);
@@ -380,10 +376,10 @@ void DataStream::receive_matching_transfer_id() {
         });
 }
 
-void DataStream::start_read() {
+void InputDataStream::start_read() {
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
+        << "(InputDataStream to " << _socket.remote_endpoint() << ") "
         << "Start read of size " << _read_op->size()
         << std::endl;
 #endif
@@ -401,20 +397,20 @@ void DataStream::start_read() {
 #endif
 
     boost_asio_async_read_with_sentinels(
-                *_socket, boost::asio::buffer(_read_op->ptr(), _read_op->size()),
+                _socket, boost::asio::buffer(_read_op->ptr(), _read_op->size()),
                 [this](const boost::system::error_code& ec, size_t bytes_transferred){
                         handle_read(ec, bytes_transferred); });
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::read_next_compressed_block() {
+void InputDataStream::read_next_compressed_block() {
     if (_read_io_num_blocks_remaining > 0) {
         // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 2> buffers = {
                 boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
                 boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_NETWORK_BLOCK * sizeof(size_t))
         };
-        boost_asio_async_read_with_sentinels(*_socket, buffers,
+        boost_asio_async_read_with_sentinels(_socket, buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred){
             _read_io_total_bytes_transferred += bytes_transferred;
             if (ec) {
@@ -463,7 +459,7 @@ void DataStream::read_next_compressed_block() {
                 }
             }
 
-            boost_asio_async_read_with_sentinels(*_socket, recv_buffers,
+            boost_asio_async_read_with_sentinels(_socket, recv_buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred) {
                 _read_io_total_bytes_transferred += bytes_transferred;
                 if (ec) {
@@ -511,7 +507,7 @@ void DataStream::read_next_compressed_block() {
         auto last_block_destination_ptr =  static_cast<uint8_t *>(_read_op->ptr()) + (_read_op->size() & ~(NETWORK_BLOCK_SIZE - 1));
         auto last_block_size = _read_op->size() & (NETWORK_BLOCK_SIZE - 1);
 
-        boost_asio_async_read_with_sentinels(*_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
+        boost_asio_async_read_with_sentinels(_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
                                 [this](const boost::system::error_code &ec, size_t bytes_transferred) {
             _read_io_total_bytes_transferred += bytes_transferred;
             if (ec) {
@@ -531,12 +527,12 @@ void DataStream::read_next_compressed_block() {
 }
 #endif
 
-void DataStream::handle_read(
+void InputDataStream::handle_read(
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
+        << "(InputDataStream to " << _socket.remote_endpoint() << ") "
         << "End read of size " << _read_op->size()
         << std::endl;
 #endif
@@ -568,7 +564,7 @@ void DataStream::handle_read(
 #define DOPENCL_MAP_WRITE_INVALIDATE_REGION CL_MAP_WRITE
 #endif
 
-void DataStream::readToClBuffer(
+void InputDataStream::readToClBuffer(
         dcl::transfer_id transferId,
         size_t size,
         const cl::Context &context,
@@ -633,7 +629,7 @@ void DataStream::readToClBuffer(
                 /* Enqueue unmap buffer (implicit upload) */
                 cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS], &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
-                // Rounds down (partial chunks are not compressed by DataStream)
+                // Rounds down (partial chunks are not compressed by InputDataStream)
                 size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
                 if (chunksSize > 0) {
                     cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
@@ -707,7 +703,7 @@ void DataStream::readToClBuffer(
             /* Enqueue unmap buffer (implicit upload) */
             cl::vector<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
-            // Rounds down (partial chunks are not compressed by DataStream)
+            // Rounds down (partial chunks are not compressed by InputDataStream)
             size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
@@ -778,7 +774,16 @@ void DataStream::readToClBuffer(
 #endif
 }
 
-std::shared_ptr<DataSending> DataStream::write(
+OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
+    : _socket(socket), _sending(false) {
+#ifdef IO_LINK_COMPRESSION
+    if (is_io_link_compression_enabled()) {
+        _compress_thread_pool.reset(new DataCompressionWorkPool());
+    }
+#endif
+}
+
+std::shared_ptr<DataSending> OutputDataStream::write(
         dcl::transfer_id transfer_id,
         size_t size, const void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
@@ -788,7 +793,7 @@ std::shared_ptr<DataSending> DataStream::write(
         trigger_event->setCallback([this, write](cl_int status) {
             if (status != CL_COMPLETE) {
                 dcl::util::Logger << dcl::util::Error
-                        << "DataStream: Wait for event (completable) for write enqueue failed"
+                        << "OutputDataStream: Wait for event (completable) for write enqueue failed"
                         << std::endl;
                 write->onFinish(boost::system::errc::make_error_code(boost::system::errc::io_error),
                                 0);
@@ -803,7 +808,7 @@ std::shared_ptr<DataSending> DataStream::write(
     return write;
 }
 
-void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
+void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
     std::vector<std::shared_ptr<DataSending>> writes = {write};
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
@@ -854,7 +859,7 @@ void DataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
     }
 }
 
-void DataStream::notify_write_transfer_id(writeq_type *writeq) {
+void OutputDataStream::notify_write_transfer_id(writeq_type *writeq) {
     /* TODO Pass writeq by rvalue reference rather than by pointer
      * is currently not supported by lambdas (see comment in start_write) */
     assert(writeq); // ouch!
@@ -872,17 +877,17 @@ void DataStream::notify_write_transfer_id(writeq_type *writeq) {
 
     auto& write = writeq->front();
     boost_asio_async_write_with_sentinels(
-        *_socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
+        _socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
         [this, writeq, write](const boost::system::error_code& ec, size_t bytes_transferred) {
             start_write(writeq);
         });
 }
 
-void DataStream::start_write(writeq_type *writeq) {
+void OutputDataStream::start_write(writeq_type *writeq) {
     auto& write = writeq->front();
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
+        << "(OutputDataStream to " << _socket.remote_endpoint() << ") "
         << "Start write of size " << write->size()
         << std::endl;
 #endif
@@ -890,7 +895,7 @@ void DataStream::start_write(writeq_type *writeq) {
     /* TODO *Move* writeq through (i.e., into and out of) lambda capture
      * In C++14 this should be possible by generalized lambda captures as follows:
     boost_asio_async_write_with_sentinels(
-            *_socket, boost::asio::buffer(write->ptr(), write->size()),
+            _socket, boost::asio::buffer(write->ptr(), write->size()),
             [this, writeq{std::move(writeq)}](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(std::move(writeq), ec, bytes_transferred); });
      */
@@ -924,13 +929,13 @@ void DataStream::start_write(writeq_type *writeq) {
 #endif
 
     boost_asio_async_write_with_sentinels(
-            *_socket, boost::asio::buffer(write->ptr(), write->size()),
+            _socket, boost::asio::buffer(write->ptr(), write->size()),
             [this, writeq](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_write(writeq, ec, bytes_transferred); });
 }
 
 #ifdef IO_LINK_COMPRESSION
-void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
+void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
     if (_write_io_channel_busy) {
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
@@ -967,7 +972,7 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         send_buffers[1] = boost::asio::buffer(&block.sizes, sizeof(size_t) * NUM_CHUNKS_PER_NETWORK_BLOCK);
         for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++)
             send_buffers[2 + i] = boost::asio::buffer(block.datas[i], block.sizes[i]);
-        boost_asio_async_write_with_sentinels(*_socket, send_buffers,
+        boost_asio_async_write_with_sentinels(_socket, send_buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
              _write_io_channel_busy = false;
@@ -994,7 +999,7 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
         auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(NETWORK_BLOCK_SIZE - 1));
         auto last_block_size = write->size() & (NETWORK_BLOCK_SIZE - 1);
 
-        boost_asio_async_write_with_sentinels(*_socket,
+        boost_asio_async_write_with_sentinels(_socket,
                 boost::asio::buffer(last_block_source_ptr, last_block_size),
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
              {
@@ -1016,7 +1021,7 @@ void DataStream::try_write_next_compressed_block(writeq_type *writeq, const std:
 }
 #endif
 
-void DataStream::handle_write(
+void OutputDataStream::handle_write(
         writeq_type *writeq,
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
@@ -1025,7 +1030,7 @@ void DataStream::handle_write(
     auto& write = writeq->front();
 #ifdef INDEPTH_TRACE
     dcl::util::Logger << dcl::util::Debug
-        << "(DataStream to " << _remote_endpoint << ") "
+        << "(OutputDataStream to " << _socket.remote_endpoint() << ") "
         << "End write of size " << write->size()
         << std::endl;
 #endif
@@ -1039,7 +1044,7 @@ void DataStream::handle_write(
     notify_write_transfer_id(writeq); // process remaining writes
 }
 
-void DataStream::writeFromClBuffer(
+void OutputDataStream::writeFromClBuffer(
         dcl::transfer_id transferId,
         size_t size,
         const cl::Context &context,

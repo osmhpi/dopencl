@@ -78,49 +78,15 @@ namespace dclasio {
 namespace comm {
 
 // TODO Split DataStream into InputDataStream and OutputDataStream to model simplex connections and reduce code redundancy
-/*!
- * \brief A data stream maintains a set of incoming and outgoing data transfers from/to a single remote process
- */
-class DataStream {
-public:
-    typedef std::queue<std::shared_ptr<DataSending>, std::list<std::shared_ptr<DataSending>>> writeq_type;
 
-    // TODO Accept rvalue reference rather than pointer to socket (requires Boost 1.47)
-    /*!
-     * \brief Creates a data stream from a connected socket
-     * The data stream becomes owner of the socket.
-     *
-     * \param[in]  socket   the socket to use for the data stream
-     */
-    DataStream(
-            const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
-    /*!
-     * \brief Creates a data stream to the specified remote endpoint
-     *
-     * \param socket            a socket associated with a local endpoint
-     * \param remote_endpoint   the remote process
-     */
-    DataStream(
-            const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
-            boost::asio::ip::tcp::endpoint remote_endpoint);
-    virtual ~DataStream();
+class InputDataStream {
+public:
+    InputDataStream(boost::asio::ip::tcp::socket& socket);
+    virtual ~InputDataStream() = default;
 
     /* Data streams must be non-copyable */
-    DataStream(const DataStream&) = delete;
-    DataStream& operator=(const DataStream&) = delete;
-
-    /*!
-     * \brief Connects this data stream to its remote process
-     * The ID of the local process associated with this data stream is send to
-     * the remote process.
-     *
-     * \param[in]  pid  ID of the local process
-     * \return the ID of the remote process, or 0 if the connection has been rejected
-     */
-    dcl::process_id connect(
-            dcl::process_id pid);
-
-    void disconnect();
+    InputDataStream(const InputDataStream&) = delete;
+    InputDataStream& operator=(const InputDataStream&) = delete;
 
     /*!
      * \brief Submits a data receipt for this data stream
@@ -150,6 +116,84 @@ public:
             cl::Event *startEvent,
             cl::Event *endEvent);
 
+private:
+    void enqueue_read(const std::shared_ptr<DataReceipt> &read);
+    void receive_matching_transfer_id();
+    /*!
+     * \brief Processes the next data transfer from the read queue.
+     */
+    void start_read();
+#ifdef IO_LINK_COMPRESSION
+    void read_next_compressed_block();
+#endif
+    void handle_read(
+            const boost::system::error_code& ec,
+            size_t bytes_transferred);
+
+    boost::asio::ip::tcp::socket &_socket; //!< I/O object for remote process
+
+    enum class receiving_state {
+        // No read operation is in course and the read queue is empty
+        idle,
+        // We are receiving a transfer ID from the other end of the socket,
+        // in order to attempt to match a send with out of the enqueued receives
+        receiving_matching_transfer_id,
+        // The other end wants to do a send for which we don't yet have a receive
+        // operation associated, so we are waiting for it to arrive to the queue
+        waiting_for_read_matching_transfer_id,
+        // We have successfully matched a send and a receive and are transferring data
+        receiving_data
+    };
+
+    receiving_state _read_state; //!< \c state of the data receipts
+    dcl::transfer_id _read_transfer_id; //!< identifier of the transfer currently being received
+                                        // valid for receiving_state::waiting_for_read_matching_transfer_id
+    std::shared_ptr<DataReceipt> _read_op; //!< transfer currently being received
+                                           // valid for receiving_state::receiving_data
+    std::unordered_map<dcl::transfer_id, std::shared_ptr<DataReceipt>> _readq; //!< pending data receipts
+    std::mutex _readq_mtx; //!< protects read queue and related variables
+
+#ifdef IO_LINK_COMPRESSION
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK;
+    static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
+    static constexpr size_t COMPRESSIBLE_THRESHOLD = dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
+    static constexpr size_t NETWORK_BLOCK_SIZE = dcl::DataTransfer::NETWORK_BLOCK_SIZE;
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = dcl::DataTransfer::CL_UPLOAD_BLOCK_SIZE;
+#endif
+    // ---
+
+    // ** Variables related to the decompression thread (associated to reads) **
+    std::unique_ptr<DataDecompressionWorkPool> _decompress_thread_pool;
+
+    // ** Variables related to the current asynchronous I/O read operation **
+    // Total bytes transferred through the network by current read (for statistical purposes)
+    size_t _read_io_total_bytes_transferred;
+    // Number of network blocks remaining to transfer
+    size_t _read_io_num_blocks_remaining;
+    // Offset into the destination buffer where the data associated
+    // with the current read operation will go (after decompression)
+    size_t _read_io_destination_offset;
+    // Size of the current read operation
+    std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
+    // Target buffer of the current read operation
+    std::unique_ptr<uint8_t> _read_io_compressed_buffer;
+#endif
+};
+
+/*!
+ * \brief A data stream maintains a set of incoming and outgoing data transfers from/to a single remote process
+ */
+class OutputDataStream {
+public:
+    // TODO Accept rvalue reference rather than pointer to socket (requires Boost 1.47)
+    OutputDataStream(boost::asio::ip::tcp::socket& socket);
+    virtual ~OutputDataStream() = default;
+
+    /* Data streams must be non-copyable */
+    OutputDataStream(const OutputDataStream&) = delete;
+    OutputDataStream& operator=(const OutputDataStream&) = delete;
+
     /*!
      * \brief Submits a data sending for this data stream
      *
@@ -176,18 +220,7 @@ public:
             cl::Event *endEvent);
 
 private:
-    void enqueue_read(const std::shared_ptr<DataReceipt> &read);
-    void receive_matching_transfer_id();
-    /*!
-     * \brief Processes the next data transfer from the read queue.
-     */
-    void start_read();
-#ifdef IO_LINK_COMPRESSION
-    void read_next_compressed_block();
-#endif
-    void handle_read(
-            const boost::system::error_code& ec,
-            size_t bytes_transferred);
+    typedef std::queue<std::shared_ptr<DataSending>, std::list<std::shared_ptr<DataSending>>> writeq_type;
 
     void enqueue_write(const std::shared_ptr<DataSending> &write);
     void notify_write_transfer_id(writeq_type *writeq);
@@ -207,29 +240,7 @@ private:
             size_t bytes_transferred);
 
     // TODO Store socket instance rather than smart pointer
-    std::shared_ptr<boost::asio::ip::tcp::socket> _socket; //!< I/O object for remote process
-    boost::asio::ip::tcp::endpoint _remote_endpoint; //!< remote endpoint of data stream
-
-    enum class receiving_state {
-        // No read operation is in course and the read queue is empty
-        idle,
-        // We are receiving a transfer ID from the other end of the socket,
-        // in order to attempt to match a send with out of the enqueued receives
-        receiving_matching_transfer_id,
-        // The other end wants to do a send for which we don't yet have a receive
-        // operation associated, so we are waiting for it to arrive to the queue
-        waiting_for_read_matching_transfer_id,
-        // We have successfully matched a send and a receive and are transferring data
-        receiving_data
-    };
-
-    receiving_state _read_state; //!< \c state of the data receipts
-    dcl::transfer_id _read_transfer_id; //!< identifier of the transfer currently being received
-                                        // valid for receiving_state::waiting_for_read_matching_transfer_id
-    std::shared_ptr<DataReceipt> _read_op; //!< transfer currently being received
-                                           // valid for receiving_state::receiving_data
-    std::unordered_map<dcl::transfer_id, std::shared_ptr<DataReceipt>> _readq; //!< pending data receipts
-    std::mutex _readq_mtx; //!< protects read queue and related variables
+    boost::asio::ip::tcp::socket &_socket; //!< I/O object for remote process
 
     bool _sending; //!< \c true, if currently sending data, otherwise \c false
     writeq_type _writeq; //!< pending data sendings
@@ -238,28 +249,11 @@ private:
 #ifdef IO_LINK_COMPRESSION
     static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK;
     static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
-    static constexpr size_t COMPRESSIBLE_THRESHOLD = dcl::DataTransfer::COMPRESSIBLE_THRESHOLD;
     static constexpr size_t NETWORK_BLOCK_SIZE = dcl::DataTransfer::NETWORK_BLOCK_SIZE;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
+    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = dcl::DataTransfer::CL_UPLOAD_BLOCK_SIZE;
 #endif
     // ---
-
-    // ** Variables related to the decompression thread (associated to reads) **
-    std::unique_ptr<DataDecompressionWorkPool> _decompress_thread_pool;
-
-    // ** Variables related to the current asynchronous I/O read operation **
-    // Total bytes transferred through the network by current read (for statistical purposes)
-    size_t _read_io_total_bytes_transferred;
-    // Number of network blocks remaining to transfer
-    size_t _read_io_num_blocks_remaining;
-    // Offset into the destination buffer where the data associated
-    // with the current read operation will go (after decompression)
-    size_t _read_io_destination_offset;
-    // Size of the current read operation
-    std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
-    // Target buffer of the current read operation
-    std::unique_ptr<uint8_t> _read_io_compressed_buffer;
 
     // ** Variables related to the compression thread (associated to writes) **
     std::unique_ptr<DataCompressionWorkPool> _compress_thread_pool;
@@ -278,6 +272,54 @@ private:
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;
 #endif
+};
+
+/*!
+ * \brief A data stream maintains a set of incoming and outgoing data transfers from/to a single remote process
+ */
+class DataStream : public InputDataStream, public OutputDataStream {
+public:
+    // TODO Accept rvalue reference rather than pointer to socket (requires Boost 1.47)
+    /*!
+     * \brief Creates a data stream from a connected socket
+     * The data stream becomes owner of the socket.
+     *
+     * \param[in]  socket   the socket to use for the data stream
+     */
+    DataStream(
+            const std::shared_ptr<boost::asio::ip::tcp::socket>& socket);
+    /*!
+     * \brief Creates a data stream to the specified remote endpoint
+     *
+     * \param socket            a socket associated with a local endpoint
+     * \param remote_endpoint   the remote process
+     */
+    DataStream(
+            const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
+            boost::asio::ip::tcp::endpoint remote_endpoint);
+    virtual ~DataStream() = default;
+
+    /* Data streams must be non-copyable */
+    DataStream(const DataStream&) = delete;
+    DataStream& operator=(const DataStream&) = delete;
+
+    /*!
+     * \brief Connects this data stream to its remote process
+     * The ID of the local process associated with this data stream is send to
+     * the remote process.
+     *
+     * \param[in]  pid  ID of the local process
+     * \return the ID of the remote process, or 0 if the connection has been rejected
+     */
+    dcl::process_id connect(
+            dcl::process_id pid);
+
+    void disconnect();
+
+private:
+    // TODO Store socket instance rather than smart pointer
+    std::shared_ptr<boost::asio::ip::tcp::socket> _socket; //!< I/O object for remote process
+    boost::asio::ip::tcp::endpoint _remote_endpoint; //!< remote endpoint of data stream
 };
 
 } // namespace comm
