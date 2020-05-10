@@ -45,6 +45,7 @@
 
 #include "DataTransferImpl.h"
 #include "DataTransferSentinelChecker.h"
+#include "DataTransferProfiler.h"
 
 #include <dcl/ByteBuffer.h>
 #include <dcl/Completable.h>
@@ -69,20 +70,6 @@
 #include <memory>
 #include <mutex>
 #include <utility>
-
-#define PROFILE_SEND_RECEIVE_BUFFER
-
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-#include <chrono>
-
-struct profile_send_receive_buffer_times {
-    dcl::transfer_id id;
-    size_t transfer_size;
-    std::chrono::time_point<std::chrono::steady_clock> enqueue_time;
-    std::chrono::time_point<std::chrono::steady_clock> start_time;
-    std::chrono::time_point<std::chrono::steady_clock> end_time;
-};
-#endif
 
 // TODOXXX: This class has grown way too large and has way too many responsabilities
 // It should be split into multiple files/classes like:
@@ -665,36 +652,7 @@ void InputDataStream::readToClBuffer(
     }
 #endif
 
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times();
-    try {
-        profile_times->id = transferId;
-        profile_times->transfer_size = size;
-        profile_times->enqueue_time = std::chrono::steady_clock::now();
-
-        startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-            profile_times->start_time = std::chrono::steady_clock::now();
-            dcl::util::Logger << dcl::util::Debug
-                              << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-                              << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-        }, profile_times);
-
-        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-            std::unique_ptr<profile_send_receive_buffer_times> profile_times(
-                        static_cast<profile_send_receive_buffer_times *>(user_data));
-            profile_times->end_time = std::chrono::steady_clock::now();
-            dcl::util::Logger << dcl::util::Debug
-                              << "(PROFILE) Receive with id " << profile_times->id << " of size " << profile_times->transfer_size
-                              << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                profile_times->end_time - profile_times->start_time).count() << std::endl;
-        }, profile_times);
-    } catch (...) {
-        delete profile_times;
-        throw;
-    }
-#endif
+    profile_transfer(profile_transfer_direction::receive, transferId, size, *startEvent, *endEvent);
 }
 
 OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
@@ -998,36 +956,7 @@ void OutputDataStream::writeFromClBuffer(
     cl::vector<cl::Event> unmapWaitList = {sendData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
 
-#ifdef PROFILE_SEND_RECEIVE_BUFFER
-    auto profile_times = new profile_send_receive_buffer_times();
-    try {
-        profile_times->id = transferId;
-        profile_times->transfer_size = size;
-        profile_times->enqueue_time = std::chrono::steady_clock::now();
-
-        startEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-            auto profile_times = ((profile_send_receive_buffer_times *)user_data);
-            profile_times->start_time = std::chrono::steady_clock::now();
-            dcl::util::Logger << dcl::util::Debug
-                << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-                << " started (ENQUEUE -> START) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                        profile_times->start_time - profile_times->enqueue_time).count() << std::endl;
-        }, profile_times);
-
-        endEvent->setCallback(CL_COMPLETE, [](cl_event,cl_int,void *user_data) {
-            std::unique_ptr<profile_send_receive_buffer_times> profile_times(
-                        static_cast<profile_send_receive_buffer_times *>(user_data));
-            profile_times->end_time = std::chrono::steady_clock::now();
-            dcl::util::Logger << dcl::util::Debug
-                << "(PROFILE) Send with id " << profile_times->id << " of size " << profile_times->transfer_size
-                << " uploaded (START -> END) on " << std::chrono::duration_cast<std::chrono::milliseconds>(
-                        profile_times->end_time - profile_times->start_time).count() << std::endl;
-        }, profile_times);
-    } catch (...) {
-        delete profile_times;
-        throw;
-    }
-#endif
+    profile_transfer(profile_transfer_direction::send, transferId, size, *startEvent, *endEvent);
 }
 
 } // namespace comm
