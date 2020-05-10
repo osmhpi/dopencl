@@ -50,6 +50,8 @@
 
 #include <dcl/DataTransfer.h>
 
+#include <common842.h>
+
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -81,7 +83,9 @@ public:
         std::unique_ptr<uint8_t[]> compress_buffer;
     };
 
-    DataCompressionWorkPool(std::function<std::ostream&(void)> error_logger,
+    DataCompressionWorkPool(lib842_compress_func compress842_func,
+                            unsigned int num_threads,
+                            std::function<std::ostream&(void)> error_logger,
                             std::function<std::ostream&(void)> debug_logger);
     ~DataCompressionWorkPool();
 
@@ -92,6 +96,7 @@ public:
 private:
     void loop_compress_thread(size_t thread_id);
 
+    lib842_compress_func _compress842_func;
     std::function<std::ostream&(void)> _error_logger;
     std::function<std::ostream&(void)> _debug_logger;
 

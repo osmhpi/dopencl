@@ -41,13 +41,9 @@
  * \author Joan Bruguera Micó
  */
 
-#ifdef IO_LINK_COMPRESSION
+// TODOXXX: Should add the code to spread the threads among NUMA zones for HW? (From lib842 sample)
 
-#include <sw842.h>
-#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-// TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
-#include <hw842.h>
-#endif
+#ifdef IO_LINK_COMPRESSION
 
 #include "DataDecompressionWorkPool.h"
 
@@ -56,34 +52,25 @@
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
 
-static int lib842_decompress(const uint8_t *in, size_t ilen,
-                             uint8_t *out, size_t *olen) {
-#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-    if (is_hw_io_link_compression_enabled())
-        return hw842_decompress(in ,ilen, out, olen);
-#endif
-
-    return optsw842_decompress(in, ilen, out, olen);
-}
-
 namespace dclasio {
 
 namespace comm {
 
 DataDecompressionWorkPool::DataDecompressionWorkPool(
+    lib842_decompress_func decompress842_func,
+    unsigned int num_threads,
     std::function<std::ostream&(void)> error_logger,
     std::function<std::ostream&(void)> debug_logger) :
+    _decompress842_func(decompress842_func),
     _error_logger(std::move(error_logger)),
     _debug_logger(std::move(debug_logger)),
-    _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
     _state(decompress_state::processing),
     _working_thread_count(0),
-    _finish_barrier(_threads.size()),
+    _finish_barrier(num_threads),
     _report_error(false) {
-
-    for (size_t i = 0; i < _threads.size(); i++) {
-        _threads[i] = std::thread{&DataDecompressionWorkPool::loop_decompress_thread, this, i};
-    }
+    _threads.reserve(num_threads);
+    for (size_t i = 0; i < num_threads; i++)
+        _threads.emplace_back(&DataDecompressionWorkPool::loop_decompress_thread, this, i);
 }
 
 DataDecompressionWorkPool::~DataDecompressionWorkPool() {
@@ -214,9 +201,9 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
                        chunk.compressed_length <= dcl::DataTransfer::COMPRESSIBLE_THRESHOLD);
 
                 size_t uncompressed_size = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
-                int ret = lib842_decompress(chunk.compressed_data,
-                                            chunk.compressed_length,
-                                            destination, &uncompressed_size);
+                int ret = _decompress842_func(chunk.compressed_data,
+                                              chunk.compressed_length,
+                                              destination, &uncompressed_size);
                 if (ret != 0) {
                     _error_logger()
                             << "Data decompression failed, aborting operation"

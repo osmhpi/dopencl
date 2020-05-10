@@ -47,6 +47,11 @@
 #include "DataTransferSentinelChecker.h"
 #include "DataTransferProfiler.h"
 
+#include <sw842.h>
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
+#include <hw842.h>
+#endif
+
 #include <dcl/Completable.h>
 #include <dcl/CLEventCompletable.h>
 #include <dcl/DCLTypes.h>
@@ -88,7 +93,15 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _sending(false) {
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
+        auto compress842_func = optsw842_compress;
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
+        if (is_hw_io_link_compression_enabled())
+            compress842_func = hw842_compress;
+#endif
+
         _compress_thread_pool.reset(new DataCompressionWorkPool(
+            compress842_func,
+            determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS"),
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));

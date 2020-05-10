@@ -41,48 +41,36 @@
  * \author Joan Bruguera Micó
  */
 
-#ifdef IO_LINK_COMPRESSION
+// TODOXXX: Should add the code to spread the threads among NUMA zones for HW? (From lib842 sample)
 
-#include <sw842.h>
-#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-// TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
-#include <hw842.h>
-#endif
+#ifdef IO_LINK_COMPRESSION
 
 #include "DataCompressionWorkPool.h"
 
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
 
-static int lib842_compress(const uint8_t *in, size_t ilen,
-                           uint8_t *out, size_t *olen) {
-#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-    if (is_hw_io_link_compression_enabled())
-        return hw842_compress(in ,ilen, out, olen);
-#endif
-
-    return optsw842_compress(in, ilen, out, olen);
-}
-
 namespace dclasio {
 
 namespace comm {
 
 DataCompressionWorkPool::DataCompressionWorkPool(
+    lib842_compress_func compress842_func,
+    unsigned int num_threads,
     std::function<std::ostream&(void)> error_logger,
     std::function<std::ostream&(void)> debug_logger) :
+    _compress842_func(compress842_func),
     _error_logger(std::move(error_logger)),
     _debug_logger(std::move(debug_logger)),
-    _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
     _trigger(false), _quit(false),
     _ptr(nullptr), _size(0), _skip_compress_step(false),
     _current_offset(0),
     _error(false),
-    _start_barrier(_threads.size()),
-    _finish_barrier(_threads.size()+1) {
-    for (size_t i = 0; i < _threads.size(); i++) {
-        _threads[i] = std::thread{&DataCompressionWorkPool::loop_compress_thread, this, i};
-    }
+    _start_barrier(num_threads),
+    _finish_barrier(num_threads+1) {
+    _threads.reserve(num_threads);
+    for (size_t i = 0; i < num_threads; i++)
+        _threads.emplace_back(&DataCompressionWorkPool::loop_compress_thread, this, i);
 }
 
 DataCompressionWorkPool::~DataCompressionWorkPool() {
@@ -190,7 +178,7 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
                     // Compress chunk
                     size_t compressed_size = CHUNK_PADDING;
 
-                    int ret = lib842_compress(source, CHUNK_SIZE, compressed_destination, &compressed_size);
+                    int ret = _compress842_func(source, CHUNK_SIZE, compressed_destination, &compressed_size);
                     if (ret != 0) {
                         _error_logger()
                             << "Data compression failed, aborting operation"

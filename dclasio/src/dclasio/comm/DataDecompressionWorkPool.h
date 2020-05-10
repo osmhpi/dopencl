@@ -50,6 +50,8 @@
 
 #include <dcl/DataTransfer.h>
 
+#include <common842.h>
+
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -93,7 +95,9 @@ public:
         std::unique_ptr<const uint8_t[]> compress_buffer;
     };
 
-    DataDecompressionWorkPool(std::function<std::ostream&(void)> error_logger,
+    DataDecompressionWorkPool(lib842_decompress_func decompress842_func,
+                              unsigned int num_threads,
+                              std::function<std::ostream&(void)> error_logger,
                               std::function<std::ostream&(void)> debug_logger);
     ~DataDecompressionWorkPool();
     /* Starts a new decompression operation. */
@@ -127,6 +131,7 @@ private:
         quitting
     };
 
+    lib842_decompress_func _decompress842_func;
     std::function<std::ostream&(void)> _error_logger;
     std::function<std::ostream&(void)> _debug_logger;
 
