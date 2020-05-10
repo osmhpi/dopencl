@@ -45,10 +45,11 @@
 #define OUTPUTDATASTREAM_H_
 
 #include "DataTransferImpl.h"
-#include "DataCompressionWorkPool.h"
 
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
+
+#include <compstream842.h>
 
 #include <boost/asio/ip/tcp.hpp>
 
@@ -134,16 +135,16 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = dcl::DataTransfer::NUM_CHUNKS_PER_NETWORK_BLOCK;
-    static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
-    static constexpr size_t NETWORK_BLOCK_SIZE = dcl::DataTransfer::NETWORK_BLOCK_SIZE;
+    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+    static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
+    static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     static constexpr size_t CL_UPLOAD_BLOCK_SIZE = dcl::DataTransfer::CL_UPLOAD_BLOCK_SIZE;
 #endif
     // ---
 
     // ** Variables related to the compression thread (associated to writes) **
-    std::unique_ptr<DataCompressionWorkPool> _compress_thread_pool;
+    std::unique_ptr<lib842::stream::DataCompressionStream> _compress_thread_pool;
 
     // ** Variables related to the current asynchronous I/O write operation **
     // Total bytes transferred through the network by current write (for statistical purposes)
@@ -154,7 +155,7 @@ private:
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
-    std::queue<DataCompressionWorkPool::compress_block> _write_io_queue;
+    std::queue<lib842::stream::DataCompressionStream::compress_block> _write_io_queue;
     bool _write_io_compression_error;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;

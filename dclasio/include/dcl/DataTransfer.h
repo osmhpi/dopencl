@@ -58,11 +58,6 @@
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #include <cl842.h>
-#else
-// TODOXXX very dirty hack to allow building with OpenCL I/O link compression disabled
-static const uint8_t CL842_COMPRESSED_CHUNK_MAGIC[16] = {
-    0xbe, 0x5a, 0x46, 0xbf, 0x97, 0xe5, 0x2d, 0xd7, 0xb2, 0x7c, 0x94, 0x1a, 0xee, 0xd6, 0x70, 0x76
-};
 #endif
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <hw842.h>
@@ -106,12 +101,6 @@ public:
 
 #ifdef IO_LINK_COMPRESSION
     // TODOXXX can this be moved to a better place?
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = 16;
-    static constexpr size_t COMPR842_CHUNK_SIZE = 65536;
-    static constexpr size_t NETWORK_BLOCK_SIZE = NUM_CHUNKS_PER_NETWORK_BLOCK * COMPR842_CHUNK_SIZE;
-    // This constant must be synchronized with the constant in lib842 (cl842)
-    // for the integration with OpenCL-based decompression to work
-    static constexpr size_t COMPRESSIBLE_THRESHOLD = ((COMPR842_CHUNK_SIZE - sizeof(CL842_COMPRESSED_CHUNK_MAGIC) - sizeof(uint64_t)));
     static constexpr size_t CL_UPLOAD_BLOCK_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
 #endif
 };

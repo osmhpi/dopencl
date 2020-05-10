@@ -44,11 +44,15 @@
 #include "Context.h"
 #include "Device.h"
 
+#include <dcl/CLEventCompletable.h>
 #include <dcl/ComputeNode.h>
 #include <dcl/ContextListener.h>
+#include <dcl/DataTransfer.h>
 #include <dcl/Device.h>
 #include <dcl/Host.h>
 #include <dcl/DCLTypes.h>
+
+#include <commonstream842.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -63,9 +67,6 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-
-#include <dcl/CLEventCompletable.h>
-#include <dcl/DataTransfer.h>
 
 namespace {
 
@@ -121,8 +122,8 @@ Context::Context(
         _cl842DeviceDecompressor = std::unique_ptr<CL842DeviceDecompressor>(
             new CL842DeviceDecompressor(
                 _context, nativeDevices,
-                dcl::DataTransfer::COMPR842_CHUNK_SIZE,
-                dcl::DataTransfer::COMPR842_CHUNK_SIZE,
+                lib842::stream::COMPR842_CHUNK_SIZE,
+                lib842::stream::COMPR842_CHUNK_SIZE,
 #if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
                 CL842InputFormat::MAYBE_COMPRESSED_CHUNKS
 #else // Inplace compressed

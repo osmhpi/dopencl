@@ -53,6 +53,8 @@
 
 #include <dcl/util/Logger.h>
 
+#include <commonstream842.h>
+
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 #define CL_HPP_ENABLE_EXCEPTIONS
@@ -76,7 +78,7 @@ static size_t get_buffer_overallocate_amount() {
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
         // When using in-place OpenCL-based compression, we need to over-allocate some space
         // at the end of the buffer to allow the lookahead to read a bit past the bufer
-        return dcl::DataTransfer::COMPR842_CHUNK_SIZE / 8;
+        return lib842::stream::COMPR842_CHUNK_SIZE / 8;
     }
 #endif
 #endif

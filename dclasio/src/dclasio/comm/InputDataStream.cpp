@@ -57,6 +57,7 @@
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <hw842.h>
 #endif
+#include <decompstream842.h>
 
 #include <boost/asio/buffer.hpp>
 
@@ -100,7 +101,7 @@ InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
             decompress842_func = hw842_decompress;
 #endif
 
-        _decompress_thread_pool.reset(new DataDecompressionWorkPool(
+        _decompress_thread_pool.reset(new lib842::stream::DataDecompressionStream(
             decompress842_func,
             determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS"),
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
@@ -295,8 +296,8 @@ void InputDataStream::read_next_compressed_block() {
                     uint8_t *destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE;
 
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && _read_op->skip_compress_step()) {
-                        std::copy(CL842_COMPRESSED_CHUNK_MAGIC, CL842_COMPRESSED_CHUNK_MAGIC + sizeof(CL842_COMPRESSED_CHUNK_MAGIC), destination);
-                        *reinterpret_cast<uint64_t *>((destination + sizeof(CL842_COMPRESSED_CHUNK_MAGIC))) = _read_io_buffer_sizes[i];
+                        std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), destination);
+                        *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_buffer_sizes[i];
                         destination += CHUNK_SIZE - _read_io_buffer_sizes[i]; // Write compressed data at the end
                     } else {
                         assert(_read_io_buffer_sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
@@ -317,12 +318,12 @@ void InputDataStream::read_next_compressed_block() {
                 }
 
                 // Push into the queue for decompression
-                DataDecompressionWorkPool::decompress_block dm;
+                lib842::stream::DataDecompressionStream::decompress_block dm;
                 dm.compress_buffer.reset(_read_io_compressed_buffer.release());
                 bool should_uncompress_any = false;
                 for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk(
+                        dm.chunks[i] = lib842::stream::DataDecompressionStream::decompress_chunk(
                             dm.compress_buffer.get() + compressed_buffer_offset,
                             _read_io_buffer_sizes[i],
                             static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
@@ -471,7 +472,7 @@ void InputDataStream::readToClBuffer(
                 cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS], &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
                 // Rounds down (partial chunks are not compressed by InputDataStream)
-                size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
+                size_t chunksSize = split_size & ~(lib842::stream::COMPR842_CHUNK_SIZE - 1);
                 if (chunksSize > 0) {
                     cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
                     cl842DeviceDecompressor->decompress(commandQueue,
@@ -545,7 +546,7 @@ void InputDataStream::readToClBuffer(
             cl::vector<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
             // Rounds down (partial chunks are not compressed by InputDataStream)
-            size_t chunksSize = split_size & ~(dcl::DataTransfer::COMPR842_CHUNK_SIZE - 1);
+            size_t chunksSize = split_size & ~(lib842::stream::COMPR842_CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
                 cl842DeviceDecompressor->decompress(commandQueue,

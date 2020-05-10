@@ -51,6 +51,7 @@
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <hw842.h>
 #endif
+#include <compstream842.h>
 
 #include <dcl/Completable.h>
 #include <dcl/CLEventCompletable.h>
@@ -99,7 +100,7 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
             compress842_func = hw842_compress;
 #endif
 
-        _compress_thread_pool.reset(new DataCompressionWorkPool(
+        _compress_thread_pool.reset(new lib842::stream::DataCompressionStream(
             compress842_func,
             determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS"),
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
@@ -236,7 +237,7 @@ void OutputDataStream::start_write(writeq_type *writeq) {
         if (write->size() >= NETWORK_BLOCK_SIZE) {
             _compress_thread_pool->start(
                 write->ptr(), write->size(), write->skip_compress_step(),
-                [this, writeq, write](DataCompressionWorkPool::compress_block &&block) {
+                [this, writeq, write](lib842::stream::DataCompressionStream::compress_block &&block) {
                 {
                     std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
                     if (block.source_offset == SIZE_MAX)
