@@ -46,9 +46,9 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-#include <dcl/DataTransfer.h>
+#include "Barrier.h"
 
-#include <boost/thread/barrier.hpp>
+#include <dcl/DataTransfer.h>
 
 #include <thread>
 #include <mutex>
@@ -118,10 +118,10 @@ private:
     std::atomic<bool> _error;
     // Barrier for starting compression, necessary for ensuring that all compression
     // threads have seen the trigger to start compressing before unsetting it
-    boost::barrier _start_barrier;
+    barrier _start_barrier;
     // Barrier for finishing compression, necessary for ensuring that resources
     // are not released until all threads have finished
-    boost::barrier _finish_barrier;
+    barrier _finish_barrier;
 };
 
 } // namespace comm

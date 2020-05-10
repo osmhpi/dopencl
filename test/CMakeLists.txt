@@ -7,7 +7,7 @@ set(DOPENCL_LIBRARY_DIR "${dOpenCLlib_BINARY_DIR}" CACHE PATH "Path to dOpenCL l
 set(DOPENCL_ICD_DIR "${dOpenCLicd_BINARY_DIR}" CACHE PATH "Path to dOpenCL ICD")
 
 # search for Boost.Threads
-find_package(Boost 1.41.0 COMPONENTS thread unit_test_framework REQUIRED)
+find_package(Boost 1.41.0 COMPONENTS unit_test_framework REQUIRED)
 
 include_directories(${DOPENCL_INCLUDE_DIR}
                     ${Boost_INCLUDE_DIRS})

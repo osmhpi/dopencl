@@ -46,9 +46,9 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-#include <dcl/DataTransfer.h>
+#include "Barrier.h"
 
-#include <boost/thread/barrier.hpp>
+#include <dcl/DataTransfer.h>
 
 #include <condition_variable>
 #include <mutex>
@@ -146,7 +146,7 @@ private:
     std::condition_variable _queue_available;
     // Barrier for finishing decompression, necessary for ensuring that resources
     // are not released until all threads have finished
-    boost::barrier _finish_barrier;
+    barrier _finish_barrier;
 };
 
 } // namespace comm

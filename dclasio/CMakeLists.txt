@@ -8,7 +8,7 @@ option(BUILD_SHARED_LIBS "Build shared library" ON)
 find_package(Threads REQUIRED)
 
 # search for Boost System Library (required by Boost.Asio) Library
-find_package(Boost 1.35.0 COMPONENTS system thread REQUIRED)
+find_package(Boost 1.35.0 COMPONENTS system REQUIRED)
 
 # search for Doxygen
 find_package(Doxygen)
