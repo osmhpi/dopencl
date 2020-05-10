@@ -76,7 +76,10 @@ public:
         void *destination;
 
         // Disable default copy constructor/assignment to prevent accidental performance hit
-        decompress_chunk() = default;
+        decompress_chunk() :
+            compressed_data(nullptr), compressed_length(0), destination(nullptr) { }
+        decompress_chunk(const uint8_t *compressed_data, size_t compressed_length, void *destination) :
+            compressed_data(compressed_data), compressed_length(compressed_length), destination(destination) { }
         decompress_chunk(const decompress_chunk &) = delete;
         decompress_chunk& operator=(const decompress_chunk &) = delete;
         decompress_chunk(decompress_chunk &&) = default;

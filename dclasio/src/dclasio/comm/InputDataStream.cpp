@@ -309,19 +309,13 @@ void InputDataStream::read_next_compressed_block() {
                 bool should_uncompress_any = false;
                 for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk{
-                            .compressed_data = dm.compress_buffer.get() + compressed_buffer_offset,
-                            .compressed_length = _read_io_buffer_sizes[i],
-                            .destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
-                        };
+                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk(
+                            dm.compress_buffer.get() + compressed_buffer_offset,
+                            _read_io_buffer_sizes[i],
+                            static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
+                        );
                         compressed_buffer_offset += _read_io_buffer_sizes[i];
                         should_uncompress_any = true;
-                    } else {
-                        dm.chunks[i] = DataDecompressionWorkPool::decompress_chunk{
-                            .compressed_data = nullptr,
-                            .compressed_length = 0,
-                            .destination = nullptr
-                        };
                     }
                 }
 
