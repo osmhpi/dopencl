@@ -51,13 +51,17 @@
 
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
+#include <boost/system/error_code.hpp>
+
 #ifdef USE_SENTINELS
 #include <dcl/util/Logger.h>
 
 #include <vector>
 #include <memory>
+#include <algorithm>
 
-static constexpr unsigned int SENTINEL_START = 0x12345678, SENTINEL_END = 0x87654321;
+static constexpr const unsigned char SENTINEL_START[4] = {0x12, 0x34, 0x56, 0x78},
+                                     SENTINEL_END[4] =   {0x87, 0x65, 0x43, 0x21};
 #endif
 
 namespace dclasio {
@@ -74,9 +78,9 @@ static auto boost_asio_async_write_with_sentinels(AsyncWriteStream &s, const Con
 #ifdef USE_SENTINELS
     std::vector<boost::asio::const_buffer> buffers_with_sentinels;
     for (const auto &b : buffers) {
-        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_START, sizeof(SENTINEL_START)));
+        buffers_with_sentinels.push_back(boost::asio::buffer(SENTINEL_START, sizeof(SENTINEL_START)));
         buffers_with_sentinels.push_back(b);
-        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_END, sizeof(SENTINEL_END)));
+        buffers_with_sentinels.push_back(boost::asio::buffer(SENTINEL_END, sizeof(SENTINEL_END)));
     }
     return boost::asio::async_write(s, buffers_with_sentinels, handler);
 #else
@@ -93,7 +97,7 @@ static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const Mutab
     -> decltype(boost::asio::async_read(s, buffers, handler)) {
 #ifdef USE_SENTINELS
     struct sentinel_t {
-        unsigned int start, end;
+        unsigned char start[sizeof(SENTINEL_START)], end[sizeof(SENTINEL_END)];
     };
 
     // Since the sentinels need to survive the asynchronous read call, we need to use a
@@ -106,9 +110,9 @@ static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const Mutab
     size_t i = 0;
     std::vector<boost::asio::mutable_buffer> buffers_with_sentinels;
     for (const auto &b : buffers) {
-        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].start, sizeof(sentinel_t::start)));
+        buffers_with_sentinels.push_back(boost::asio::buffer((*sentinels)[i].start, sizeof(sentinel_t::start)));
         buffers_with_sentinels.push_back(b);
-        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].end, sizeof(sentinel_t::end)));
+        buffers_with_sentinels.push_back(boost::asio::buffer((*sentinels)[i].end, sizeof(sentinel_t::end)));
         i++;
     }
 
@@ -118,7 +122,8 @@ static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const Mutab
                 if (!ec) { // On error, we expect the original handler to handle the failure
                     if (!std::all_of(sentinels->begin(), sentinels->end(),
                         [](const sentinel_t &s) {
-                            return s.start == SENTINEL_START && s.end == SENTINEL_END;
+                            return std::equal(SENTINEL_START, SENTINEL_START + sizeof(SENTINEL_START), s.start) &&
+                                std::equal(SENTINEL_END, SENTINEL_END + sizeof(SENTINEL_END), s.end);
                         })) {
                         dcl::util::Logger << dcl::util::Error
                                 << "DataStream: Mismatched read/write calls (sentinel mismatch)"
