@@ -49,12 +49,12 @@
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
-#include <decompstream842.h>
+#include <lib842/stream/decomp.h>
 
 #include <boost/asio/ip/tcp.hpp>
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <cl842.h>
+#include <lib842/cl.h>
 #endif
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
@@ -103,7 +103,7 @@ public:
             size_t size,
             const cl::Context &context,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-            const CL842DeviceDecompressor *cl842DeviceDecompressor,
+            const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
 #endif
             const cl::CommandQueue &commandQueue,
             const cl::Buffer &buffer,

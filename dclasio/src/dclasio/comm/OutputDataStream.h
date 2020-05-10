@@ -49,7 +49,7 @@
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
-#include <compstream842.h>
+#include <lib842/stream/comp.h>
 
 #include <boost/asio/ip/tcp.hpp>
 

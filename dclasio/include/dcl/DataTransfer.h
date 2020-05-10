@@ -57,10 +57,10 @@
 #include <cstdint>
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <cl842.h>
+#include <lib842/cl.h>
 #endif
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-#include <hw842.h>
+#include <lib842/hw.h>
 #endif
 #if defined(IO_LINK_COMPRESSION)
 #include <cstdlib>

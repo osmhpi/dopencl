@@ -47,11 +47,11 @@
 #include "DataTransferSentinelChecker.h"
 #include "DataTransferProfiler.h"
 
-#include <sw842.h>
+#include <lib842/sw.h>
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-#include <hw842.h>
+#include <lib842/hw.h>
 #endif
-#include <compstream842.h>
+#include <lib842/stream/comp.h>
 
 #include <dcl/Completable.h>
 #include <dcl/CLEventCompletable.h>

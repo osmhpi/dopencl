@@ -184,7 +184,7 @@ void ProcessImpl::receiveDataToClBuffer(
     size_t size,
     const cl::Context &context,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    const CL842DeviceDecompressor *cl842DeviceDecompressor,
+    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
 #endif
     const cl::CommandQueue &commandQueue,
     const cl::Buffer &buffer,

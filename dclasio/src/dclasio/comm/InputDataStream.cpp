@@ -53,11 +53,11 @@
 
 #include <dcl/util/Logger.h>
 
-#include <sw842.h>
+#include <lib842/sw.h>
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-#include <hw842.h>
+#include <lib842/hw.h>
 #endif
-#include <decompstream842.h>
+#include <lib842/stream/decomp.h>
 
 #include <boost/asio/buffer.hpp>
 
@@ -411,7 +411,7 @@ void InputDataStream::readToClBuffer(
         size_t size,
         const cl::Context &context,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-        const CL842DeviceDecompressor *cl842DeviceDecompressor,
+        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
 #endif
         const cl::CommandQueue &commandQueue,
         const cl::Buffer &buffer,

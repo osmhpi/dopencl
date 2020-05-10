@@ -52,7 +52,7 @@
 #include <dcl/Host.h>
 #include <dcl/DCLTypes.h>
 
-#include <commonstream842.h>
+#include <lib842/stream/common.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -119,15 +119,15 @@ Context::Context(
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
-        _cl842DeviceDecompressor = std::unique_ptr<CL842DeviceDecompressor>(
-            new CL842DeviceDecompressor(
+        _cl842DeviceDecompressor = std::unique_ptr<lib842::CLDeviceDecompressor>(
+            new lib842::CLDeviceDecompressor(
                 _context, nativeDevices,
                 lib842::stream::COMPR842_CHUNK_SIZE,
                 lib842::stream::COMPR842_CHUNK_SIZE,
 #if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
-                CL842InputFormat::MAYBE_COMPRESSED_CHUNKS
+                lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
 #else // Inplace compressed
-                CL842InputFormat::INPLACE_COMPRESSED_CHUNKS
+                lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
 #endif
         ));
     }

@@ -61,7 +61,7 @@
 #endif
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <cl842.h>
+#include <lib842/cl.h>
 #endif
 
 #include <cstddef>
@@ -138,7 +138,7 @@ private:
     std::shared_ptr<dcl::ContextListener> _listener;
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    std::unique_ptr<CL842DeviceDecompressor> _cl842DeviceDecompressor;
+    std::unique_ptr<lib842::CLDeviceDecompressor> _cl842DeviceDecompressor;
 #endif
 };
 

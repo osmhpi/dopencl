@@ -66,7 +66,7 @@
 #include <string>
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <cl842.h>
+#include <lib842/cl.h>
 #endif
 
 namespace dcl {
@@ -141,7 +141,7 @@ public:
 			size_t size,
 			const cl::Context &context,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-			const CL842DeviceDecompressor *cl842DeviceDecompressor,
+			const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
 #endif
 			const cl::CommandQueue &commandQueue,
 			const cl::Buffer &buffer,
