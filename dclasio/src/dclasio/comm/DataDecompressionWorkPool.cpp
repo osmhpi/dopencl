@@ -51,6 +51,8 @@
 
 #include "DataDecompressionWorkPool.h"
 
+#include <cassert>
+
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
 
