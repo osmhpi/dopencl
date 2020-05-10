@@ -49,6 +49,7 @@
 // This is useful as a "fail fast" for stream desynchronization, for bugs such as race conditions
 //#define USE_SENTINELS
 
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/system/error_code.hpp>
