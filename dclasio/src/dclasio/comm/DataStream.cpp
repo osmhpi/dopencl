@@ -44,6 +44,7 @@
 #include "DataStream.h"
 
 #include "DataTransferImpl.h"
+#include "DataTransferSentinelChecker.h"
 
 #include <dcl/ByteBuffer.h>
 #include <dcl/Completable.h>
@@ -53,7 +54,9 @@
 #include <dcl/util/Logger.h>
 
 #include <boost/asio/buffer.hpp>
+#ifdef USE_DATA_STREAM_RESPONSE
 #include <boost/asio/read.hpp>
+#endif
 #include <boost/asio/write.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
@@ -119,86 +122,6 @@ static void next_cl_split_transfer_id(dcl::transfer_id &transfer_id) {
 
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
-
-// If USE_SENTINELS is defined, special marker sequences are included and checked before/after each data transfer
-// If marker sequences in a read operation don't match those in each write operation, an assertion will be triggered
-// This is useful as a "fail fast" for stream desynchronization, for bugs such as race conditions
-//#define USE_SENTINELS
-
-#ifdef USE_SENTINELS
-static constexpr unsigned int SENTINEL_START = 0x12345678, SENTINEL_END = 0x87654321;
-#endif
-
-/**
- * Like boost::asio::async_write, but also sends sentinels
- * through the stream if USE_SENTINELS is set.
- */
-template<typename AsyncWriteStream, typename ConstBufferSequence, typename WriteHandler>
-static auto boost_asio_async_write_with_sentinels(AsyncWriteStream &s, const ConstBufferSequence &buffers, WriteHandler &&handler)
-    -> decltype(boost::asio::async_write(s, buffers, handler)) {
-#ifdef USE_SENTINELS
-    std::vector<boost::asio::const_buffer> buffers_with_sentinels;
-    for (const auto &b : buffers) {
-        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_START, sizeof(SENTINEL_START)));
-        buffers_with_sentinels.push_back(b);
-        buffers_with_sentinels.push_back(boost::asio::buffer(&SENTINEL_END, sizeof(SENTINEL_END)));
-    }
-    return boost::asio::async_write(s, buffers_with_sentinels, handler);
-#else
-    return boost::asio::async_write(s, buffers, handler);
-#endif
-}
-
-/**
- * Like boost::asio::async_read, but also reads and verifies sentinels
- * through the stream if USE_SENTINELS is set.
- */
-template<typename AsyncReadStream, typename MutableBufferSequence, typename ReadHandler>
-static auto boost_asio_async_read_with_sentinels(AsyncReadStream &s, const MutableBufferSequence &buffers, ReadHandler &&handler)
-    -> decltype(boost::asio::async_read(s, buffers, handler)) {
-#ifdef USE_SENTINELS
-    struct sentinel_t {
-        unsigned int start, end;
-    };
-
-    // Since the sentinels need to survive the asynchronous read call, we need to use a
-    // std::shared_ptr for the sentinels to survive until the read completes
-    // TODO: This can be a std::unique_ptr in C++14 with lambda generalized capture
-    //       https://stackoverflow.com/a/16968463
-    auto sentinels(std::make_shared<std::vector<sentinel_t>>(
-            std::distance(buffers.begin(), buffers.end())));
-
-    size_t i = 0;
-    std::vector<boost::asio::mutable_buffer> buffers_with_sentinels;
-    for (const auto &b : buffers) {
-        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].start, sizeof(sentinel_t::start)));
-        buffers_with_sentinels.push_back(b);
-        buffers_with_sentinels.push_back(boost::asio::buffer(&(*sentinels)[i].end, sizeof(sentinel_t::end)));
-        i++;
-    }
-
-    return boost::asio::async_read(
-            s, buffers_with_sentinels,
-            [handler, sentinels](const boost::system::error_code &ec, size_t bytes_transferred) {
-                if (!ec) { // On error, we expect the original handler to handle the failure
-                    if (!std::all_of(sentinels->begin(), sentinels->end(),
-                        [](const sentinel_t &s) {
-                            return s.start == SENTINEL_START && s.end == SENTINEL_END;
-                        })) {
-                        dcl::util::Logger << dcl::util::Error
-                                << "DataStream: Mismatched read/write calls (sentinel mismatch)"
-                                << std::endl;
-                        handler(boost::system::errc::make_error_code(boost::system::errc::io_error),
-                                bytes_transferred);
-                        return;
-                    }
-                }
-                handler(ec, bytes_transferred);
-            });
-#else
-    return boost::asio::async_read(s, buffers, handler);
-#endif
-}
 
 namespace dclasio {
 
