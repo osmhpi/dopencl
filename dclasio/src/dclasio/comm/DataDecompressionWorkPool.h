@@ -62,6 +62,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <memory>
+#include <ostream>
 
 namespace dclasio {
 
@@ -89,7 +90,8 @@ public:
         std::unique_ptr<const uint8_t[]> compress_buffer;
     };
 
-    DataDecompressionWorkPool();
+    DataDecompressionWorkPool(std::function<std::ostream&(void)> error_logger,
+                              std::function<std::ostream&(void)> debug_logger);
     ~DataDecompressionWorkPool();
     /* Starts a new decompression operation. */
     void start();
@@ -121,6 +123,9 @@ private:
         // The thread pool is being destroyed
         quitting
     };
+
+    std::function<std::ostream&(void)> _error_logger;
+    std::function<std::ostream&(void)> _debug_logger;
 
     // Instance of the decompression threads
     std::vector<std::thread> _threads;

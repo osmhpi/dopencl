@@ -88,7 +88,10 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _sending(false) {
 #ifdef IO_LINK_COMPRESSION
     if (is_io_link_compression_enabled()) {
-        _compress_thread_pool.reset(new DataCompressionWorkPool());
+        _compress_thread_pool.reset(new DataCompressionWorkPool(
+            []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
+            []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
+        ));
     }
 #endif
 }

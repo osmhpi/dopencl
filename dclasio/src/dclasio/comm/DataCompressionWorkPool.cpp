@@ -43,8 +43,6 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-#include <dcl/util/Logger.h>
-
 #include <sw842.h>
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 // TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
@@ -70,7 +68,11 @@ namespace dclasio {
 
 namespace comm {
 
-DataCompressionWorkPool::DataCompressionWorkPool() :
+DataCompressionWorkPool::DataCompressionWorkPool(
+    std::function<std::ostream&(void)> error_logger,
+    std::function<std::ostream&(void)> debug_logger) :
+    _error_logger(std::move(error_logger)),
+    _debug_logger(std::move(debug_logger)),
     _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS")),
     _trigger(false), _quit(false),
     _ptr(nullptr), _size(0), _skip_compress_step(false),
@@ -119,7 +121,7 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
     static constexpr size_t CHUNK_SIZE = dcl::DataTransfer::COMPR842_CHUNK_SIZE;
 
 #ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
+    _debug_logger()
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start compression thread with id " << thread_id
         << std::endl;
@@ -190,7 +192,7 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
 
                     int ret = lib842_compress(source, CHUNK_SIZE, compressed_destination, &compressed_size);
                     if (ret != 0) {
-                        dcl::util::Logger << dcl::util::Error
+                        _error_logger()
                             << "Data compression failed, aborting operation"
                             << std::endl;
                         block.source_offset = SIZE_MAX;
@@ -219,7 +221,7 @@ void DataCompressionWorkPool::loop_compress_thread(size_t thread_id) {
     }
 
 #ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
+    _debug_logger()
         << "(DataStream to " << _remote_endpoint << ") "
         << "End compression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
         << std::endl;

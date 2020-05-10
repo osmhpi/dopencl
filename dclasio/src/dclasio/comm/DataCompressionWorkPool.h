@@ -61,6 +61,7 @@
 #include <cstdint>
 #include <memory>
 #include <functional>
+#include <ostream>
 
 namespace dclasio {
 
@@ -80,7 +81,8 @@ public:
         std::unique_ptr<uint8_t[]> compress_buffer;
     };
 
-    DataCompressionWorkPool();
+    DataCompressionWorkPool(std::function<std::ostream&(void)> error_logger,
+                            std::function<std::ostream&(void)> debug_logger);
     ~DataCompressionWorkPool();
 
     void start(const void *ptr, size_t size, bool skip_compress_step,
@@ -89,6 +91,9 @@ public:
 
 private:
     void loop_compress_thread(size_t thread_id);
+
+    std::function<std::ostream&(void)> _error_logger;
+    std::function<std::ostream&(void)> _debug_logger;
 
     // Instance of the compression thread
     std::vector<std::thread> _threads;

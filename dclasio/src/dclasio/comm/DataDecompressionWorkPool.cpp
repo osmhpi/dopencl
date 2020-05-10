@@ -43,8 +43,6 @@
 
 #ifdef IO_LINK_COMPRESSION
 
-#include <dcl/util/Logger.h>
-
 #include <sw842.h>
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 // TODOXXX: Should add the code to spread the threads among NUMA zones? (From lib842 sample)
@@ -70,7 +68,11 @@ namespace dclasio {
 
 namespace comm {
 
-DataDecompressionWorkPool::DataDecompressionWorkPool() :
+DataDecompressionWorkPool::DataDecompressionWorkPool(
+    std::function<std::ostream&(void)> error_logger,
+    std::function<std::ostream&(void)> debug_logger) :
+    _error_logger(std::move(error_logger)),
+    _debug_logger(std::move(debug_logger)),
     _threads(determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS")),
     _state(decompress_state::processing),
     _working_thread_count(0),
@@ -136,7 +138,7 @@ void DataDecompressionWorkPool::finalize(bool cancel, const std::function<void(b
 
 void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
 #ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
+    _debug_logger()
         << "(DataStream to " << _remote_endpoint << ") "
         << "Start decompression thread with id " << thread_id
         << std::endl;
@@ -214,7 +216,7 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
                                             chunk.compressed_length,
                                             destination, &uncompressed_size);
                 if (ret != 0) {
-                    dcl::util::Logger << dcl::util::Error
+                    _error_logger()
                             << "Data decompression failed, aborting operation"
                             << std::endl;
 
@@ -235,7 +237,7 @@ void DataDecompressionWorkPool::loop_decompress_thread(size_t thread_id) {
     }
 
 #ifdef INDEPTH_TRACE
-    dcl::util::Logger << dcl::util::Debug
+    _debug_logger()
         << "(DataStream to " << _remote_endpoint << ") "
         << "End decompression thread with id " << thread_id << " (stat_handled_blocks=" << stat_handled_blocks << ")"
         << std::endl;
