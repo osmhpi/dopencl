@@ -100,10 +100,13 @@ InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
         if (is_hw_io_link_compression_enabled())
             decompress842_func = hw842_decompress;
 #endif
+        auto num_threads = determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS");
+        auto thread_policy = !determine_io_link_compression_spread_threads("DCL_IO_LINK_NUM_DECOMPRESS_SPREAD")
+            ? lib842::stream::thread_policy::use_defaults
+            : lib842::stream::thread_policy::spread_threads_among_numa_nodes;
 
         _decompress_thread_pool.reset(new lib842::stream::DataDecompressionStream(
-            decompress842_func,
-            determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS"),
+            decompress842_func, num_threads, thread_policy,
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));

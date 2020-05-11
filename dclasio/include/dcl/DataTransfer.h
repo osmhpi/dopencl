@@ -150,6 +150,10 @@ static unsigned int determine_io_link_compression_num_threads(const char *env_na
 
     return hardware_concurrency;
 }
+
+static bool determine_io_link_compression_spread_threads(const char *env_name) {
+    return std::getenv(env_name) != nullptr;
+}
 #endif
 
 #endif /* DATATRANSFER_H_ */
