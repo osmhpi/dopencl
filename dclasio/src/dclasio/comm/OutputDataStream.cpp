@@ -80,20 +80,15 @@ namespace dclasio {
 namespace comm {
 
 #ifdef IO_LINK_COMPRESSION
-// Declarations for static constexpr are sometimes required to avoid build errors
-// See https://stackoverflow.com/questions/8016780/undefined-reference-to-static-constexpr-char
-constexpr size_t OutputDataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-constexpr size_t OutputDataStream::CHUNK_SIZE;
-constexpr size_t OutputDataStream::NETWORK_BLOCK_SIZE;
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-constexpr size_t OutputDataStream::CL_UPLOAD_BLOCK_SIZE;
-#endif
+static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
+static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
 #endif
 
 OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _sending(false) {
 #ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled()) {
         auto compress842_func = optsw842_compress;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
         if (is_hw_io_link_compression_enabled())
@@ -142,7 +137,7 @@ void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) 
     std::vector<std::shared_ptr<DataSending>> writes = {write};
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
+    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
         write->size() > CL_UPLOAD_BLOCK_SIZE) {
         // TODOXXX: The OpenCL-based decompression code does work in blocks of
         //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
@@ -231,7 +226,7 @@ void OutputDataStream::start_write(writeq_type *writeq) {
      */
 
 #ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled()) {
         _write_io_compression_error = false;
         _write_io_channel_busy = false;
         _write_io_total_bytes_transferred = 0;

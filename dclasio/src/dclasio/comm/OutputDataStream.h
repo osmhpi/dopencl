@@ -135,14 +135,6 @@ private:
     std::mutex _writeq_mtx; //!< protects write queue and flag
 
 #ifdef IO_LINK_COMPRESSION
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-    static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
-    static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = dcl::DataTransfer::CL_UPLOAD_BLOCK_SIZE;
-#endif
-    // ---
-
     // ** Variables related to the compression thread (associated to writes) **
     std::unique_ptr<lib842::stream::DataCompressionStream> _compress_thread_pool;
 

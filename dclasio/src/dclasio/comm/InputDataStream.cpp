@@ -80,21 +80,16 @@ namespace dclasio {
 namespace comm {
 
 #ifdef IO_LINK_COMPRESSION
-// Declarations for static constexpr are sometimes required to avoid build errors
-// See https://stackoverflow.com/questions/8016780/undefined-reference-to-static-constexpr-char
-constexpr size_t InputDataStream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-constexpr size_t InputDataStream::CHUNK_SIZE;
-constexpr size_t InputDataStream::NETWORK_BLOCK_SIZE;
-constexpr size_t InputDataStream::COMPRESSIBLE_THRESHOLD;
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-constexpr size_t InputDataStream::CL_UPLOAD_BLOCK_SIZE;
-#endif
+static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
+static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
+static constexpr size_t COMPRESSIBLE_THRESHOLD = lib842::stream::COMPRESSIBLE_THRESHOLD;
+static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
 #endif
 
 InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _read_state(receiving_state::idle) {
 #ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled()) {
         auto decompress842_func = optsw842_decompress;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
         if (is_hw_io_link_compression_enabled())
@@ -143,7 +138,7 @@ void InputDataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
     std::vector<std::shared_ptr<DataReceipt>> reads = {read};
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
+    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
         read->size() > CL_UPLOAD_BLOCK_SIZE) {
         // TODOXXX: The OpenCL-based decompression code does work in blocks of
         //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
@@ -237,7 +232,7 @@ void InputDataStream::start_read() {
     _read_op->onStart();
 
 #ifdef IO_LINK_COMPRESSION
-    if (is_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled()) {
         _decompress_thread_pool->start();
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = _read_op->size() / NETWORK_BLOCK_SIZE;
@@ -432,7 +427,7 @@ void InputDataStream::readToClBuffer(
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     bool can_use_cl_io_link_compression = false;
 
-    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled() &&
+    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
         size > 0 && cl842DeviceDecompressor != nullptr) {
         if (offset != 0) {
             // TODOXXX It should be possible to handle nonzero offset cases here by passing this

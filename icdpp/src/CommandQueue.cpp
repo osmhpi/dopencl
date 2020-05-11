@@ -444,7 +444,7 @@ void _cl_command_queue::enqueueRead(
 	// Enqueue read buffer command locally
 	auto skip_compress_step = false;
 #ifdef IO_LINK_COMPRESSION
-	if (is_io_link_compression_enabled() &&
+	if (dcl::is_io_link_compression_enabled() &&
 	    (cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
 		skip_compress_step = true;
 		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;
@@ -507,7 +507,7 @@ void _cl_command_queue::enqueueWrite(
 	// Enqueue write buffer command locally
 	auto skip_compress_step = false;
 #ifdef IO_LINK_COMPRESSION
-	if (is_io_link_compression_enabled() &&
+	if (dcl::is_io_link_compression_enabled() &&
 	    (cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
 		skip_compress_step = true;
 		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;

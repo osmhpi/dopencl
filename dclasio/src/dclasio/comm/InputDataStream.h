@@ -150,15 +150,6 @@ private:
     std::mutex _readq_mtx; //!< protects read queue and related variables
 
 #ifdef IO_LINK_COMPRESSION
-    static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-    static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
-    static constexpr size_t COMPRESSIBLE_THRESHOLD = lib842::stream::COMPRESSIBLE_THRESHOLD;
-    static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    static constexpr size_t CL_UPLOAD_BLOCK_SIZE = dcl::DataTransfer::CL_UPLOAD_BLOCK_SIZE;
-#endif
-    // ---
-
     // ** Variables related to the decompression thread (associated to reads) **
     std::unique_ptr<lib842::stream::DataDecompressionStream> _decompress_thread_pool;
 
@@ -171,7 +162,7 @@ private:
     // with the current read operation will go (after decompression)
     size_t _read_io_destination_offset;
     // Size of the current read operation
-    std::array<size_t, NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
+    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
     // Target buffer of the current read operation
     std::unique_ptr<uint8_t> _read_io_compressed_buffer;
 #endif

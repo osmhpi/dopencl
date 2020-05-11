@@ -118,7 +118,7 @@ Context::Context(
     _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (is_io_link_compression_enabled() && is_cl_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled()) {
         _cl842DeviceDecompressor = std::unique_ptr<lib842::CLDeviceDecompressor>(
             new lib842::CLDeviceDecompressor(
                 _context, nativeDevices,
