@@ -80,9 +80,9 @@ namespace dclasio {
 namespace comm {
 
 #ifdef IO_LINK_COMPRESSION
-static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
-static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
+using lib842::stream::CHUNK_SIZE;
+using lib842::stream::NUM_CHUNKS_PER_BLOCK;
+using lib842::stream::BLOCK_SIZE;
 #endif
 
 OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
@@ -230,9 +230,9 @@ void OutputDataStream::start_write(writeq_type *writeq) {
         _write_io_compression_error = false;
         _write_io_channel_busy = false;
         _write_io_total_bytes_transferred = 0;
-        _write_io_num_blocks_remaining = write->size() / NETWORK_BLOCK_SIZE;
+        _write_io_num_blocks_remaining = write->size() / BLOCK_SIZE;
 
-        if (write->size() >= NETWORK_BLOCK_SIZE) {
+        if (write->size() >= BLOCK_SIZE) {
             _compress_thread_pool->start(
                 write->ptr(), write->size(), write->skip_compress_step(),
                 [this, writeq, write](lib842::stream::DataCompressionStream::compress_block &&block) {
@@ -274,7 +274,7 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
         _write_io_num_blocks_remaining = SIZE_MAX;
         lock.unlock();
 
-        assert(write->size() >= NETWORK_BLOCK_SIZE);
+        assert(write->size() >= BLOCK_SIZE);
         _compress_thread_pool->finish(false);
         handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
                      _write_io_total_bytes_transferred);
@@ -292,10 +292,10 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
         lock.unlock();
 
         // Chunk I/O
-        std::array<boost::asio::const_buffer, 2 + NUM_CHUNKS_PER_NETWORK_BLOCK> send_buffers;
+        std::array<boost::asio::const_buffer, 2 + NUM_CHUNKS_PER_BLOCK> send_buffers;
         send_buffers[0] = boost::asio::buffer(&block.source_offset, sizeof(size_t));
-        send_buffers[1] = boost::asio::buffer(&block.sizes, sizeof(size_t) * NUM_CHUNKS_PER_NETWORK_BLOCK);
-        for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++)
+        send_buffers[1] = boost::asio::buffer(&block.sizes, sizeof(size_t) * NUM_CHUNKS_PER_BLOCK);
+        for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++)
             send_buffers[2 + i] = boost::asio::buffer(block.datas[i], block.sizes[i]);
         boost_asio_async_write_with_sentinels(_socket, send_buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
@@ -307,7 +307,7 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
              lock.unlock();
 
              if (ec) {
-                 assert(write->size() >= NETWORK_BLOCK_SIZE);
+                 assert(write->size() >= BLOCK_SIZE);
                  _compress_thread_pool->finish(true);
                  handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
                               _write_io_total_bytes_transferred);
@@ -321,8 +321,8 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
         _write_io_channel_busy = true;
         lock.unlock();
 
-        auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(NETWORK_BLOCK_SIZE - 1));
-        auto last_block_size = write->size() & (NETWORK_BLOCK_SIZE - 1);
+        auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(BLOCK_SIZE - 1));
+        auto last_block_size = write->size() & (BLOCK_SIZE - 1);
 
         boost_asio_async_write_with_sentinels(_socket,
                 boost::asio::buffer(last_block_source_ptr, last_block_size),
@@ -337,7 +337,7 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
              // The data transfer thread also joins the final barrier for the compression
              // threads before finishing the write, to ensure resources are not released
              // while a compression thread still hasn't realized all work is finished
-             if (write->size() >= NETWORK_BLOCK_SIZE)
+             if (write->size() >= BLOCK_SIZE)
                 _compress_thread_pool->finish(false);
 
              handle_write(writeq, ec, _write_io_total_bytes_transferred);

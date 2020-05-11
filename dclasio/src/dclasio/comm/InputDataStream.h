@@ -162,7 +162,7 @@ private:
     // with the current read operation will go (after decompression)
     size_t _read_io_destination_offset;
     // Size of the current read operation
-    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK> _read_io_buffer_sizes;
+    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _read_io_buffer_sizes;
     // Target buffer of the current read operation
     std::unique_ptr<uint8_t> _read_io_compressed_buffer;
 #endif

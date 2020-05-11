@@ -122,8 +122,8 @@ Context::Context(
         _cl842DeviceDecompressor = std::unique_ptr<lib842::CLDeviceDecompressor>(
             new lib842::CLDeviceDecompressor(
                 _context, nativeDevices,
-                lib842::stream::COMPR842_CHUNK_SIZE,
-                lib842::stream::COMPR842_CHUNK_SIZE,
+                lib842::stream::CHUNK_SIZE,
+                lib842::stream::CHUNK_SIZE,
 #if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
                 lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
 #else // Inplace compressed

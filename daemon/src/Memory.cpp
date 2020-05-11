@@ -78,7 +78,7 @@ static size_t get_buffer_overallocate_amount() {
     if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled()) {
         // When using in-place OpenCL-based compression, we need to over-allocate some space
         // at the end of the buffer to allow the lookahead to read a bit past the bufer
-        return lib842::stream::COMPR842_CHUNK_SIZE / 8;
+        return lib842::stream::CHUNK_SIZE / 8;
     }
 #endif
 #endif

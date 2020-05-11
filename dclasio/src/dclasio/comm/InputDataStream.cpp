@@ -80,10 +80,10 @@ namespace dclasio {
 namespace comm {
 
 #ifdef IO_LINK_COMPRESSION
-static constexpr size_t NUM_CHUNKS_PER_NETWORK_BLOCK = lib842::stream::NUM_CHUNKS_PER_NETWORK_BLOCK;
-static constexpr size_t CHUNK_SIZE = lib842::stream::COMPR842_CHUNK_SIZE;
-static constexpr size_t COMPRESSIBLE_THRESHOLD = lib842::stream::COMPRESSIBLE_THRESHOLD;
-static constexpr size_t NETWORK_BLOCK_SIZE = lib842::stream::NETWORK_BLOCK_SIZE;
+using lib842::stream::CHUNK_SIZE;
+using lib842::stream::NUM_CHUNKS_PER_BLOCK;
+using lib842::stream::BLOCK_SIZE;
+using lib842::stream::COMPRESSIBLE_THRESHOLD;
 #endif
 
 InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
@@ -235,7 +235,7 @@ void InputDataStream::start_read() {
     if (dcl::is_io_link_compression_enabled()) {
         _decompress_thread_pool->start();
         _read_io_total_bytes_transferred = 0;
-        _read_io_num_blocks_remaining = _read_op->size() / NETWORK_BLOCK_SIZE;
+        _read_io_num_blocks_remaining = _read_op->size() / BLOCK_SIZE;
 
         read_next_compressed_block();
         return;
@@ -254,7 +254,7 @@ void InputDataStream::read_next_compressed_block() {
         // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 2> buffers = {
                 boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
-                boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_NETWORK_BLOCK * sizeof(size_t))
+                boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_BLOCK * sizeof(size_t))
         };
         boost_asio_async_read_with_sentinels(_socket, buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred){
@@ -266,14 +266,14 @@ void InputDataStream::read_next_compressed_block() {
                 return;
             }
 
-            assert(_read_io_destination_offset <= _read_op->size() - NETWORK_BLOCK_SIZE);
+            assert(_read_io_destination_offset <= _read_op->size() - BLOCK_SIZE);
             for (auto read_io_buffer_size : _read_io_buffer_sizes) {
                 assert(read_io_buffer_size > 0);
             }
 
             // Pre-allocate a temporary buffer to read compressed blocks
             size_t compressed_buffer_total_size = 0;
-            for (size_t i = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
+            for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                 if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                     compressed_buffer_total_size += _read_io_buffer_sizes[i];
                 }
@@ -281,8 +281,8 @@ void InputDataStream::read_next_compressed_block() {
             _read_io_compressed_buffer.reset(new uint8_t[compressed_buffer_total_size]);
 
 
-            std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_NETWORK_BLOCK> recv_buffers;
-            for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
+            std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
+            for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                 if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                     // Read the compressed chunk into a secondary buffer to be decompressed later
                     recv_buffers[i] = boost::asio::buffer(
@@ -319,7 +319,7 @@ void InputDataStream::read_next_compressed_block() {
                 lib842::stream::DataDecompressionStream::decompress_block dm;
                 dm.compress_buffer.reset(_read_io_compressed_buffer.release());
                 bool should_uncompress_any = false;
-                for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_NETWORK_BLOCK; i++) {
+                for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                         dm.chunks[i] = lib842::stream::DataDecompressionStream::decompress_chunk(
                             dm.compress_buffer.get() + compressed_buffer_offset,
@@ -344,8 +344,8 @@ void InputDataStream::read_next_compressed_block() {
         });
     } else {
         // Always read the last incomplete block of the input uncompressed
-        auto last_block_destination_ptr =  static_cast<uint8_t *>(_read_op->ptr()) + (_read_op->size() & ~(NETWORK_BLOCK_SIZE - 1));
-        auto last_block_size = _read_op->size() & (NETWORK_BLOCK_SIZE - 1);
+        auto last_block_destination_ptr =  static_cast<uint8_t *>(_read_op->ptr()) + (_read_op->size() & ~(BLOCK_SIZE - 1));
+        auto last_block_size = _read_op->size() & (BLOCK_SIZE - 1);
 
         boost_asio_async_read_with_sentinels(_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
                                 [this](const boost::system::error_code &ec, size_t bytes_transferred) {
@@ -470,7 +470,7 @@ void InputDataStream::readToClBuffer(
                 cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS], &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
                 // Rounds down (partial chunks are not compressed by InputDataStream)
-                size_t chunksSize = split_size & ~(lib842::stream::COMPR842_CHUNK_SIZE - 1);
+                size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
                 if (chunksSize > 0) {
                     cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
                     cl842DeviceDecompressor->decompress(commandQueue,
@@ -544,7 +544,7 @@ void InputDataStream::readToClBuffer(
             cl::vector<cl::Event> unmapWaitList = {receiveEvent};
             commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
             // Rounds down (partial chunks are not compressed by InputDataStream)
-            size_t chunksSize = split_size & ~(lib842::stream::COMPR842_CHUNK_SIZE - 1);
+            size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
                 cl842DeviceDecompressor->decompress(commandQueue,
