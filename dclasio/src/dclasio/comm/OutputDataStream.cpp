@@ -227,29 +227,25 @@ void OutputDataStream::start_write(writeq_type *writeq) {
      */
 
 #ifdef IO_LINK_COMPRESSION
-    if (dcl::is_io_link_compression_enabled()) {
+    if (dcl::is_io_link_compression_enabled() && write->size() >= BLOCK_SIZE) {
         _write_io_compression_error = false;
         _write_io_channel_busy = false;
         _write_io_total_bytes_transferred = 0;
         _write_io_num_blocks_remaining = write->size() / BLOCK_SIZE;
 
-        if (write->size() >= BLOCK_SIZE) {
-            _compress_thread_pool->start(
-                write->ptr(), write->size(), write->skip_compress_step(),
-                [this, writeq, write](lib842::stream::DataCompressionStream::compress_block &&block) {
-                {
-                    std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
-                    if (block.source_offset == SIZE_MAX)
-                        _write_io_compression_error = true;
-                    if (!_write_io_compression_error)
-                        _write_io_queue.push(std::move(block));
-                }
+        _compress_thread_pool->start(
+            write->ptr(), write->size(), write->skip_compress_step(),
+            [this, writeq, write](lib842::stream::DataCompressionStream::compress_block &&block) {
+            {
+                std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
+                if (block.source_offset == SIZE_MAX)
+                    _write_io_compression_error = true;
+                if (!_write_io_compression_error)
+                    _write_io_queue.push(std::move(block));
+            }
 
-                try_write_next_compressed_block(writeq, write);
-            });
-        } else {
             try_write_next_compressed_block(writeq, write);
-        }
+        });
         return;
     }
 #endif
@@ -275,7 +271,6 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
         _write_io_num_blocks_remaining = SIZE_MAX;
         lock.unlock();
 
-        assert(write->size() >= BLOCK_SIZE);
         _compress_thread_pool->finalize(true, [this, writeq](bool) {
             handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
                          _write_io_total_bytes_transferred);
@@ -309,7 +304,6 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
              lock.unlock();
 
              if (ec) {
-                 assert(write->size() >= BLOCK_SIZE);
                  _compress_thread_pool->finalize(true, [this, writeq](bool) {
                      handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
                                   _write_io_total_bytes_transferred);
@@ -329,22 +323,18 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
 
         boost_asio_async_write_with_sentinels(_socket,
                 boost::asio::buffer(last_block_source_ptr, last_block_size),
-         [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
-             {
-                 std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
-                 _write_io_channel_busy = false;
-                 _write_io_total_bytes_transferred += bytes_transferred;
-                 _write_io_num_blocks_remaining = SIZE_MAX;
-             }
+            [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+            {
+                std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
+                _write_io_channel_busy = false;
+                _write_io_total_bytes_transferred += bytes_transferred;
+                _write_io_num_blocks_remaining = SIZE_MAX;
+            }
 
-             if (write->size() >= BLOCK_SIZE) {
-                _compress_thread_pool->finalize(false, [this, writeq, ec](bool) {
-                    handle_write(writeq, ec, _write_io_total_bytes_transferred);
-                });
-             } else {
+            _compress_thread_pool->finalize(false, [this, writeq, ec](bool) {
                 handle_write(writeq, ec, _write_io_total_bytes_transferred);
-             }
-         });
+            });
+        });
     }
 }
 #endif
