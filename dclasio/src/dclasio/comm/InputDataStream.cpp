@@ -53,11 +53,13 @@
 
 #include <dcl/util/Logger.h>
 
+#ifdef IO_LINK_COMPRESSION
 #include <lib842/sw.h>
+#include <lib842/stream/decomp.h>
+#endif
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <lib842/hw.h>
 #endif
-#include <lib842/stream/decomp.h>
 
 #include <boost/asio/buffer.hpp>
 

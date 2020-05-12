@@ -49,7 +49,9 @@
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
 
+#ifdef IO_LINK_COMPRESSION
 #include <lib842/stream/comp.h>
+#endif
 
 #include <boost/asio/ip/tcp.hpp>
 

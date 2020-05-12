@@ -53,7 +53,10 @@
 
 #include <dcl/util/Logger.h>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #include <lib842/stream/common.h>
+#include <lib842/cl.h>
+#endif
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
