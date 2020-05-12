@@ -204,6 +204,7 @@ void OutputDataStream::notify_write_transfer_id(writeq_type *writeq) {
     boost_asio_async_write_with_sentinels(
         _socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
         [this, writeq, write](const boost::system::error_code& ec, size_t bytes_transferred) {
+            assert(!ec); // TODO: How to handle an error here?
             start_write(writeq);
         });
 }
@@ -275,9 +276,10 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
         lock.unlock();
 
         assert(write->size() >= BLOCK_SIZE);
-        _compress_thread_pool->finish(false);
-        handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
-                     _write_io_total_bytes_transferred);
+        _compress_thread_pool->finalize(true, [this, writeq](bool) {
+            handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                         _write_io_total_bytes_transferred);
+        });
         return;
     }
 
@@ -308,9 +310,10 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
 
              if (ec) {
                  assert(write->size() >= BLOCK_SIZE);
-                 _compress_thread_pool->finish(true);
-                 handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
-                              _write_io_total_bytes_transferred);
+                 _compress_thread_pool->finalize(true, [this, writeq](bool) {
+                     handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                  _write_io_total_bytes_transferred);
+                 });
                  return;
              }
 
@@ -334,13 +337,13 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
                  _write_io_num_blocks_remaining = SIZE_MAX;
              }
 
-             // The data transfer thread also joins the final barrier for the compression
-             // threads before finishing the write, to ensure resources are not released
-             // while a compression thread still hasn't realized all work is finished
-             if (write->size() >= BLOCK_SIZE)
-                _compress_thread_pool->finish(false);
-
-             handle_write(writeq, ec, _write_io_total_bytes_transferred);
+             if (write->size() >= BLOCK_SIZE) {
+                _compress_thread_pool->finalize(false, [this, writeq, ec](bool) {
+                    handle_write(writeq, ec, _write_io_total_bytes_transferred);
+                });
+             } else {
+                handle_write(writeq, ec, _write_io_total_bytes_transferred);
+             }
          });
     }
 }

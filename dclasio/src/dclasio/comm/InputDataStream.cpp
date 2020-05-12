@@ -203,6 +203,8 @@ void InputDataStream::receive_matching_transfer_id() {
     boost_asio_async_read_with_sentinels(
         _socket, boost::asio::buffer(_read_transfer_id.data, _read_transfer_id.size()),
         [this](const boost::system::error_code& ec, size_t bytes_transferred) {
+            assert(!ec); // TODO: How to handle an error here?
+
             std::unique_lock<std::mutex> lock(_readq_mtx);
             auto it = _readq.find(_read_transfer_id);
             if (it != _readq.end()) {
