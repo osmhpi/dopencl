@@ -332,8 +332,10 @@ void InputDataStream::read_next_compressed_block() {
                 }
 
                 if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(dm))) {
-                    handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
-                                _read_io_total_bytes_transferred);
+                    _decompress_thread_pool->finalize(true, [this, ec](bool) {
+                        handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                    _read_io_total_bytes_transferred);
+                    });
                     return;
                 }
 
