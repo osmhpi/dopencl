@@ -237,7 +237,6 @@ void InputDataStream::start_read() {
 
 #ifdef IO_LINK_COMPRESSION
     if (dcl::is_io_link_compression_enabled() && _read_op->size() >= BLOCK_SIZE) {
-        _decompress_thread_pool->start();
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = _read_op->size() / BLOCK_SIZE;
 
