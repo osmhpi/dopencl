@@ -253,12 +253,21 @@ cl_int clCreateSubDevices(
 }
 
 cl_int clRetainDevice(cl_device_id device) {
-    assert(!"clRetainDevice not implemented");
+    if (!device) return CL_INVALID_DEVICE;
+
+    // TODO: Implement logic for updating the reference count for
+    // subdevices (clCreateSubDevices) once they are implemented
+
+    // For root level devices, a call to clRetainDevice or clReleaseDevice
+    // is valid but acts as a no-op (doesn't change the reference count)
     return CL_SUCCESS;
 }
 
 cl_int clReleaseDevice(cl_device_id device) {
-    assert(!"clReleaseDevice not implemented");
+    if (!device) return CL_INVALID_DEVICE;
+
+    // TODO: See comment on clRetainDevice
+
     return CL_SUCCESS;
 }
 #endif // #if defined(CL_VERSION_1_2)
