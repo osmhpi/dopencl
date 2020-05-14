@@ -121,7 +121,7 @@ private:
     mutable std::mutex _mutex;
     std::condition_variable_any _modified;
 
-    bool _interrupt;
+    bool _interrupt = false;
 
     /*!
      * \brief Waits for the queue to become non-empty
@@ -130,13 +130,14 @@ private:
      * interrupt is called.
      */
     void awaitElement() {
-        _interrupt = false;
-
         while (std::queue<T, Container>::empty() && !_interrupt) {
             _modified.wait(_mutex);
         }
 
-        if (_interrupt) throw ThreadInterrupted();
+        if (_interrupt) {
+            _interrupt = false;
+            throw ThreadInterrupted();
+        }
     }
 
 };
