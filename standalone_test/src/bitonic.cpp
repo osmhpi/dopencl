@@ -161,6 +161,23 @@ int main(void) {
                     0, array.size() / 2 * sizeof(array[0]),
                     array.size() / 2 * sizeof(array[0]),
                     &eventVector, &events[0]);
+
+                // We need to get an event to wait for completion of the above
+                // command on the command queue that provides the source buffer,
+                // so it doesn't start modifying the buffer again too early
+
+                // However, if we just do 'events[1] = events[0]', when we pass
+                // the event to the next command, since it's associated with the
+                // enqueueCopyBuffer command, it will cause an buffer sync.
+                // (see OpenCL 1.2 spec Appendix A.1) that we don't want to happen
+
+                // By doing this marker trick we ensure the event is not associated
+                // to the enqueueCopyBuffer so it waits for completion, but doesn't sync.
+
+                // (Or we could just do a cl::WaitForEvents and continue enqueuing
+                // commands after the buffer copy is done to avoid those problems)
+                std::vector<cl::Event> eventVector2 = {events[0]};
+                devinfo[0].queue.enqueueMarkerWithWaitList(&eventVector2, &events[1]);
             }
 
             kernel.setArg(1, static_cast<cl_ulong>(array.size()));
@@ -188,14 +205,17 @@ int main(void) {
             }
 
             if (needGatherScatter) {
-                std::vector<cl::Event> eventVector = {events[0]};
+                std::vector<cl::Event> eventVector = {events[0], events[1]};
 
                 devinfo[1].queue.enqueueCopyBuffer(
                     devinfo[0].buf, devinfo[1].buf,
                     array.size() / 2 * sizeof(array[0]), 0,
                     array.size() / 2 * sizeof(array[0]),
                     &eventVector, &events[1]);
-                events[0] = events[1];
+
+                // See similar code above for why this is done
+                std::vector<cl::Event> eventVector2 = {events[1]};
+                devinfo[1].queue.enqueueMarkerWithWaitList(&eventVector2, &events[0]);
             }
         }
     }

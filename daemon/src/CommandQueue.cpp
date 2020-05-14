@@ -219,6 +219,12 @@ void CommandQueue::synchronize(
              * synchronization for remote events */
             auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
             if (remoteEvent) { // event is a remote event
+                // We must at least wait for the completion of the event, even if we
+                // don't need to synchronize any memory buffers, since it's possible
+                // some other node is reading/synchronizing with one of our buffers
+                // so we need to make sure we don't modify it too early
+                nativeEventWaitList.push_back(*remoteEvent);
+
                 cl::vector<cl::Event> synchronizeEvents;
                 remoteEvent->synchronize(_commandQueue, synchronizeEvents);
                 /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
