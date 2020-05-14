@@ -142,7 +142,7 @@ private:
 
 	bool _interrupt;
 	std::mutex _interruptMutex;
-	std::condition_variable_any _interrupted;
+	std::condition_variable _interrupted;
 
 	std::map<const dcl::Host *, std::unique_ptr<Session>> _sessions; //!< Sessions
 	mutable std::mutex _sessionsMutex;

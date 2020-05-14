@@ -70,10 +70,10 @@ ResponseBuffer::~ResponseBuffer() {
 }
 
 void ResponseBuffer::put(std::unique_ptr<message::Response>&& response) {
-	std::lock_guard<std::mutex> lock(_mutex);
+	std::unique_lock<std::mutex> lock(_mutex);
 
 	while (!_interrupt && !insert(std::move(response))) {
-		_responseRemoved.wait(_mutex);
+		_responseRemoved.wait(lock);
 	}
 	if (_interrupt) throw dcl::ThreadInterrupted();
 }
@@ -84,11 +84,11 @@ std::unique_ptr<message::Response> ResponseBuffer::tryGet(const message::Request
 }
 
 std::unique_ptr<message::Response> ResponseBuffer::get(const message::Request& request) {
-	std::lock_guard<std::mutex> lock(_mutex);
+	std::unique_lock<std::mutex> lock(_mutex);
 	std::unique_ptr<message::Response> response;
 
 	while (!_interrupt && !(response = remove(request))) {
-		_responseAdded.wait(_mutex);
+		_responseAdded.wait(lock);
 	};
 	if (_interrupt) throw dcl::ThreadInterrupted();
 

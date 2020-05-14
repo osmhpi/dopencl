@@ -162,9 +162,9 @@ public:
     }
 
     void wait() const {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::unique_lock<std::mutex> lock(_mutex);
         while (_status != CL_COMPLETE && _status > 0) {
-            _statusChanged.wait(_mutex);
+            _statusChanged.wait(lock);
         }
         if (_status < 0) {
             throw dcl::IOException("Data transfer failed");
@@ -247,7 +247,7 @@ private:
 	std::vector<std::function<void (cl_int)>> _callbacks;
 
     mutable std::mutex _mutex;
-    mutable std::condition_variable_any _statusChanged;
+    mutable std::condition_variable _statusChanged;
 };
 
 /* ****************************************************************************/

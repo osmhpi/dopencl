@@ -214,7 +214,7 @@ dOpenCLd::~dOpenCLd() {
 }
 
 void dOpenCLd::run() {
-	std::lock_guard<std::mutex> lock(_interruptMutex);
+	std::unique_lock<std::mutex> lock(_interruptMutex);
 
     /* attach to connection manager */
     _communicationManager->setDaemon(this);
@@ -226,7 +226,7 @@ void dOpenCLd::run() {
 
 	/* Suspend the calling (main) thread to prevent the daemon from exiting */
 	_interrupt = false;
-	while (!_interrupt) _interrupted.wait(_interruptMutex);
+	while (!_interrupt) _interrupted.wait(lock);
 
 	_communicationManager->stop();
 
