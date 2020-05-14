@@ -29,7 +29,7 @@ echo -e "\033[0;36m**Running unit tests...**\033[0m"
 find ../test/ -maxdepth 1 -type f -executable -exec echo "**" {} "**" \; -exec env LD_PRELOAD=../icdpp/libdOpenCL.so {} -l unit_scope \;
 
 echo -e "\033[0;36m**Running standalone tests...**\033[0m"
-standalone_tests=(test_explicit_copy_cl test_implicit_copy_cl test_createbuffer_ptr test_createbuffer_ptr_multi test_createbuffer_ptr_race mapreduce_addition)
+standalone_tests=(test_explicit_copy_cl test_implicit_copy_cl test_createbuffer_ptr test_createbuffer_ptr_multi test_createbuffer_ptr_race bitonic mapreduce_addition)
 for test_name in "${standalone_tests[@]}"; do
     echo "**$test_name**" && LD_PRELOAD=../icdpp/libdOpenCL.so "../standalone_test/$test_name"
 done

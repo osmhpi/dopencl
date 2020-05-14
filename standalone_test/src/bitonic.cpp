@@ -241,5 +241,36 @@ int main(void) {
     auto test_is_ok = array == expectedArray;
     std::cout << "Time:     " << duration_ms << " ms\n";
     std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
+
+    // TODOXXX: Without this code, the program will possibly hang after
+    // after returning from main() when running on dOpenCL
+    // This is because the host may still be waiting to be notified of the
+    // completion of some of the events, but when the destructor for
+    // _cl_platform_id just disconnects all connections to the compute nodes
+    // without waiting for anything, so the completion notification
+    // can never arrive and a deadlock happens
+    // By finishing the command queue before returning, we make sure the host
+    // has received all events completions locally so it's safe to disconnect
+    //
+    // Fix idea: Have the _cl_platform_id have a reference count that is
+    // incremented and decremented by context creation/destruction
+    // (similar to how e.g. programs reference their context).
+    // On the destructor of _cl_platform_id wait until the reference count is
+    // zero, which would mean all contexts have been released which would mean
+    // all their associated resources have also been released, and so on recursively.
+    //
+    // Notes/clarifications:
+    // * It is correct that releasing the command queues or events does not
+    //   wait for their completion, see the docs. for clReleaseCommandQueue
+    // * The previous cl::Event::waitForEvents runs on the compute node so
+    //   even after it completes, maybe they host still hasn't received the
+    //   event completion notification locally
+    // * This can be reproduced very consistently and easily by just enqueuing
+    //   a few commands and then returning from main without waiting for anything
+    // * I think all/most other standalone_test's are affected, it's just that
+    //   this one creates so many events that it's much more likely to happen
+    for (auto &dev: devinfo)
+        dev.queue.finish();
+
     return test_is_ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
