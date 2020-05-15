@@ -154,10 +154,10 @@ void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) 
         for (size_t i = 0; i < num_splits; i++, dcl::next_cl_split_transfer_id(split_transfer_id)) {
             size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
             size_t split_size = std::min(write->size() - split_offset, CL_UPLOAD_BLOCK_SIZE);
-            auto subwrite = std::make_shared<DataSending>(
+            auto subwrite(std::make_shared<DataSending>(
                 split_transfer_id, split_size,
                 static_cast<const uint8_t *>(write->ptr()) + split_offset,
-                write->skip_compress_step());
+                write->skip_compress_step()));
             writes.push_back(subwrite);
         }
 
@@ -388,9 +388,9 @@ void OutputDataStream::writeFromClBuffer(
         offset, size,
         eventWaitList, startEvent);
     // schedule local data transfer
-    std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
+    auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(*startEvent));
     write(transferId, size, ptr, false, mapDataCompletable)
-        ->setCallback(std::bind(&cl::UserEvent::setStatus, sendData, std::placeholders::_1));
+        ->setCallback([sendData](cl_int status) mutable { sendData.setStatus(status); });
     /* Enqueue unmap buffer (implicit upload) */
     cl::vector<cl::Event> unmapWaitList = {sendData};
     commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);

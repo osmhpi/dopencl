@@ -501,9 +501,9 @@ void InputDataStream::readToClBuffer(
 
                 // schedule local data transfer
                 cl::UserEvent receiveEvent(context);
-                std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
+                auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
                 read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
-                    ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
+                    ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
                 receiveEvents.push_back(receiveEvent);
 
                 dcl::next_cl_split_transfer_id(split_transfer_id);
@@ -539,9 +539,9 @@ void InputDataStream::readToClBuffer(
 
             // schedule local data transfer
             cl::UserEvent receiveEvent(context);
-            std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(mapEvents[i]));
+            auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
             read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
-                ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
+                ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
 
 
             /* Enqueue unmap buffer (implicit upload) */
@@ -575,9 +575,9 @@ void InputDataStream::readToClBuffer(
             eventWaitList, startEvent);
         // schedule local data transfer
         cl::UserEvent receiveEvent(context);
-        std::shared_ptr<dcl::CLEventCompletable> mapDataCompletable(new dcl::CLEventCompletable(*startEvent));
+        auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(*startEvent));
         read(transferId, size, ptr, false, mapDataCompletable)
-            ->setCallback(std::bind(&cl::UserEvent::setStatus, receiveEvent, std::placeholders::_1));
+            ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
         /* Enqueue unmap buffer (implicit upload) */
         cl::vector<cl::Event> unmapWaitList = {receiveEvent};
         commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
