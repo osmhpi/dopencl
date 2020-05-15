@@ -127,6 +127,41 @@ private:
             const boost::system::error_code& ec,
             size_t bytes_transferred);
 
+    void readToClBufferWithNonClDecompression(
+        dcl::transfer_id transferId,
+        size_t size,
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue,
+        const cl::Buffer &buffer,
+        size_t offset,
+        const cl::vector<cl::Event> *eventWaitList,
+        cl::Event *startEvent,
+        cl::Event *endEvent);
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    void readToClBufferWithClTemporaryDecompression(
+        dcl::transfer_id transferId,
+        size_t size,
+        const cl::Context &context,
+        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
+        const cl::CommandQueue &commandQueue,
+        const cl::Buffer &buffer,
+        const cl::vector<cl::Event> *eventWaitList,
+        cl::Event *startEvent,
+        cl::Event *endEvent);
+
+    void readToClBufferWithClInlineDecompression(
+        dcl::transfer_id transferId,
+        size_t size,
+        const cl::Context &context,
+        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
+        const cl::CommandQueue &commandQueue,
+        const cl::Buffer &buffer,
+        const cl::vector<cl::Event> *eventWaitList,
+        cl::Event *startEvent,
+        cl::Event *endEvent);
+#endif
+
     boost::asio::ip::tcp::socket &_socket; //!< I/O object for remote process
 
     enum class receiving_state {
