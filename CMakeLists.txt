@@ -21,7 +21,7 @@ endif()
 option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
 option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)
 option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accelerated 842 implementation" ON)
-option(USE_CL_IO_LINK_COMPRESSION "Use OpenCL GPU-accelerated 842 implementation implementation" OFF)
+option(USE_CL_IO_LINK_COMPRESSION "Use OpenCL GPU-accelerated 842 implementation implementation" ON)
 
 #
 # dOpenCL version information
