@@ -225,7 +225,7 @@ Project structure
 |  |        Device.h
 |  |        Host.h
 |  |        ...
-+- dclasio                      dOpenCL API implementation using Boost.Asio and Boost.Thread
++- dclasio                      dOpenCL API implementation using Boost.Asio
 +- icdpp                        ICD implementation (C++, Boost.Asio only)
 |                               implements OpenCL (including API extension) using dOpenCL API
 +- daemon                       dOpenCL daemon
