@@ -178,14 +178,8 @@ Those flags can be set when building using CMake:
                               842 implementation (for both compression and
                               decompression, using the cryptodev kernel module)
 * USE_CL_IO_LINK_COMPRESSION: Use OpenCL GPU-accelerated 842 implementation
-                              (WIP, currently broken)
                               (Since lib842 currently only provides a 842 GPU
                               decompressor, this only affects decompression)
-* USE_CL_IO_LINK_COMPRESSION_INPLACE: Use OpenCL GPU-accelerated, in-place 842
-                                      implementation
-                                      (Since lib842 currently only provides a
-                                      842 GPU decompressor, this only affects
-                                      decompression)
 
 Once dOpenCL has been built with I/O Link Compression, it will be used by
 default using the specified configuration and reasonably sane defaults.
@@ -203,6 +197,8 @@ tuning using the following environment variables:
                                             842 implementation
                                             (after if it has been built in,
                                             and even if available).
+* DCL_CL_IO_LINK_COMPRESSION_INLINE=(any): Uses the alternative OpenCL in-place
+                                           842 implementation (unstable)
 * DCL_IO_LINK_NUM_COMPRESS_THREADS=(number): Sets the number of threads used
                                              for compression.
                                              (Otherwise, a thread per hardware

@@ -127,11 +127,9 @@ Context::Context(
                 _context, nativeDevices,
                 lib842::stream::CHUNK_SIZE,
                 lib842::stream::CHUNK_SIZE,
-#if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
-                lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
-#else // Inplace compressed
-                lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
-#endif
+                dcl::is_cl_io_link_compression_mode_inline()
+                    ? lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
+                    : lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
         ));
     }
 #endif

@@ -106,6 +106,11 @@ static bool is_cl_io_link_compression_enabled() {
     static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
     return enabled;
 }
+
+static bool is_cl_io_link_compression_mode_inline() {
+    static bool enabled = std::getenv("DCL_CL_IO_LINK_COMPRESSION_INLINE") != nullptr;
+    return enabled;
+}
 #endif
 
 } /* namespace dcl */

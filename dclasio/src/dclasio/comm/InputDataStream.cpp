@@ -445,8 +445,7 @@ void InputDataStream::readToClBuffer(
         }
     }
 
-    if (can_use_cl_io_link_compression) {
-#if USE_CL_IO_LINK_COMPRESSION == 1 // Maybe compressed
+    if (can_use_cl_io_link_compression && !dcl::is_cl_io_link_compression_mode_inline()) {
         static const size_t NUM_BUFFERS = 2;
         // TODOXXX: Allocate those somewhere more permanent, like on the command queue,
         //          so we don't need to allocate those buffers for every since transfer
@@ -513,7 +512,7 @@ void InputDataStream::readToClBuffer(
 
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
-#else // Inplace compressed
+    } else if (can_use_cl_io_link_compression && dcl::is_cl_io_link_compression_mode_inline()) {
         size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
         std::vector<cl::Event> mapEvents(num_splits),
@@ -565,7 +564,6 @@ void InputDataStream::readToClBuffer(
 
         *startEvent = mapEvents.front();
         *endEvent = decompressEvents.back();
-#endif
     } else {
 #endif
         /* Enqueue map buffer */
