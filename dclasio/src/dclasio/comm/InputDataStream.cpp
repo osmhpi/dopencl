@@ -452,7 +452,7 @@ void InputDataStream::readToClBuffer(
         //          so we don't need to allocate those buffers for every since transfer
         std::array<cl::Buffer, NUM_BUFFERS> workBuffers;
         for (auto &wb : workBuffers)
-            wb = cl::Buffer(context, CL_MEM_READ_WRITE, CL_UPLOAD_BLOCK_SIZE);
+            wb = cl::Buffer(context, CL_MEM_READ_ONLY, CL_UPLOAD_BLOCK_SIZE);
 
         size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
