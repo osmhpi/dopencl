@@ -76,7 +76,7 @@ namespace {
 /*!
  * \brief Callback for context error
  */
-void onContextError(const char *errinfo, const void *private_info,
+static void onContextError(const char *errinfo, const void *private_info,
 		size_t cb, void *user_data) {
 	auto contextListener = static_cast<dcl::ContextListener *>(user_data);
 	assert(contextListener != nullptr);
@@ -89,19 +89,9 @@ void onContextError(const char *errinfo, const void *private_info,
 
 namespace dcld {
 
-Context::Context(
-        dcl::Host& host,
-		const std::vector<dcl::ComputeNode *>& computeNodes,
-		const cl::Platform& platform,
-		const std::vector<dcl::Device *>& devices,
-		const std::shared_ptr<dcl::ContextListener>& listener) :
-    _host(host), _computeNodes(computeNodes), _listener(listener) {
-    //	if (computeNodes.empty()) { throw cl::Error(CL_INVALID_VALUE); }
+static cl::vector<cl::Device> convertToNativeDevicesList(const std::vector<dcl::Device *>& devices) {
     if (devices.empty()) { throw cl::Error(CL_INVALID_VALUE); }
 
-    /* TODO Remove self from list of compute nodes */
-
-    /* TODO Use helper function for device conversion */
     /* convert devices */
     cl::vector<cl::Device> nativeDevices;
     for (auto device : devices) {
@@ -109,7 +99,13 @@ Context::Context(
         if (!deviceImpl) throw cl::Error(CL_INVALID_DEVICE);
         nativeDevices.push_back(deviceImpl->operator cl::Device());
     }
+    return nativeDevices;
+}
 
+static cl::Context createNativeContext(
+    const cl::vector<cl::Device> &nativeDevices,
+    const cl::Platform& platform,
+    const std::shared_ptr<dcl::ContextListener>& listener) {
     /* initialize context properties */
     cl_context_properties properties[] = {
         CL_CONTEXT_PLATFORM,
@@ -117,22 +113,54 @@ Context::Context(
         0 /* end of list */
     };
 
-	_context = cl::Context(nativeDevices, properties, &onContextError, _listener.get());
-    _ioCommandQueue = cl::CommandQueue(_context, nativeDevices.front());
+    return cl::Context(nativeDevices, properties, &onContextError, listener.get());
+}
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+static lib842::CLDeviceDecompressor *createClDeviceCompressor(
+    const cl::Context context,
+    const cl::vector<cl::Device> &nativeDevices) {
     if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled()) {
-        _cl842DeviceDecompressor = std::unique_ptr<lib842::CLDeviceDecompressor>(
-            new lib842::CLDeviceDecompressor(
-                _context, nativeDevices,
+        return new lib842::CLDeviceDecompressor(
+                context, nativeDevices,
                 lib842::stream::CHUNK_SIZE,
                 lib842::stream::CHUNK_SIZE,
                 dcl::is_cl_io_link_compression_mode_inline()
                     ? lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
                     : lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
-        ));
+        );
     }
+
+    return nullptr;
+}
 #endif
+
+
+Context::Context(
+        dcl::Host& host,
+        const std::vector<dcl::ComputeNode *>& computeNodes,
+        const cl::Platform& platform,
+        const std::vector<dcl::Device *>& devices,
+        const std::shared_ptr<dcl::ContextListener>& listener) :
+    Context(host, computeNodes, platform, convertToNativeDevicesList(devices), listener)
+{}
+
+Context::Context(
+        dcl::Host& host,
+        const std::vector<dcl::ComputeNode *>& computeNodes,
+        const cl::Platform& platform,
+        const cl::vector<cl::Device>& nativeDevices,
+        const std::shared_ptr<dcl::ContextListener>& listener) :
+    _host(host), _computeNodes(computeNodes), _listener(listener),
+    _context(createNativeContext(nativeDevices, platform, listener)),
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    _cl842DeviceDecompressor(createClDeviceCompressor(_context, nativeDevices)),
+#endif
+    _ioCommandQueue(_context, nativeDevices.front()),
+    _ioClOutDataTransferContext(_context, _ioCommandQueue)
+{
+    //	if (computeNodes.empty()) { throw cl::Error(CL_INVALID_VALUE); }
+    /* TODO Remove self from list of compute nodes */
 }
 
 Context::~Context() { }
@@ -145,41 +173,18 @@ dcl::Host& Context::host() const {
 	return _host;
 }
 
-const cl::CommandQueue& Context::ioCommandQueue() const {
-    return _ioCommandQueue;
-}
-
 const std::vector<dcl::ComputeNode *>& Context::computeNodes() const {
 	return _computeNodes;
 }
 
-void Context::receiveBufferFromProcess(dcl::Process &process,
-                                       const cl::CommandQueue &commandQueue,
-                                       const cl::Buffer &buffer,
-                                       dcl::transfer_id transferId,
-                                       size_t offset,
-                                       size_t size,
-                                       const cl::vector<cl::Event> *eventWaitList,
-                                       cl::Event *startEvent,
-                                       cl::Event *endEvent) {
-    return process.receiveDataToClBuffer(transferId, size, _context,
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-                                         _cl842DeviceDecompressor.get(),
-#endif
-                                         commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
+const lib842::CLDeviceDecompressor *Context::cl842DeviceDecompressor() const {
+    return _cl842DeviceDecompressor.get();
 }
+#endif
 
-void Context::sendBufferToProcess(dcl::Process &process,
-                                  const cl::CommandQueue &commandQueue,
-                                  const cl::Buffer &buffer,
-                                  dcl::transfer_id transferId,
-                                  size_t offset,
-                                  size_t size,
-                                  const cl::vector<cl::Event> *eventWaitList,
-                                  cl::Event *startEvent,
-                                  cl::Event *endEvent) {
-    return process.sendDataFromClBuffer(transferId, size, _context,
-                                        commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
+const dcl::CLOutDataTransferContext& Context::ioClOutDataTransferContext() const {
+    return _ioClOutDataTransferContext;
 }
 
 } /* namespace dcld */

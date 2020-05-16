@@ -60,6 +60,9 @@
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <lib842/hw.h>
 #endif
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
 
 #include <boost/asio/buffer.hpp>
 
@@ -412,11 +415,7 @@ void InputDataStream::handle_read(
 void InputDataStream::readToClBuffer(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-#endif
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
@@ -432,7 +431,7 @@ void InputDataStream::readToClBuffer(
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     auto can_use_cl_io_link_compression =
         dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
-        size > 0 && cl842DeviceDecompressor != nullptr;
+        size > 0 && clDataTransferContext.cl842DeviceDecompressor() != nullptr;
 
     if (can_use_cl_io_link_compression && offset != 0) {
         // TODOXXX It should be possible to handle nonzero offset cases here by passing this
@@ -446,12 +445,12 @@ void InputDataStream::readToClBuffer(
     if (can_use_cl_io_link_compression) {
         if (dcl::is_cl_io_link_compression_mode_inline()) {
             readToClBufferWithClInlineDecompression(
-                transferId, size, context, cl842DeviceDecompressor,
-                commandQueue, buffer, eventWaitList, startEvent, endEvent);
+                transferId, size, clDataTransferContext,
+                buffer, eventWaitList, startEvent, endEvent);
         } else {
             readToClBufferWithClTemporaryDecompression(
-                transferId, size, context, cl842DeviceDecompressor,
-                commandQueue, buffer, eventWaitList, startEvent, endEvent);
+                transferId, size, clDataTransferContext,
+                buffer, eventWaitList, startEvent, endEvent);
         }
         profile_transfer(profile_transfer_direction::receive, transferId, size,
                          *startEvent, *endEvent);
@@ -460,9 +459,8 @@ void InputDataStream::readToClBuffer(
 #endif
 
     readToClBufferWithNonClDecompression(
-        transferId, size, context,
-        commandQueue, buffer, offset,
-        eventWaitList, startEvent, endEvent);
+        transferId, size, clDataTransferContext.context(), clDataTransferContext.commandQueue(),
+        buffer, offset, eventWaitList, startEvent, endEvent);
     profile_transfer(profile_transfer_direction::receive, transferId, size,
                      *startEvent, *endEvent);
 }
@@ -499,19 +497,18 @@ void InputDataStream::readToClBufferWithNonClDecompression(
 void InputDataStream::readToClBufferWithClTemporaryDecompression(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent) {
+    auto commandQueue = clDataTransferContext.commandQueue();
     static const size_t NUM_BUFFERS = 2;
     // TODOXXX: Allocate those somewhere more permanent, like on the command queue,
     //          so we don't need to allocate those buffers for every since transfer
     std::array<cl::Buffer, NUM_BUFFERS> workBuffers;
     for (auto &wb : workBuffers)
-        wb = cl::Buffer(context, CL_MEM_READ_ONLY, CL_UPLOAD_BLOCK_SIZE);
+        wb = cl::Buffer(clDataTransferContext.context(), CL_MEM_READ_ONLY, CL_UPLOAD_BLOCK_SIZE);
 
     size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
@@ -539,7 +536,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
             if (chunksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
-                cl842DeviceDecompressor->decompress(commandQueue,
+                clDataTransferContext.cl842DeviceDecompressor()->decompress(commandQueue,
                     wb, 0, chunksSize, cl::Buffer(nullptr),
                     buffer, split_offset, chunksSize, cl::Buffer(nullptr),
                     cl::Buffer(nullptr),
@@ -562,7 +559,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 eventWaitList, &mapEvents[i]);
 
             // schedule local data transfer
-            cl::UserEvent receiveEvent(context);
+            cl::UserEvent receiveEvent(clDataTransferContext.context());
             auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
             read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
                 ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
@@ -579,13 +576,12 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
 void InputDataStream::readToClBufferWithClInlineDecompression(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent) {
+    auto commandQueue = clDataTransferContext.commandQueue();
     size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
     std::vector<cl::Event> mapEvents(num_splits),
@@ -611,11 +607,10 @@ void InputDataStream::readToClBufferWithClInlineDecompression(
         size_t split_size = std::min(size - i * CL_UPLOAD_BLOCK_SIZE, CL_UPLOAD_BLOCK_SIZE);
 
         // schedule local data transfer
-        cl::UserEvent receiveEvent(context);
+        cl::UserEvent receiveEvent(clDataTransferContext.context());
         auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
         read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
             ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
-
 
         /* Enqueue unmap buffer (implicit upload) */
         cl::vector<cl::Event> unmapWaitList = {receiveEvent};
@@ -624,7 +619,7 @@ void InputDataStream::readToClBufferWithClInlineDecompression(
         size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
         if (chunksSize > 0) {
             cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
-            cl842DeviceDecompressor->decompress(
+            clDataTransferContext.cl842DeviceDecompressor()->decompress(
                 commandQueue,
                 buffer, split_offset, chunksSize, cl::Buffer(nullptr),
                 buffer, split_offset, chunksSize, cl::Buffer(nullptr),

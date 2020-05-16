@@ -50,6 +50,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
 #include <dcl/Host.h>
+#include <dcl/DataTransfer.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -92,30 +93,20 @@ public:
     operator cl::Context() const;
 
     dcl::Host& host() const;
-    const cl::CommandQueue& ioCommandQueue() const;
     const std::vector<dcl::ComputeNode *>& computeNodes() const;
-
-    void receiveBufferFromProcess(dcl::Process &process,
-                                  const cl::CommandQueue &commandQueue,
-                                  const cl::Buffer &buffer,
-                                  dcl::transfer_id transferId,
-                                  size_t offset,
-                                  size_t size,
-                                  const cl::vector<cl::Event> *eventWaitList,
-                                  cl::Event *startEvent,
-                                  cl::Event *endEvent);
-
-    void sendBufferToProcess(dcl::Process &process,
-                             const cl::CommandQueue &commandQueue,
-                             const cl::Buffer &buffer,
-                             dcl::transfer_id transferId,
-                             size_t offset,
-                             size_t size,
-                             const cl::vector<cl::Event> *eventWaitList,
-                             cl::Event *startEvent,
-                             cl::Event *endEvent);
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const;
+#endif
+    const dcl::CLOutDataTransferContext& ioClOutDataTransferContext() const;
 
 private:
+    Context(
+            dcl::Host&                                      host,
+            const std::vector<dcl::ComputeNode *>&          computeNodes,
+            const cl::Platform&                             platform,
+            const cl::vector<cl::Device>&                   nativeDevices,
+            const std::shared_ptr<dcl::ContextListener>&    listener);
+
     /* Contexts must be non-copyable */
     Context(
             const Context& rhs) = delete;
@@ -124,8 +115,13 @@ private:
 
     dcl::Host& _host; //!< Host associated with this context
     std::vector<dcl::ComputeNode *> _computeNodes; //!< Compute nodes associated with this context
+    std::shared_ptr<dcl::ContextListener> _listener;
 
     cl::Context _context; //!< Native context
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    std::unique_ptr<lib842::CLDeviceDecompressor> _cl842DeviceDecompressor;
+#endif
     /*!
      * \brief Native command queue for asynchronous read/write
      *
@@ -134,12 +130,7 @@ private:
      * consistency protocol
      */
     cl::CommandQueue _ioCommandQueue;
-
-    std::shared_ptr<dcl::ContextListener> _listener;
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    std::unique_ptr<lib842::CLDeviceDecompressor> _cl842DeviceDecompressor;
-#endif
+    dcl::CLOutDataTransferContext _ioClOutDataTransferContext;
 };
 
 } /* namespace dcld */

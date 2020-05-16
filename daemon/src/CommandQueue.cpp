@@ -63,6 +63,10 @@
 
 #include <dcl/util/Logger.h>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
+
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
 #define CL_HPP_ENABLE_EXCEPTIONS
@@ -154,13 +158,25 @@ CommandQueue::CommandQueue(
         const std::shared_ptr<Context>& context,
         Device *device,
         cl_command_queue_properties properties) :
-        _context(context) {
-    if (!context) throw cl::Error(CL_INVALID_CONTEXT);
-    if (!device) throw cl::Error(CL_INVALID_DEVICE);
-    _commandQueue = cl::CommandQueue(*context, *device, properties);
+        _context(context),
+        _commandQueue(createNativeCommandQueue(context, device, properties)),
+        _clInDataTransferContext(*context, _commandQueue
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+                             , context->cl842DeviceDecompressor()
+#endif
+        ),
+        _clOutDataTransferContext(*context, _commandQueue) {
 }
 
 CommandQueue::~CommandQueue() { }
+
+cl::CommandQueue CommandQueue::createNativeCommandQueue(const std::shared_ptr<Context>& context,
+                                                        Device *device,
+                                                        cl_command_queue_properties properties) {
+    if (!context) throw cl::Error(CL_INVALID_CONTEXT);
+    if (!device) throw cl::Error(CL_INVALID_DEVICE);
+    return cl::CommandQueue(*context, *device, properties);
+}
 
 /*!
  * \brief Returns the native command queue.
@@ -226,7 +242,7 @@ void CommandQueue::synchronize(
                 nativeEventWaitList.push_back(*remoteEvent);
 
                 cl::vector<cl::Event> synchronizeEvents;
-                remoteEvent->synchronize(_commandQueue, synchronizeEvents);
+                remoteEvent->synchronize(_clInDataTransferContext, synchronizeEvents);
                 /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
                  * Different events may be associated with the same memory object
                  * However, a memory object must only be synchronized once.
@@ -250,7 +266,7 @@ void CommandQueue::synchronize(
     // the initial synchronization flag is unset, so no transfer happens here
     for (auto buffer : syncBuffers) {
         cl::Event _syncEvent;
-        if (buffer->checkCreateBufferInitialSync(_context->host(), _commandQueue, &_syncEvent)) {
+        if (buffer->checkCreateBufferInitialSync(_context->host(), _clInDataTransferContext, &_syncEvent)) {
             nativeEventWaitList.push_back(_syncEvent);
             synchronizationPending = true;
         }
@@ -372,7 +388,8 @@ void CommandQueue::enqueueReadBuffer(
     synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* enqueue data transfer from buffer */
-    _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, transferId, offset, size,
+    _context->host().sendDataFromClBuffer(
+            transferId, size, _clOutDataTransferContext, *bufferImpl, offset,
             &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
@@ -426,9 +443,8 @@ void CommandQueue::enqueueWriteBuffer(
     synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* enqueue data transfer to buffer */
-    _context->receiveBufferFromProcess(
-            _context->host(), _commandQueue,
-            *bufferImpl, transferId, offset, size,
+    _context->host().receiveDataToClBuffer(
+            transferId, size, _clInDataTransferContext, *bufferImpl, offset,
             &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
@@ -520,8 +536,9 @@ void CommandQueue::enqueueMapBuffer(
         cl::Event mapData, unmapData;
 
         /* enqueue data transfer from buffer */
-        _context->sendBufferToProcess(_context->host(), _commandQueue, *bufferImpl, transferId, offset, size,
-                                      (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
+        _context->host().sendDataFromClBuffer(
+            transferId, size, _clOutDataTransferContext, *bufferImpl, offset,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
         mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
 #endif
@@ -608,9 +625,8 @@ void CommandQueue::enqueueUnmapBuffer(
         cl::Event mapData, unmapData;
 
         /* enqueue data transfer to buffer */
-        _context->receiveBufferFromProcess(
-            _context->host(), _commandQueue,
-            *bufferImpl, transferId, offset, size,
+        _context->host().receiveDataToClBuffer(
+            transferId, size, _clInDataTransferContext, *bufferImpl, offset,
             (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
 #ifdef PROFILE
         unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));

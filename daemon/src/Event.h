@@ -50,6 +50,7 @@
 #include <dcl/Event.h>
 #include <dcl/Remote.h>
 #include <dcl/SynchronizationListener.h>
+#include <dcl/DataTransfer.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -137,7 +138,7 @@ public:
      * \param[in]  nativeEventList  the native events associated with the acquiring operations
      */
     void synchronize(
-            const cl::CommandQueue&  commandQueue,
+            const dcl::CLInDataTransferContext& clDataTransferContext,
             cl::vector<cl::Event>& nativeEventList);
 
     /*

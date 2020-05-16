@@ -158,8 +158,9 @@ public:
             const void *ptr,
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
-    void sendDataFromClBuffer(dcl::transfer_id transferId, size_t size, const cl::Context &context,
-                              const cl::CommandQueue &commandQueue, const cl::Buffer &buffer, size_t offset,
+    void sendDataFromClBuffer(dcl::transfer_id transferId, size_t size,
+                              const dcl::CLOutDataTransferContext &clDataTransferContext,
+                              const cl::Buffer &buffer, size_t offset,
                               const cl::vector<cl::Event> *eventWaitList, cl::Event *startEvent, cl::Event *endEvent);
 
     std::shared_ptr<dcl::DataTransfer> receiveData(
@@ -168,11 +169,8 @@ public:
             void *  ptr,
             bool skip_compress_step = false,
             const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
-    void receiveDataToClBuffer(dcl::transfer_id transferId, size_t size, const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-                               const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-#endif
-                               const cl::CommandQueue &commandQueue,
+    void receiveDataToClBuffer(dcl::transfer_id transferId, size_t size,
+                               const dcl::CLInDataTransferContext &clDataTransferContext,
                                const cl::Buffer &buffer, size_t offset, const cl::vector<cl::Event> *eventWaitList,
                                cl::Event *startEvent, cl::Event *endEvent);
 

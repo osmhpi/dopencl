@@ -45,6 +45,7 @@
 #define MEMORY_H_
 
 #include <dcl/DCLTypes.h>
+#include <dcl/DataTransfer.h>
 #include <dcl/Memory.h>
 #include <dcl/Process.h>
 
@@ -108,11 +109,11 @@ public:
      * \param[out] acquireEvent event associated with this acquire operation
      */
     virtual void acquire(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            dcl::transfer_id        transferId,
-            cl::Event*              releaseEvent,
-            cl::Event*              acquireEvent) = 0;
+            dcl::Process&                       process,
+            const dcl::CLInDataTransferContext& clDataTransferContext,
+            dcl::transfer_id                    transferId,
+            cl::Event*                          releaseEvent,
+            cl::Event*                          acquireEvent) = 0;
 
     /*!
      * \brief Releases the changes to this memory object associated with \c releaseEvent
@@ -127,10 +128,10 @@ public:
      *                          releases the changes to be acquired
      */
     virtual void release(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            dcl::transfer_id        transferId,
-            const cl::Event&        releaseEvent) const = 0;
+            dcl::Process&                        process,
+            const dcl::CLOutDataTransferContext& clDataTransferContext,
+            dcl::transfer_id                     transferId,
+            const cl::Event&                     releaseEvent) const = 0;
 
     /*!
      * \brief Acquires the initial state of the buffer given to clCreateBuffer
@@ -141,9 +142,9 @@ public:
      * \param[out] acquireEvent event associated with this acquire operation
      */
     virtual bool checkCreateBufferInitialSync(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            cl::Event*              acquireEvent) = 0;
+            dcl::Process&                       process,
+            const dcl::CLInDataTransferContext& clDataTransferContext,
+            cl::Event*                          acquireEvent) = 0;
 
 protected:
     Memory(
@@ -176,22 +177,22 @@ public:
     operator cl::Buffer() const;
 
     void acquire(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            dcl::transfer_id        transferId,
-            cl::Event*              releaseEvent,
-            cl::Event*              acquireEvent);
+            dcl::Process&                       process,
+            const dcl::CLInDataTransferContext& clDataTransferContext,
+            dcl::transfer_id                    transferId,
+            cl::Event*                          releaseEvent,
+            cl::Event*                          acquireEvent);
 
     void release(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            dcl::transfer_id        transferId,
-            const cl::Event&        releaseEvent) const;
+            dcl::Process&                        process,
+            const dcl::CLOutDataTransferContext& clDataTransferContext,
+            dcl::transfer_id                     transferId,
+            const cl::Event&                     releaseEvent) const;
 
     bool checkCreateBufferInitialSync(
-            dcl::Process&           process,
-            const cl::CommandQueue& commandQueue,
-            cl::Event*              acquireEvent);
+            dcl::Process&                       process,
+            const dcl::CLInDataTransferContext& clDataTransferContext,
+            cl::Event*                          acquireEvent);
 
 private:
     cl::Buffer _buffer; //!< Native buffer

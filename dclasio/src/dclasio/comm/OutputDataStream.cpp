@@ -54,6 +54,9 @@
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
 #include <lib842/hw.h>
 #endif
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
 
 #include <dcl/Completable.h>
 #include <dcl/CLEventCompletable.h>
@@ -367,8 +370,7 @@ void OutputDataStream::handle_write(
 void OutputDataStream::writeFromClBuffer(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLOutDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
@@ -378,10 +380,10 @@ void OutputDataStream::writeFromClBuffer(
     if (startEvent == nullptr)
         startEvent = &myStartEvent;
 
-    cl::UserEvent sendData(context);
+    cl::UserEvent sendData(clDataTransferContext.context());
 
     /* Enqueue map buffer */
-    void *ptr = commandQueue.enqueueMapBuffer(
+    void *ptr = clDataTransferContext.commandQueue().enqueueMapBuffer(
         buffer,
         CL_FALSE,     // non-blocking map
         CL_MAP_READ, // map for reading
@@ -393,7 +395,7 @@ void OutputDataStream::writeFromClBuffer(
         ->setCallback([sendData](cl_int status) mutable { sendData.setStatus(status); });
     /* Enqueue unmap buffer (implicit upload) */
     cl::vector<cl::Event> unmapWaitList = {sendData};
-    commandQueue.enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
+    clDataTransferContext.commandQueue().enqueueUnmapMemObject(buffer, ptr, &unmapWaitList, endEvent);
 
     profile_transfer(profile_transfer_direction::send, transferId, size, *startEvent, *endEvent);
 }

@@ -161,14 +161,13 @@ std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(
 void ProcessImpl::sendDataFromClBuffer(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLOutDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent) {
-    return getDataStream().writeFromClBuffer(transferId, size, context, commandQueue, buffer,
+    return getDataStream().writeFromClBuffer(transferId, size, clDataTransferContext, buffer,
                                              offset, eventWaitList, startEvent, endEvent);
 }
 
@@ -182,21 +181,14 @@ std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(
 void ProcessImpl::receiveDataToClBuffer(
     dcl::transfer_id transferId,
     size_t size,
-    const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-#endif
-    const cl::CommandQueue &commandQueue,
+    const dcl::CLInDataTransferContext &clDataTransferContext,
     const cl::Buffer &buffer,
     size_t offset,
     const cl::vector<cl::Event> *eventWaitList,
     cl::Event *startEvent,
     cl::Event *endEvent) {
-    return getDataStream().readToClBuffer(transferId, size, context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-                                          cl842DeviceDecompressor,
-#endif
-                                          commandQueue, buffer, offset, eventWaitList, startEvent, endEvent);
+    return getDataStream().readToClBuffer(transferId, size, clDataTransferContext,
+                                          buffer, offset, eventWaitList, startEvent, endEvent);
 }
 
 comm::DataStream& ProcessImpl::getDataStream() {

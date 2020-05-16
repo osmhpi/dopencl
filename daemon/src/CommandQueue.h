@@ -44,11 +44,14 @@
 #ifndef COMMANDQUEUE_H_
 #define COMMANDQUEUE_H_
 
+#include "Memory.h"
+
 #include <dcl/CommandQueue.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Event.h>
 #include <dcl/Kernel.h>
 #include <dcl/Memory.h>
+#include <dcl/DataTransfer.h>
 
 #define CL_HPP_MINIMUM_OPENCL_VERSION 120
 #define CL_HPP_TARGET_OPENCL_VERSION 120
@@ -62,7 +65,6 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-#include "Memory.h"
 
 namespace dcld {
 
@@ -179,6 +181,10 @@ private:
     CommandQueue& operator=(
             const CommandQueue& rhs) = delete;
 
+    cl::CommandQueue createNativeCommandQueue(const std::shared_ptr<Context>& context,
+                                              Device *device,
+                                              cl_command_queue_properties properties);
+
     /*!
      * \brief Synchronizes this command queue with the events in the event wait list.
      *
@@ -201,9 +207,10 @@ private:
             dcl::object_id                  commandId,
             cl::Event&                      marker);
 
-    cl::CommandQueue _commandQueue; //!< Native command queue
-
     std::shared_ptr<Context> _context; //!< Associated context
+    cl::CommandQueue _commandQueue; //!< Native command queue
+    dcl::CLInDataTransferContext _clInDataTransferContext;
+    dcl::CLOutDataTransferContext _clOutDataTransferContext;
 };
 
 } /* namespace dcld */

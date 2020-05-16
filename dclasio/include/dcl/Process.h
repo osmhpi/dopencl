@@ -60,14 +60,11 @@
 
 #include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
+#include <dcl/DataTransfer.h>
 
 #include <cstddef>
 #include <memory>
 #include <string>
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <lib842/cl.h>
-#endif
 
 namespace dcl {
 
@@ -113,8 +110,7 @@ public:
 	virtual void sendDataFromClBuffer(
 			dcl::transfer_id transferId,
 			size_t size,
-			const cl::Context &context,
-			const cl::CommandQueue &commandQueue,
+			const dcl::CLOutDataTransferContext &clDataTransferContext,
 			const cl::Buffer &buffer,
 			size_t offset,
 			const cl::vector<cl::Event> *eventWaitList,
@@ -139,11 +135,7 @@ public:
 	virtual void receiveDataToClBuffer(
 			dcl::transfer_id transferId,
 			size_t size,
-			const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-			const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-#endif
-			const cl::CommandQueue &commandQueue,
+			const dcl::CLInDataTransferContext &clDataTransferContext,
 			const cl::Buffer &buffer,
 			size_t offset,
 			const cl::vector<cl::Event> *eventWaitList,

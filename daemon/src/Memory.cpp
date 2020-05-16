@@ -161,7 +161,7 @@ Buffer::operator cl::Buffer() const {
 
 void Buffer::acquire(
         dcl::Process& process,
-        const cl::CommandQueue& commandQueue,
+        const dcl::CLInDataTransferContext& clDataTransferContext,
         dcl::transfer_id transferId,
         cl::Event *releaseEvent,
         cl::Event *acquireEvent) {
@@ -177,8 +177,8 @@ void Buffer::acquire(
         receiveWaitList.push_back(*releaseEvent);
 
     /* enqueue data transfer to buffer */
-    _context->receiveBufferFromProcess(process, commandQueue,
-            _buffer, transferId, 0, size(),
+    process.receiveDataToClBuffer(
+            transferId, size(), clDataTransferContext, _buffer, 0,
             (receiveWaitList.empty() ? nullptr : &receiveWaitList), &mapEvent, acquireEvent);
 
     // Mark the buffer as needing no synchronization with the data
@@ -189,7 +189,7 @@ void Buffer::acquire(
 
 void Buffer::release(
         dcl::Process& process,
-        const cl::CommandQueue& commandQueue,
+        const dcl::CLOutDataTransferContext& clDataTransferContext,
         dcl::transfer_id transferId,
         const cl::Event& releaseEvent) const {
     cl::Event mapEvent, unmapEvent;
@@ -200,13 +200,14 @@ void Buffer::release(
 
     /* enqueue data transfer from buffer when releaseEvent is complete */
     cl::vector<cl::Event> mapWaitList(1, releaseEvent);
-    _context->sendBufferToProcess(process, commandQueue, _buffer, transferId, 0, size(),
+    process.sendDataFromClBuffer(
+            transferId, size(), clDataTransferContext, _buffer, 0,
             &mapWaitList, &mapEvent, &unmapEvent);
 }
 
-bool Buffer::checkCreateBufferInitialSync(dcl::Process&           process,
-                                          const cl::CommandQueue& commandQueue,
-                                          cl::Event*              acquireEvent) {
+bool Buffer::checkCreateBufferInitialSync(dcl::Process&                       process,
+                                          const dcl::CLInDataTransferContext& clDataTransferContext,
+                                          cl::Event*                          acquireEvent) {
     if (!_needsCreateBufferInitialSync) {
         // Needs no synchronization or already synchronized
         return false;
@@ -220,7 +221,7 @@ bool Buffer::checkCreateBufferInitialSync(dcl::Process&           process,
     process.sendMessage(msg);
 
     // Download the buffer from the host
-    acquire(process, commandQueue, transferId, nullptr, acquireEvent);
+    acquire(process, clDataTransferContext, transferId, nullptr, acquireEvent);
     return true;
 }
 

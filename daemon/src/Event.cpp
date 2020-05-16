@@ -54,6 +54,7 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Host.h>
 #include <dcl/Remote.h>
+#include <dcl/DataTransfer.h>
 
 #include <dcl/util/Clock.h>
 #include <dcl/util/Logger.h>
@@ -151,7 +152,7 @@ RemoteEvent::operator cl::Event() const {
 }
 
 void RemoteEvent::synchronize(
-        const cl::CommandQueue& commandQueue,
+        const dcl::CLInDataTransferContext& clDataTransferContext,
         cl::vector<cl::Event>& nativeEventList) {
     std::lock_guard<std::mutex> lock(_syncMutex);
 
@@ -177,7 +178,7 @@ void RemoteEvent::synchronize(
         for (auto memoryObject : _memoryObjects) {
             cl::Event acquire; /* Event representing the acquire operation of the current memory object.
                                 * Serves as synchronization point for following commands and other devices */
-            memoryObject->acquire(_context->host(), commandQueue, bufferTransferId, &_event, &acquire);
+            memoryObject->acquire(_context->host(), clDataTransferContext, bufferTransferId, &_event, &acquire);
             _syncEvents.push_back(acquire);
             dcl::next_transfer_id(bufferTransferId);
         }
@@ -237,7 +238,7 @@ LocalEvent::~LocalEvent() {
 }
 
 void LocalEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
-    cl::CommandQueue commandQueue = _context->ioCommandQueue();
+    auto clDataTransferContext = _context->ioClOutDataTransferContext();
 
     dcl::util::Logger << dcl::util::Debug
             << "Event synchronization (ID=" << _id
@@ -250,13 +251,13 @@ void LocalEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferI
      * interfere (e.g., deadlock) with application commands. */
     auto bufferTransferId = transferId;
     for (auto memoryObject : _memoryObjects) {
-        memoryObject->release(process, commandQueue, bufferTransferId, *this);
+        memoryObject->release(process, clDataTransferContext, bufferTransferId, *this);
         dcl::next_transfer_id(bufferTransferId);
     }
 
     /* The I/O command queue must be flushed to ensure instant execution of the
      * acquire operation */
-    commandQueue.flush();
+    clDataTransferContext.commandQueue().flush();
 }
 
 /* ****************************************************************************/

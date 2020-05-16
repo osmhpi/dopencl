@@ -102,11 +102,7 @@ public:
     void readToClBuffer(
             dcl::transfer_id transferId,
             size_t size,
-            const cl::Context &context,
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-            const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-#endif
-            const cl::CommandQueue &commandQueue,
+            const dcl::CLInDataTransferContext &clDataTransferContext,
             const cl::Buffer &buffer,
             size_t offset,
             const cl::vector<cl::Event> *eventWaitList,
@@ -142,9 +138,7 @@ private:
     void readToClBufferWithClTemporaryDecompression(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
@@ -153,9 +147,7 @@ private:
     void readToClBufferWithClInlineDecompression(
         dcl::transfer_id transferId,
         size_t size,
-        const cl::Context &context,
-        const lib842::CLDeviceDecompressor *cl842DeviceDecompressor,
-        const cl::CommandQueue &commandQueue,
+        const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,

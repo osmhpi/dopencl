@@ -101,8 +101,7 @@ public:
     void writeFromClBuffer(
             dcl::transfer_id transferId,
             size_t size,
-            const cl::Context &context,
-            const cl::CommandQueue &commandQueue,
+            const dcl::CLOutDataTransferContext &clDataTransferContext,
             const cl::Buffer &buffer,
             size_t offset,
             const cl::vector<cl::Event> *eventWaitList,

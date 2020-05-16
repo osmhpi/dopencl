@@ -46,10 +46,15 @@
 #ifndef DCLTYPES_H_
 #define DCLTYPES_H_
 
-#include <cstdint>
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
+
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/functional/hash.hpp>
+
+#include <cstdint>
 
 namespace std {
 

@@ -46,10 +46,13 @@
 #ifndef DATATRANSFER_H_
 #define DATATRANSFER_H_
 
+#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 120
+#define CL_HPP_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.h>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.h>
+#include <CL/cl2.hpp>
 #endif
 
 #include <dcl/Completable.h>
@@ -112,6 +115,72 @@ static bool is_cl_io_link_compression_mode_inline() {
     return enabled;
 }
 #endif
+
+/**
+ * Base class containing the context for data transfers from/to OpenCL buffers.
+ */
+class CLDataTransferContext {
+protected:
+    CLDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue)
+        : _context(context),
+          _commandQueue(commandQueue)
+    { }
+
+public:
+    cl::Context context() const {
+        return _context;
+    }
+
+    cl::CommandQueue commandQueue() const {
+        return _commandQueue;
+    }
+
+private:
+    cl::Context _context;
+    cl::CommandQueue _commandQueue;
+};
+
+/**
+ * Context for incoming (i.e. receive to buffer) data transfers to OpenCL buffers.
+ */
+class CLInDataTransferContext : public CLDataTransferContext {
+
+public:
+    CLInDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+        , const lib842::CLDeviceDecompressor *cl842DeviceDecompressor
+#endif
+    )
+        : CLDataTransferContext(context, commandQueue)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+          , _cl842DeviceDecompressor(cl842DeviceDecompressor)
+#endif
+    { }
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const {
+        return _cl842DeviceDecompressor;
+    }
+private:
+    const lib842::CLDeviceDecompressor *_cl842DeviceDecompressor;
+#endif
+};
+
+/**
+ * Context for outbound (i.e. send from buffer) data transfers from OpenCL buffers.
+ */
+class CLOutDataTransferContext : public CLDataTransferContext {
+public:
+    CLOutDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue)
+        : CLDataTransferContext(context, commandQueue)
+    { }
+};
 
 } /* namespace dcl */
 
