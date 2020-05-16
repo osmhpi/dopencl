@@ -165,8 +165,15 @@ public:
     const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const {
         return _cl842DeviceDecompressor;
     }
+
+    static constexpr size_t NUM_BUFFERS = 2;
+    std::array<cl::Buffer, NUM_BUFFERS> &cl842WorkBuffers() const {
+        return _cl842WorkBuffers;
+    }
+
 private:
     const lib842::CLDeviceDecompressor *_cl842DeviceDecompressor;
+    mutable std::array<cl::Buffer, NUM_BUFFERS> _cl842WorkBuffers;
 #endif
 };
 

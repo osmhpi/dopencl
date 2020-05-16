@@ -503,12 +503,18 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
         cl::Event *startEvent,
         cl::Event *endEvent) {
     auto commandQueue = clDataTransferContext.commandQueue();
-    static const size_t NUM_BUFFERS = 2;
-    // TODOXXX: Allocate those somewhere more permanent, like on the command queue,
-    //          so we don't need to allocate those buffers for every since transfer
-    std::array<cl::Buffer, NUM_BUFFERS> workBuffers;
-    for (auto &wb : workBuffers)
+
+    // Avoid re-allocating new temporary buffers for each transfer by storing
+    // them in the CL data transfer context. This is safe because each context
+    // is associated with a command queue, and so far out of order queues are
+    // not supported, so only a single transfer is using the buffers at a time
+    auto &workBuffers = clDataTransferContext.cl842WorkBuffers();
+    static const size_t NUM_BUFFERS = workBuffers.size();
+    for (auto &wb : workBuffers) {
+        if (wb.get() != nullptr)
+            break;
         wb = cl::Buffer(clDataTransferContext.context(), CL_MEM_READ_ONLY, CL_UPLOAD_BLOCK_SIZE);
+    }
 
     size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
 
