@@ -23,9 +23,17 @@ foreach(test bitonic
              text_search)
 	add_executable(${test} src/${test}.cpp)
 	target_link_libraries(${test} OpenCL Threads::Threads)
+	target_compile_definitions(${test} PRIVATE CL_TARGET_OPENCL_VERSION=120
+	                                           CL_HPP_MINIMUM_OPENCL_VERSION=120
+	                                           CL_HPP_TARGET_OPENCL_VERSION=120
+	                                           CL_HPP_ENABLE_EXCEPTIONS)
 endforeach(test)
 
 if (TIFF_FOUND)
 	add_executable(downsize_tiff src/downsize_tiff.cpp)
 	target_link_libraries(downsize_tiff OpenCL ${TIFF_LIBRARIES} Threads::Threads)
+	target_compile_definitions(downsize_tiff PRIVATE CL_TARGET_OPENCL_VERSION=120
+	                                                 CL_HPP_MINIMUM_OPENCL_VERSION=120
+	                                                 CL_HPP_TARGET_OPENCL_VERSION=120
+	                                                 CL_HPP_ENABLE_EXCEPTIONS)
 endif()

@@ -51,6 +51,9 @@ foreach(test CommandQueue Context Device Event Logger Memory Platform Program Da
 		dcl
 		${Boost_LIBRARIES})
 		
-	set_property(TARGET ${test}
-		APPEND PROPERTY COMPILE_DEFINITIONS BOOST_TEST_DYN_LINK)
+	target_compile_definitions(${test} PRIVATE BOOST_TEST_DYN_LINK)
+	target_compile_definitions(${test} PRIVATE CL_TARGET_OPENCL_VERSION=120
+	                                           CL_HPP_MINIMUM_OPENCL_VERSION=120
+	                                           CL_HPP_TARGET_OPENCL_VERSION=120
+	                                           CL_HPP_ENABLE_EXCEPTIONS)
 endforeach(test)

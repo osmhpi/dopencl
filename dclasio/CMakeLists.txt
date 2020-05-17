@@ -38,11 +38,14 @@ if (ENABLE_IO_LINK_COMPRESSION)
 	target_link_libraries(dcl 842)
 endif(ENABLE_IO_LINK_COMPRESSION)
 
+target_compile_definitions(dcl PRIVATE CL_TARGET_OPENCL_VERSION=120
+                                       CL_HPP_MINIMUM_OPENCL_VERSION=120
+                                       CL_HPP_TARGET_OPENCL_VERSION=120
+                                       CL_HPP_ENABLE_EXCEPTIONS)
+
 # enable OpenCL 1.1/1.2 compatibility
-set_property(TARGET dcl
-	PROPERTY COMPILE_DEFINITIONS
-			CL_USE_DEPRECATED_OPENCL_1_1_APIS
-			CL_USE_DEPRECATED_OPENCL_1_2_APIS)
+target_compile_definitions(dcl PRIVATE CL_USE_DEPRECATED_OPENCL_1_1_APIS
+                                       CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 
 if(BUILD_SHARED_LIBS)
 # set library version and SONAME

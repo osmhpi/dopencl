@@ -29,16 +29,16 @@ target_link_libraries(dcld
 	dcl
 	OpenCL
 	${Boost_LIBRARIES})
+target_compile_definitions(dcld PRIVATE CL_TARGET_OPENCL_VERSION=120
+                                        CL_HPP_MINIMUM_OPENCL_VERSION=120
+                                        CL_HPP_TARGET_OPENCL_VERSION=120
+                                        CL_HPP_ENABLE_EXCEPTIONS)
 
 # enable OpenCL 1.1/1.2 compatibility
-set_property(TARGET dcld
-	PROPERTY COMPILE_DEFINITIONS
-			CL_USE_DEPRECATED_OPENCL_1_1_APIS
-			CL_USE_DEPRECATED_OPENCL_1_2_APIS)
+target_compile_definitions(dcld PRIVATE CL_USE_DEPRECATED_OPENCL_1_1_APIS
+                                        CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 if (FORCE_FLUSH)
-set_property(TARGET dcld
-	APPEND PROPERTY COMPILE_DEFINITIONS
-			FORCE_FLUSH)
+	target_compile_definitions(dcld PRIVATE FORCE_FLUSH)
 endif (FORCE_FLUSH)
 
 
