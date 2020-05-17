@@ -538,17 +538,29 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS],
                                                &unmapWaitList,
                                                &unmapEvents[i - NUM_BUFFERS]);
-            // Rounds down (partial chunks are not compressed by InputDataStream)
-            size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
-            if (chunksSize > 0) {
-                cl::vector<cl::Event> decompressWaitList = {unmapEvents[i - NUM_BUFFERS]};
+
+            // Uncompress (full) compressed blocks
+            size_t fullBlocksSize = split_size & ~(lib842::stream::BLOCK_SIZE - 1);
+
+            decompressEvents[i - NUM_BUFFERS] = unmapEvents[i - NUM_BUFFERS];
+
+            if (fullBlocksSize > 0) {
+                cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
                 clDataTransferContext.cl842DeviceDecompressor()->decompress(commandQueue,
-                    wb, 0, chunksSize, cl::Buffer(nullptr),
-                    buffer, split_offset, chunksSize, cl::Buffer(nullptr),
+                    wb, 0, fullBlocksSize, cl::Buffer(nullptr),
+                    buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
                     cl::Buffer(nullptr),
                     &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
-            } else {
-                decompressEvents[i - NUM_BUFFERS] = unmapEvents[i - NUM_BUFFERS];
+            }
+
+            // Partial blocks are not compressed, so we also need to move them from
+            // the temporary buffer to the final buffer if necessary
+            size_t partialBlockSize = split_size & (lib842::stream::BLOCK_SIZE - 1);
+            if (partialBlockSize > 0) {
+                cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
+                commandQueue.enqueueCopyBuffer(wb, buffer,
+                                               fullBlocksSize, fullBlocksSize, partialBlockSize,
+                                               &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
         }
 
@@ -621,18 +633,22 @@ void InputDataStream::readToClBufferWithClInlineDecompression(
         /* Enqueue unmap buffer (implicit upload) */
         cl::vector<cl::Event> unmapWaitList = {receiveEvent};
         commandQueue.enqueueUnmapMemObject(buffer, ptrs[i], &unmapWaitList, &unmapEvents[i]);
-        // Rounds down (partial chunks are not compressed by InputDataStream)
-        size_t chunksSize = split_size & ~(lib842::stream::CHUNK_SIZE - 1);
-        if (chunksSize > 0) {
+
+        // Uncompress (full) compressed blocks
+        size_t fullBlocksSize = split_size & ~(lib842::stream::BLOCK_SIZE - 1);
+        if (fullBlocksSize > 0) {
             cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
             clDataTransferContext.cl842DeviceDecompressor()->decompress(
                 commandQueue,
-                buffer, split_offset, chunksSize, cl::Buffer(nullptr),
-                buffer, split_offset, chunksSize, cl::Buffer(nullptr),
+                buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
+                buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
                 cl::Buffer(nullptr), &decompressWaitList, &decompressEvents[i]);
         } else {
             decompressEvents[i] = unmapEvents[i];
         }
+
+        // Partial blocks are not compressed, and since we're uncompressing
+        // in-place, the data is already in the right place, so all done
     }
 
 
