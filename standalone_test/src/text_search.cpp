@@ -217,8 +217,8 @@ int main(int argc, char *argv[])
                 0, (1 + 2 * MAX_RESULTS) * sizeof(std::uint64_t), match_buf.data());
             for (size_t i = 0; i < MAX_RESULTS && i < static_cast<size_t>(match_buf[0]); i++) {
                 matches.push_back(match {
-                    .start = match_buf[1 + 2 * i + 0] + devinfo[d].file_data_offset,
-                    .end   = match_buf[1 + 2 * i + 1] + devinfo[d].file_data_offset,
+                    .start = static_cast<size_t>(match_buf[1 + 2 * i + 0] + devinfo[d].file_data_offset),
+                    .end   = static_cast<size_t>(match_buf[1 + 2 * i + 1] + devinfo[d].file_data_offset),
                 });
             }
         }
