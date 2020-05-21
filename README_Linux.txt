@@ -197,8 +197,8 @@ tuning using the following environment variables:
                                             842 implementation
                                             (after if it has been built in,
                                             and even if available).
-* DCL_CL_IO_LINK_COMPRESSION_INLINE=(any): Uses the alternative OpenCL in-place
-                                           842 implementation (unstable)
+* DCL_CL_IO_LINK_COMPRESSION_INPLACE=(any): Uses the alternative OpenCL in-place
+                                            842 implementation (unstable)
 * DCL_IO_LINK_NUM_COMPRESS_THREADS=(number): Sets the number of threads used
                                              for compression.
                                              (Otherwise, a thread per hardware

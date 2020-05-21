@@ -107,8 +107,8 @@ static bool is_cl_io_link_compression_enabled() {
     return enabled;
 }
 
-static bool is_cl_io_link_compression_mode_inline() {
-    static bool enabled = std::getenv("DCL_CL_IO_LINK_COMPRESSION_INLINE") != nullptr;
+static bool is_cl_io_link_compression_mode_inplace() {
+    static bool enabled = std::getenv("DCL_CL_IO_LINK_COMPRESSION_INPLACE") != nullptr;
     return enabled;
 }
 #endif

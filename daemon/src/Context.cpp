@@ -122,7 +122,7 @@ static lib842::CLDeviceDecompressor *createClDeviceCompressor(
                 context, nativeDevices,
                 lib842::stream::CHUNK_SIZE,
                 lib842::stream::CHUNK_SIZE,
-                dcl::is_cl_io_link_compression_mode_inline()
+                dcl::is_cl_io_link_compression_mode_inplace()
                     ? lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
                     : lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
         );

@@ -443,8 +443,8 @@ void InputDataStream::readToClBuffer(
     }
 
     if (can_use_cl_io_link_compression) {
-        if (dcl::is_cl_io_link_compression_mode_inline()) {
-            readToClBufferWithClInlineDecompression(
+        if (dcl::is_cl_io_link_compression_mode_inplace()) {
+            readToClBufferWithClInplaceDecompression(
                 transferId, size, clDataTransferContext,
                 buffer, eventWaitList, startEvent, endEvent);
         } else {
@@ -591,7 +591,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
     *endEvent = decompressEvents.back();
 }
 
-void InputDataStream::readToClBufferWithClInlineDecompression(
+void InputDataStream::readToClBufferWithClInplaceDecompression(
         dcl::transfer_id transferId,
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,

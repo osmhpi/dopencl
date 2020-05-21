@@ -141,7 +141,7 @@ private:
         cl::Event *startEvent,
         cl::Event *endEvent);
 
-    void readToClBufferWithClInlineDecompression(
+    void readToClBufferWithClInplaceDecompression(
         dcl::transfer_id transferId,
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,
