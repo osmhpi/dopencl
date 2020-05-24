@@ -88,18 +88,6 @@ static void next_transfer_id(transfer_id &transfer_id) {
     }
 }
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-// TODOXXX: This is a variation of next_transfer_id,
-//          but used to get some hacky code to work, see call sites. Remove me.
-static void next_cl_split_transfer_id(dcl::transfer_id &transfer_id) {
-    for (size_t i = 4; i < boost::uuids::uuid::static_size(); i++) {
-        transfer_id.data[boost::uuids::uuid::static_size()-i-1]++;
-        if (transfer_id.data[boost::uuids::uuid::static_size()-i-1] != 0)
-            break;
-    }
-}
-#endif
-
 enum class kernel_arg_type {
 	BINARY, MEMORY, SAMPLER
 }; //!< A kernel argument type

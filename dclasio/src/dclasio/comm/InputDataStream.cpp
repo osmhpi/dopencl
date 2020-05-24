@@ -77,6 +77,18 @@
 #include <mutex>
 #include <utility>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+// TODOXXX: This is a variation of next_transfer_id,
+//          but used to get some hacky code to work, see call sites. Remove me.
+static void next_cl_split_transfer_id(dcl::transfer_id &transfer_id) {
+    for (size_t i = 4; i < boost::uuids::uuid::static_size(); i++) {
+        transfer_id.data[boost::uuids::uuid::static_size()-i-1]++;
+        if (transfer_id.data[boost::uuids::uuid::static_size()-i-1] != 0)
+            break;
+    }
+}
+#endif
+
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
 
@@ -147,60 +159,21 @@ std::shared_ptr<DataReceipt> InputDataStream::read(
 }
 
 void InputDataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
-    std::vector<std::shared_ptr<DataReceipt>> reads = {read};
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
-        read->size() > CL_UPLOAD_BLOCK_SIZE) {
-        // TODOXXX: The OpenCL-based decompression code does work in blocks of
-        //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
-        //          in blocks of this size. However, in order for all read/writes
-        //          to match correctly, *all* transfers need to be split in blocks
-        //          of this size. This is a huge hack and OpenCL-based decompression
-        //          should eventually be integrated better so this isn't necessary
-        reads.clear();
-
-        size_t num_splits = (read->size() + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
-        dcl::transfer_id split_transfer_id = read->transferId();
-        for (size_t i = 0; i < num_splits; i++, dcl::next_cl_split_transfer_id(split_transfer_id)) {
-            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
-            size_t split_size = std::min(read->size() - split_offset, CL_UPLOAD_BLOCK_SIZE);
-            auto subread(std::make_shared<DataReceipt>(
-                split_transfer_id, split_size,
-                static_cast<uint8_t *>(read->ptr()) + split_offset,
-                read->skip_compress_step(), i < (num_splits - 1)));
-            reads.push_back(subread);
-        }
-
-        // Complete the main (non-split) transfer when the last split part finishes
-        // TODOXXX error handling is not at all solid here
-        reads.back()->setCallback([read](cl_int status) {
-            auto ec = status == CL_SUCCESS
-                 ? boost::system::error_code()
-                 : boost::system::errc::make_error_code(boost::system::errc::io_error);
-            read->onFinish(ec, read->size());
-        });
-    }
-#endif
-
     std::unique_lock<std::mutex> lock(_readq_mtx);
     // If we were just waiting for this read to arrive to match a write,
     // don't even enqueue it, go straight to data receiving
     if (_read_state == receiving_state::waiting_for_read_matching_transfer_id &&
-        _read_transfer_id == reads.front()->transferId()) {
+        _read_transfer_id == read->transferId()) {
         _read_state = receiving_state::receiving_data;
-        for (auto it = ++reads.cbegin(); it != reads.cend(); it++)
-            _readq.insert({ (*it)->transferId(), (*it) });
         lock.unlock();
 
-        _read_op = reads.front();
+        _read_op = read;
         start_read();
         return;
     }
 
     // Otherwise, enqueue the request and wait for the matching write to arrive
-    for (const auto &r : reads)
-        _readq.insert({ r->transferId(), r });
+    _readq.insert({ read->transferId(), read });
     // If we are busy doing a receive for a transfer id or data, we are done,
     // the read queue will be processed out when the operation in course is done
     // But if we are idle, we need to start up the transfer ID matching process
@@ -281,6 +254,10 @@ void InputDataStream::read_next_compressed_block() {
                 });
                 return;
             }
+
+            // TODOYYY: Adjust the offset in a more controlled way
+            // (store offset adjustment in DataTransfer object?)
+            _read_io_destination_offset %= _read_op->size();
 
             assert(_read_io_destination_offset <= _read_op->size() - BLOCK_SIZE);
             for (auto read_io_buffer_size : _read_io_buffer_sizes) {
@@ -406,7 +383,7 @@ void InputDataStream::handle_read(
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     // Skip transfer ID write for between split transfers
     if (is_intermediate_split_transfer) {
-        dcl::next_cl_split_transfer_id(last_transfer_id);
+        next_cl_split_transfer_id(last_transfer_id);
         _read_transfer_id = last_transfer_id;
         on_transfer_id_received();
         return;
@@ -604,7 +581,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
             receiveEvents.push_back(receiveEvent);
 
-            dcl::next_cl_split_transfer_id(split_transfer_id);
+            next_cl_split_transfer_id(split_transfer_id);
         }
     }
 
@@ -641,7 +618,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
     }
 
     dcl::transfer_id split_transfer_id = transferId;
-    for (size_t i = 0; i < num_splits; i++, dcl::next_cl_split_transfer_id(split_transfer_id)) {
+    for (size_t i = 0; i < num_splits; i++, next_cl_split_transfer_id(split_transfer_id)) {
         size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
         size_t split_size = std::min(size - i * CL_UPLOAD_BLOCK_SIZE, CL_UPLOAD_BLOCK_SIZE);
 

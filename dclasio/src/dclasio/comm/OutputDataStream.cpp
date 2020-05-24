@@ -111,6 +111,9 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
         ));
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+        // The other end of the stream depends on this ordering requirement for
+        // transfers to OpenCL buffers, which are split in multiple parts,
+        // in order not cleanly 'cut' the transfers in those parts
         _compress_thread_pool->set_offset_sync_epoch_multiple(CL_UPLOAD_BLOCK_SIZE);
 #endif
     }
@@ -143,59 +146,19 @@ std::shared_ptr<DataSending> OutputDataStream::write(
 }
 
 void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) {
-    std::vector<std::shared_ptr<DataSending>> writes = {write};
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
-        write->size() > CL_UPLOAD_BLOCK_SIZE) {
-        // TODOXXX: The OpenCL-based decompression code does work in blocks of
-        //          size CL_UPLOAD_BLOCK_SIZE, and for now, it splits its reads
-        //          in blocks of this size. However, in order for all read/writes
-        //          to match correctly, *all* transfers need to be split in blocks
-        //          of this size. This is a huge hack and OpenCL-based decompression
-        //          should eventually be integrated better so this isn't necessary
-        writes.clear();
-
-        size_t num_splits = (write->size() + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
-        dcl::transfer_id split_transfer_id = write->transferId();
-        for (size_t i = 0; i < num_splits; i++, dcl::next_cl_split_transfer_id(split_transfer_id)) {
-            size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
-            size_t split_size = std::min(write->size() - split_offset, CL_UPLOAD_BLOCK_SIZE);
-            auto subwrite(std::make_shared<DataSending>(
-                split_transfer_id, split_size,
-                static_cast<const uint8_t *>(write->ptr()) + split_offset,
-                write->skip_compress_step(), i < (num_splits - 1)));
-            writes.push_back(subwrite);
-        }
-
-        // Complete the main (non-split) transfer when the last split part finishes
-        // TODOXXX error handling is not at all solid here
-        writes.back()->setCallback([write](cl_int status) {
-            auto ec = status == CL_SUCCESS
-                 ? boost::system::error_code()
-                 : boost::system::errc::make_error_code(boost::system::errc::io_error);
-            write->onFinish(ec, write->size());
-        });
-    }
-#endif
-
     std::unique_lock<std::mutex> lock(_writeq_mtx);
     if (_sending) {
-        for (const auto &w : writes)
-            _writeq.push(w);
+        _writeq.push(write);
     } else {
         // start write loop
         _sending = true;
         lock.unlock();
 
-        notify_write_transfer_id(new writeq_type(
-            std::list<std::shared_ptr<DataSending>>(writes.begin(), writes.end())),
-            false);
+        notify_write_transfer_id(new writeq_type({write}));
     }
 }
 
-void OutputDataStream::notify_write_transfer_id(writeq_type *writeq,
-    bool is_intermediate_split_transfer) {
+void OutputDataStream::notify_write_transfer_id(writeq_type *writeq) {
     /* TODO Pass writeq by rvalue reference rather than by pointer
      * is currently not supported by lambdas (see comment in start_write) */
     assert(writeq); // ouch!
@@ -212,12 +175,6 @@ void OutputDataStream::notify_write_transfer_id(writeq_type *writeq,
     // writeq is non-empty now
 
     auto& write = writeq->front();
-
-    if (is_intermediate_split_transfer) {
-        // Skip transfer ID write for between split transfers
-        start_write(writeq);
-        return;
-    }
 
     boost_asio_async_write_with_sentinels(
         _socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
@@ -371,7 +328,6 @@ void OutputDataStream::handle_write(
         << std::endl;
 #endif
 
-    auto is_intermediate_split_transfer = write->is_intermediate_split_transfer();
     write->onFinish(ec, bytes_transferred);
     writeq->pop();
 
@@ -379,7 +335,7 @@ void OutputDataStream::handle_write(
         // TODO Handle errors
     }
 
-    notify_write_transfer_id(writeq, is_intermediate_split_transfer); // process remaining writes
+    notify_write_transfer_id(writeq); // process remaining writes
 }
 
 void OutputDataStream::writeFromClBuffer(

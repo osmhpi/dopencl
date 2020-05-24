@@ -109,7 +109,7 @@ private:
     typedef std::queue<std::shared_ptr<DataSending>, std::list<std::shared_ptr<DataSending>>> writeq_type;
 
     void enqueue_write(const std::shared_ptr<DataSending> &write);
-    void notify_write_transfer_id(writeq_type *writeq, bool is_intermediate_split_transfer);
+    void notify_write_transfer_id(writeq_type *writeq);
     /*!
      * \brief Processes the next data transfer from the write queue.
      *
