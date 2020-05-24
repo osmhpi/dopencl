@@ -302,7 +302,7 @@ void InputDataStream::read_next_compressed_block() {
 
                 // Push into the queue for decompression
                 lib842::stream::DataDecompressionStream::decompress_block dm;
-                dm.compress_buffer.reset(_read_io_compressed_buffer.release());
+                dm.compress_buffer = std::move(_read_io_compressed_buffer);
                 bool should_uncompress_any = false;
                 for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
