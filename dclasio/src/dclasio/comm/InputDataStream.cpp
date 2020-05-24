@@ -559,7 +559,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             if (partialBlockSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueCopyBuffer(wb, buffer,
-                                               fullBlocksSize, fullBlocksSize, partialBlockSize,
+                                               fullBlocksSize, split_offset + fullBlocksSize, partialBlockSize,
                                                &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
         }
