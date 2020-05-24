@@ -107,8 +107,17 @@ public:
             cl::Event *endEvent);
 
 private:
+    std::shared_ptr<DataReceipt> read(
+            dcl::transfer_id transfer_id,
+            size_t size,
+            void *ptr,
+            bool skip_compress_step,
+            bool is_intermediate_split_transfer,
+            const std::shared_ptr<dcl::Completable> &trigger_event);
+
     void enqueue_read(const std::shared_ptr<DataReceipt> &read);
     void receive_matching_transfer_id();
+    void on_transfer_id_received();
     /*!
      * \brief Processes the next data transfer from the read queue.
      */

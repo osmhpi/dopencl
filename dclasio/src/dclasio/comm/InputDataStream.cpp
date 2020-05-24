@@ -118,7 +118,14 @@ std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step));
+    return read(transfer_id, size, ptr, skip_compress_step, false, trigger_event);
+}
+
+std::shared_ptr<DataReceipt> InputDataStream::read(
+        dcl::transfer_id transfer_id,
+        size_t size, void *ptr, bool skip_compress_step, bool is_intermediate_split_transfer,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step, is_intermediate_split_transfer));
     if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
         trigger_event->setCallback([this, read](cl_int status) {
@@ -161,7 +168,7 @@ void InputDataStream::enqueue_read(const std::shared_ptr<DataReceipt> &read) {
             auto subread(std::make_shared<DataReceipt>(
                 split_transfer_id, split_size,
                 static_cast<uint8_t *>(read->ptr()) + split_offset,
-                read->skip_compress_step()));
+                read->skip_compress_step(), i < (num_splits - 1)));
             reads.push_back(subread);
         }
 
@@ -209,24 +216,27 @@ void InputDataStream::receive_matching_transfer_id() {
         _socket, boost::asio::buffer(_read_transfer_id.data, _read_transfer_id.size()),
         [this](const boost::system::error_code& ec, size_t bytes_transferred) {
             assert(!ec); // TODO: How to handle an error here?
-
-            std::unique_lock<std::mutex> lock(_readq_mtx);
-            auto it = _readq.find(_read_transfer_id);
-            if (it != _readq.end()) {
-                // If the other end of the socket wants to do a send for a
-                // receive we have enqueued, we can start receiving data
-                auto readop = it->second;
-                _readq.erase(it);
-                _read_state = receiving_state::receiving_data;
-                lock.unlock();
-
-                _read_op = readop;
-                start_read();
-            } else {
-                // Otherwise, we need to wait until that receive is enqueued
-                _read_state = receiving_state::waiting_for_read_matching_transfer_id;
-            }
+            on_transfer_id_received();
         });
+}
+
+void InputDataStream::on_transfer_id_received() {
+    std::unique_lock<std::mutex> lock(_readq_mtx);
+    auto it = _readq.find(_read_transfer_id);
+    if (it != _readq.end()) {
+        // If the other end of the socket wants to do a send for a
+        // receive we have enqueued, we can start receiving data
+        auto readop = it->second;
+        _readq.erase(it);
+        _read_state = receiving_state::receiving_data;
+        lock.unlock();
+
+        _read_op = readop;
+        start_read();
+    } else {
+        // Otherwise, we need to wait until that receive is enqueued
+        _read_state = receiving_state::waiting_for_read_matching_transfer_id;
+    }
 }
 
 void InputDataStream::start_read() {
@@ -384,6 +394,8 @@ void InputDataStream::handle_read(
         << "End read of size " << _read_op->size()
         << std::endl;
 #endif
+    auto is_intermediate_split_transfer = _read_op->is_intermediate_split_transfer();
+    auto last_transfer_id = _read_op->transferId();
     _read_op->onFinish(ec, bytes_transferred);
     _read_op.reset();
 
@@ -391,6 +403,15 @@ void InputDataStream::handle_read(
         // TODO Handle errors
     }
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    // Skip transfer ID write for between split transfers
+    if (is_intermediate_split_transfer) {
+        dcl::next_cl_split_transfer_id(last_transfer_id);
+        _read_transfer_id = last_transfer_id;
+        on_transfer_id_received();
+        return;
+    }
+#endif
 
     std::unique_lock<std::mutex> lock(_readq_mtx);
     if (!_readq.empty()) {
@@ -579,7 +600,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             // schedule local data transfer
             cl::UserEvent receiveEvent(clDataTransferContext.context());
             auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-            read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
+            read(split_transfer_id, split_size, ptrs[i], true, i < (num_splits - 1), mapDataCompletable)
                 ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
             receiveEvents.push_back(receiveEvent);
 
@@ -627,7 +648,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         // schedule local data transfer
         cl::UserEvent receiveEvent(clDataTransferContext.context());
         auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-        read(split_transfer_id, split_size, ptrs[i], true, mapDataCompletable)
+        read(split_transfer_id, split_size, ptrs[i], true, i < (num_splits - 1), mapDataCompletable)
             ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
 
         /* Enqueue unmap buffer (implicit upload) */

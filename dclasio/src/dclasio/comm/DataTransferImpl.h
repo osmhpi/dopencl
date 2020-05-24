@@ -112,9 +112,10 @@ private:
 public:
     DataTransferImpl(
             dcl::transfer_id transferId, size_t size, typename Operation::pointer_type ptr,
-            bool skip_compress_step) :
+            bool skip_compress_step, bool is_intermediate_split_transfer) :
             _transferId(transferId), _size(size), _ptr(ptr),
             _skip_compress_step(skip_compress_step),
+            _is_intermediate_split_transfer(is_intermediate_split_transfer),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
             _status(CL_SUBMITTED) { }
 
@@ -192,6 +193,10 @@ public:
         return _skip_compress_step;
     }
 
+    bool is_intermediate_split_transfer() const {
+        return _is_intermediate_split_transfer;
+    }
+
     void onStart() {
         std::lock_guard<std::mutex> lock(_mutex);
         _start = dcl::util::clock.getTime(); // take time stamp
@@ -238,6 +243,7 @@ private:
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
 	const bool _skip_compress_step;
+	const bool _is_intermediate_split_transfer;
 
 	cl_ulong _submit;
 	cl_ulong _start;

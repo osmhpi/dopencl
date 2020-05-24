@@ -109,6 +109,10 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+        _compress_thread_pool->set_offset_sync_epoch_multiple(CL_UPLOAD_BLOCK_SIZE);
+#endif
     }
 #endif
 }
@@ -117,7 +121,7 @@ std::shared_ptr<DataSending> OutputDataStream::write(
         dcl::transfer_id transfer_id,
         size_t size, const void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step));
+    auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step, false));
     if (trigger_event != nullptr) {
         // If a event to wait was given, enqueue the write after the event callback
         trigger_event->setCallback([this, write](cl_int status) {
@@ -160,7 +164,7 @@ void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) 
             auto subwrite(std::make_shared<DataSending>(
                 split_transfer_id, split_size,
                 static_cast<const uint8_t *>(write->ptr()) + split_offset,
-                write->skip_compress_step()));
+                write->skip_compress_step(), i < (num_splits - 1)));
             writes.push_back(subwrite);
         }
 
@@ -185,11 +189,13 @@ void OutputDataStream::enqueue_write(const std::shared_ptr<DataSending> &write) 
         lock.unlock();
 
         notify_write_transfer_id(new writeq_type(
-            std::list<std::shared_ptr<DataSending>>(writes.begin(), writes.end())));
+            std::list<std::shared_ptr<DataSending>>(writes.begin(), writes.end())),
+            false);
     }
 }
 
-void OutputDataStream::notify_write_transfer_id(writeq_type *writeq) {
+void OutputDataStream::notify_write_transfer_id(writeq_type *writeq,
+    bool is_intermediate_split_transfer) {
     /* TODO Pass writeq by rvalue reference rather than by pointer
      * is currently not supported by lambdas (see comment in start_write) */
     assert(writeq); // ouch!
@@ -206,6 +212,13 @@ void OutputDataStream::notify_write_transfer_id(writeq_type *writeq) {
     // writeq is non-empty now
 
     auto& write = writeq->front();
+
+    if (is_intermediate_split_transfer) {
+        // Skip transfer ID write for between split transfers
+        start_write(writeq);
+        return;
+    }
+
     boost_asio_async_write_with_sentinels(
         _socket, boost::asio::buffer(write->transferId().data, write->transferId().size()),
         [this, writeq, write](const boost::system::error_code& ec, size_t bytes_transferred) {
@@ -357,6 +370,8 @@ void OutputDataStream::handle_write(
         << "End write of size " << write->size()
         << std::endl;
 #endif
+
+    auto is_intermediate_split_transfer = write->is_intermediate_split_transfer();
     write->onFinish(ec, bytes_transferred);
     writeq->pop();
 
@@ -364,7 +379,7 @@ void OutputDataStream::handle_write(
         // TODO Handle errors
     }
 
-    notify_write_transfer_id(writeq); // process remaining writes
+    notify_write_transfer_id(writeq, is_intermediate_split_transfer); // process remaining writes
 }
 
 void OutputDataStream::writeFromClBuffer(
