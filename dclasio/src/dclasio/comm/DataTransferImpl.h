@@ -112,10 +112,12 @@ private:
 public:
     DataTransferImpl(
             dcl::transfer_id transferId, size_t size, typename Operation::pointer_type ptr,
-            bool skip_compress_step, bool is_intermediate_split_transfer) :
+            bool skip_compress_step,
+            dcl::transfer_id split_transfer_next_id, size_t split_transfer_global_offset) :
             _transferId(transferId), _size(size), _ptr(ptr),
             _skip_compress_step(skip_compress_step),
-            _is_intermediate_split_transfer(is_intermediate_split_transfer),
+            _split_transfer_next_id(split_transfer_next_id),
+            _split_transfer_global_offset(split_transfer_global_offset),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
             _status(CL_SUBMITTED) { }
 
@@ -193,8 +195,12 @@ public:
         return _skip_compress_step;
     }
 
-    bool is_intermediate_split_transfer() const {
-        return _is_intermediate_split_transfer;
+    dcl::transfer_id split_transfer_next_id() const {
+        return _split_transfer_next_id;
+    }
+
+    size_t split_transfer_global_offset() const {
+        return _split_transfer_global_offset;
     }
 
     void onStart() {
@@ -243,7 +249,8 @@ private:
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
 	const bool _skip_compress_step;
-	const bool _is_intermediate_split_transfer;
+	dcl::transfer_id _split_transfer_next_id;
+	size_t _split_transfer_global_offset;
 
 	cl_ulong _submit;
 	cl_ulong _start;

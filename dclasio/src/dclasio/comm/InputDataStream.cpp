@@ -130,14 +130,16 @@ std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    return read(transfer_id, size, ptr, skip_compress_step, false, trigger_event);
+    return read(transfer_id, size, ptr, skip_compress_step, dcl::transfer_id(), 0, trigger_event);
 }
 
 std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
-        size_t size, void *ptr, bool skip_compress_step, bool is_intermediate_split_transfer,
+        size_t size, void *ptr, bool skip_compress_step,
+        dcl::transfer_id split_transfer_next_id, size_t split_transfer_global_offset,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step, is_intermediate_split_transfer));
+    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step,
+        split_transfer_next_id, split_transfer_global_offset));
     if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
         trigger_event->setCallback([this, read](cl_int status) {
@@ -255,10 +257,12 @@ void InputDataStream::read_next_compressed_block() {
                 return;
             }
 
-            // TODOYYY: Adjust the offset in a more controlled way
-            // (store offset adjustment in DataTransfer object?)
-            _read_io_destination_offset %= _read_op->size();
+            // If this is a split transfer, adjust the offset according to the part
+            // of the transfer we are currently receiving
+            assert(_read_io_destination_offset >= _read_op->split_transfer_global_offset());
+            _read_io_destination_offset -= _read_op->split_transfer_global_offset();
 
+            // Validate received values
             assert(_read_io_destination_offset <= _read_op->size() - BLOCK_SIZE);
             for (auto read_io_buffer_size : _read_io_buffer_sizes) {
                 assert(read_io_buffer_size > 0);
@@ -371,8 +375,7 @@ void InputDataStream::handle_read(
         << "End read of size " << _read_op->size()
         << std::endl;
 #endif
-    auto is_intermediate_split_transfer = _read_op->is_intermediate_split_transfer();
-    auto last_transfer_id = _read_op->transferId();
+    auto split_transfer_next_id = _read_op->split_transfer_next_id();
     _read_op->onFinish(ec, bytes_transferred);
     _read_op.reset();
 
@@ -380,15 +383,12 @@ void InputDataStream::handle_read(
         // TODO Handle errors
     }
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     // Skip transfer ID write for between split transfers
-    if (is_intermediate_split_transfer) {
-        next_cl_split_transfer_id(last_transfer_id);
-        _read_transfer_id = last_transfer_id;
+    if (!split_transfer_next_id.is_nil()) {
+        _read_transfer_id = split_transfer_next_id;
         on_transfer_id_received();
         return;
     }
-#endif
 
     std::unique_lock<std::mutex> lock(_readq_mtx);
     if (!_readq.empty()) {
@@ -492,6 +492,18 @@ void InputDataStream::readToClBufferWithNonClDecompression(
 }
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+static std::vector<dcl::transfer_id> generateClSplitTransferIds(dcl::transfer_id transferId, size_t numSplits) {
+    std::vector<dcl::transfer_id> splitTransferIds(numSplits + 1);
+    // The first part needs to have the original transfer ID, in order to match the write
+    splitTransferIds[0] = transferId;
+    // The intermediate positions are generated (they only matter internally to link the transfer)
+    for (size_t i = 1; i < numSplits; i++)
+        splitTransferIds[i] = dcl::create_transfer_id();
+    // The last position (index [numSplits]) stays at the default value (=nil),
+    // which will represent that the split transfer ends
+    return splitTransferIds;
+}
+
 void InputDataStream::readToClBufferWithClTemporaryDecompression(
         dcl::transfer_id transferId,
         size_t size,
@@ -515,6 +527,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
     }
 
     size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
+    auto splitTransferIds = generateClSplitTransferIds(transferId, num_splits);
 
     std::vector<cl::Event> mapEvents(num_splits),
         unmapEvents(num_splits),
@@ -523,7 +536,6 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
     std::vector<void *> ptrs(num_splits);
 
     /* Setup */
-    dcl::transfer_id split_transfer_id = transferId;
     for (size_t i = 0; i < num_splits + NUM_BUFFERS; i++) {
         const auto &wb = workBuffers[i % NUM_BUFFERS];
 
@@ -577,11 +589,10 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             // schedule local data transfer
             cl::UserEvent receiveEvent(clDataTransferContext.context());
             auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-            read(split_transfer_id, split_size, ptrs[i], true, i < (num_splits - 1), mapDataCompletable)
+            read(splitTransferIds[i], split_size, ptrs[i], true,
+                splitTransferIds[i + 1], split_offset, mapDataCompletable)
                 ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
             receiveEvents.push_back(receiveEvent);
-
-            next_cl_split_transfer_id(split_transfer_id);
         }
     }
 
@@ -599,6 +610,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         cl::Event *endEvent) {
     auto commandQueue = clDataTransferContext.commandQueue();
     size_t num_splits = (size + CL_UPLOAD_BLOCK_SIZE - 1) / CL_UPLOAD_BLOCK_SIZE;
+    auto splitTransferIds = generateClSplitTransferIds(transferId, num_splits);
 
     std::vector<cl::Event> mapEvents(num_splits),
         unmapEvents(num_splits),
@@ -617,15 +629,15 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
             eventWaitList, &mapEvents[i]);
     }
 
-    dcl::transfer_id split_transfer_id = transferId;
-    for (size_t i = 0; i < num_splits; i++, next_cl_split_transfer_id(split_transfer_id)) {
+    for (size_t i = 0; i < num_splits; i++) {
         size_t split_offset = i * CL_UPLOAD_BLOCK_SIZE;
         size_t split_size = std::min(size - i * CL_UPLOAD_BLOCK_SIZE, CL_UPLOAD_BLOCK_SIZE);
 
         // schedule local data transfer
         cl::UserEvent receiveEvent(clDataTransferContext.context());
         auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-        read(split_transfer_id, split_size, ptrs[i], true, i < (num_splits - 1), mapDataCompletable)
+        read(splitTransferIds[i], split_size, ptrs[i], true,
+            splitTransferIds[i + 1], split_offset, mapDataCompletable)
             ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
 
         /* Enqueue unmap buffer (implicit upload) */
