@@ -239,7 +239,7 @@ int main(void) {
     std::cout << "Time:     " << duration_ms << " ms\n";
     std::cout << "Result:   " << (test_is_ok ? "OK" : "KO") << "\n";
 
-    // TODOXXX: Without this code, the program will possibly hang after
+    // FIXME: Without this code, the program will possibly hang after
     // after returning from main() when running on dOpenCL
     // This is because the host may still be waiting to be notified of the
     // completion of some of the events, but when the destructor for

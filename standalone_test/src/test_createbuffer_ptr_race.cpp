@@ -41,10 +41,24 @@ int main(void)
     // --------------
     auto start_time = std::chrono::steady_clock::now();
 
-    // TODOXXX Why is this event necessary for dOpenCL and not on real HW (at least NVIDIA?)
-    // Is this a bug in dOpenCL, or does NVIDIA use a stronger consistency model than that of the spec.?
-    // See also: The tests/src/MemoryConsistency.cpp in the dOpenCL tree
-    // See also: synchronize() method in daemon/src/CommandQueue.cpp on dOpenCL tree
+    // A note about events: Events are technically necessary in OpenCL for proper
+    // synchronization of buffers on different command queues. This is documented
+    // in the OpenCL 1.2 specification in Appendix A, 'Shared OpenCL Objects'.
+    //
+    // The most important point is: When enqueuing a command A accessing a buffer
+    // last modified by a command B on another command queue, the event corresponding
+    // to that command B must be provided in the event wait list of the command A
+    //
+    // However, it appears that in practice, a lot of implementations (such as NVIDIA's)
+    // implement additional 'automatic' synchronization between command queues in
+    // multi-GPU set-ups, so that synchonrization often happens even without events
+    //
+    // However, dOpenCL does not implement such extensions, and thus proper use
+    // of events is required for synchronization
+    //
+    // See also: OpenCL 1.2 specification in Appendix A, 'Shared OpenCL Objects'.
+    //           The tests/src/MemoryConsistency.cpp in the dOpenCL tree
+    //           synchronize() method in daemon/src/CommandQueue.cpp on dOpenCL tree
     std::vector<unsigned char> data1(40000, 'A');
     std::vector<unsigned char> data2(500, 'B');
 
