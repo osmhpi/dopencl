@@ -52,6 +52,8 @@
 #include <dcl/Host.h>
 #include <dcl/DCLTypes.h>
 
+#include <dcl/util/Logger.h>
+
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
 #include <lib842/stream/common.h>
 #include <lib842/cl.h>
@@ -124,7 +126,9 @@ static lib842::CLDeviceDecompressor *createClDeviceCompressor(
                 lib842::stream::CHUNK_SIZE,
                 dcl::is_cl_io_link_compression_mode_inplace()
                     ? lib842::CLDecompressorInputFormat::INPLACE_COMPRESSED_CHUNKS
-                    : lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS
+                    : lib842::CLDecompressorInputFormat::MAYBE_COMPRESSED_CHUNKS,
+                []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
+                []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         );
     }
 

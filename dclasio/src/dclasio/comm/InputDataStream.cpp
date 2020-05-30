@@ -551,10 +551,11 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
 
             if (fullBlocksSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
-                clDataTransferContext.cl842DeviceDecompressor()->decompress(commandQueue,
-                    wb, 0, fullBlocksSize, cl::Buffer(nullptr),
-                    buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
-                    cl::Buffer(nullptr),
+                clDataTransferContext.cl842DeviceDecompressor()->decompress(
+                    commandQueue, fullBlocksSize / CHUNK_SIZE,
+                    wb, 0, cl::Buffer(nullptr),
+                    buffer, split_offset, cl::Buffer(nullptr),
+                    cl::Buffer(nullptr), cl::Buffer(nullptr),
                     &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
 
@@ -644,10 +645,11 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         if (fullBlocksSize > 0) {
             cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
             clDataTransferContext.cl842DeviceDecompressor()->decompress(
-                commandQueue,
-                buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
-                buffer, split_offset, fullBlocksSize, cl::Buffer(nullptr),
-                cl::Buffer(nullptr), &decompressWaitList, &decompressEvents[i]);
+                commandQueue, fullBlocksSize / CHUNK_SIZE,
+                buffer, split_offset, cl::Buffer(nullptr),
+                buffer, split_offset, cl::Buffer(nullptr),
+                cl::Buffer(nullptr), cl::Buffer(nullptr),
+                &decompressWaitList, &decompressEvents[i]);
         } else {
             decompressEvents[i] = unmapEvents[i];
         }
