@@ -56,16 +56,9 @@ namespace dclasio {
 namespace comm {
 
 #ifdef IO_LINK_COMPRESSION
-unsigned int determine_io_link_compression_num_threads(const char *env_name) {
-    // Configuration for the number of threads to use for compression or decompression
-    const char *env_value = std::getenv(env_name);
-    if (env_value != nullptr && std::atoi(env_value) > 0) {
-        return (unsigned int)std::atoi(env_value);
-    }
 
-    // If the value is not specified (or invalid),
-    // the hardware concurrency level (~= number of logical cores) is used
-    static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
+static unsigned int get_hardware_concurrency_or_warn() {
+    auto hardware_concurrency = std::thread::hardware_concurrency();
     if (hardware_concurrency == 0) {
         dcl::util::Logger << dcl::util::Warning << __func__ << ": "
                           << "std::thread::hardware_concurrency() returned 0, using 1 thread"
@@ -76,23 +69,39 @@ unsigned int determine_io_link_compression_num_threads(const char *env_name) {
     return hardware_concurrency;
 }
 
+unsigned int determine_io_link_compression_num_threads(const char *env_name) {
+    // Configuration for the number of threads to use for compression or decompression
+    const char *env_value = std::getenv(env_name);
+    if (env_value != nullptr && std::atoi(env_value) > 0) {
+        return (unsigned int)std::atoi(env_value);
+    }
+
+    // If the value is not specified (or invalid),
+    // the hardware concurrency level (~= number of logical cores) is used
+    static auto hardware_concurrency = get_hardware_concurrency_or_warn();
+    return hardware_concurrency;
+}
+
 bool determine_io_link_compression_spread_threads(const char *env_name) {
     return std::getenv(env_name) != nullptr;
 }
 #endif
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-bool is_hw_io_link_compression_enabled() {
-    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
-
-    if (!hw842_available()) {
+static bool get_hw842_available_or_warn() {
+    auto available = hw842_available();
+    if (!available) {
         dcl::util::Logger << dcl::util::Info
                     << "Hardware 842 compression not available, falling back to software 842 compression."
                     << std::endl;
-        return false;
     }
+    return available;
+}
 
-    return enabled;
+bool is_hw_io_link_compression_enabled() {
+    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
+    static bool available = enabled && get_hw842_available_or_warn();
+    return available;
 }
 #endif
 
