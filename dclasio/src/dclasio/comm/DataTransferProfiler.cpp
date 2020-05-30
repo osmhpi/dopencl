@@ -38,7 +38,7 @@
  * \file DataTransferProfiler.cpp
  *
  * \date 2020-05-10
- * \author Joan Bruguera Micó
+ * \author Joan Bruguera
  */
 
 // Comment/uncomment this macro to enable/disables data transfer profiling

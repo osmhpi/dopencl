@@ -97,13 +97,7 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
         auto compress842_func = optsw842_compress;
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
         if (is_hw_io_link_compression_enabled()) {
-            if (hw842_available()) {
-                compress842_func = hw842_compress;
-            } else {
-                dcl::util::Logger << dcl::util::Info
-                    << "Hardware 842 compression not available, falling back to software 842 compression."
-                    << std::endl;
-            }
+            compress842_func = hw842_compress;
         }
 #endif
         auto num_threads = determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS");

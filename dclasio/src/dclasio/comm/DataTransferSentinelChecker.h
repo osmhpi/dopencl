@@ -38,7 +38,7 @@
  * \file DataTransferSentinelChecker.h
  *
  * \date 2020-05-10
- * \author Joan Bruguera Micó
+ * \author Joan Bruguera
  */
 
 #ifndef DATATRANSFERSENTINELCHECKER_H_

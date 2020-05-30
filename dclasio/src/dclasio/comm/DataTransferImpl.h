@@ -52,6 +52,10 @@
 #include <dcl/util/Clock.h>
 #include <dcl/util/Logger.h>
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
+#include <lib842/hw.h>
+#endif
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #include <OpenCL/cl_wwu_dcl.h>
@@ -70,14 +74,6 @@
 #include <mutex>
 #include <ostream>
 #include <vector>
-
-#if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION)
-#include <lib842/hw.h>
-#endif
-#ifdef IO_LINK_COMPRESSION
-#include <cstdlib>
-#include <thread>
-#endif
 
 namespace dclasio {
 
@@ -269,38 +265,12 @@ typedef DataTransferImpl<Receive> DataReceipt;
 typedef DataTransferImpl<Send> DataSending;
 
 #ifdef IO_LINK_COMPRESSION
-static unsigned int determine_io_link_compression_num_threads(const char *env_name) {
-    // Configuration for the number of threads to use for compression or decompression
-    const char *env_value = std::getenv(env_name);
-    if (env_value != nullptr && std::atoi(env_value) > 0) {
-        return (unsigned int)std::atoi(env_value);
-    }
-
-    // If the value is not specified (or invalid),
-    // the hardware concurrency level (~= number of logical cores) is used
-    static unsigned int hardware_concurrency = std::thread::hardware_concurrency();
-    if (hardware_concurrency == 0) {
-        dcl::util::Logger << dcl::util::Warning << __func__ << ": "
-                          << "std::thread::hardware_concurrency() returned 0, using 1 thread"
-                          << std::endl;
-        return 1;
-    }
-
-    return hardware_concurrency;
-}
-
-static bool determine_io_link_compression_spread_threads(const char *env_name) {
-    return std::getenv(env_name) != nullptr;
-}
-
+unsigned int determine_io_link_compression_num_threads(const char *env_name);
+bool determine_io_link_compression_spread_threads(const char *env_name);
 static constexpr size_t CL_UPLOAD_BLOCK_SIZE = static_cast<size_t>(1) << 29; // 512 MiB
 #endif
-
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
-static bool is_hw_io_link_compression_enabled() {
-    static bool enabled = std::getenv("DCL_DISABLE_HW_IO_LINK_COMPRESSION") == nullptr;
-    return enabled;
-}
+bool is_hw_io_link_compression_enabled();
 #endif
 
 } /* namespace comm */
