@@ -186,6 +186,7 @@ private:
 
 #ifdef IO_LINK_COMPRESSION
     // ** Variables related to the decompression thread (associated to reads) **
+    const struct lib842_implementation *_impl842;
     std::unique_ptr<lib842::stream::DataDecompressionStream> _decompress_thread_pool;
 
     // ** Variables related to the current asynchronous I/O read operation **
@@ -199,7 +200,7 @@ private:
     // Size of the current read operation
     std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _read_io_buffer_sizes;
     // Target buffer of the current read operation
-    std::unique_ptr<uint8_t []> _read_io_compressed_buffer;
+    lib842::detail::free_unique_ptr<uint8_t> _read_io_compressed_buffer;
 #endif
 };
 

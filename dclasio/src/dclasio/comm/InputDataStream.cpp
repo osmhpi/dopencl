@@ -76,6 +76,8 @@
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <stdlib.h> // Hacky use of C11 aligned_alloc,
+                    // since std::aligned_alloc is not available until C++17
 
 // If INDEPTH_TRACE is defined, more traces and statistics are generated
 //#define INDEPTH_TRACE
@@ -95,10 +97,10 @@ InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _read_state(receiving_state::idle) {
 #ifdef IO_LINK_COMPRESSION
     if (dcl::is_io_link_compression_enabled()) {
-        auto decompress842_func = optsw842_decompress;
+        _impl842 = get_optsw842_implementation();
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
         if (is_hw_io_link_compression_enabled()) {
-            decompress842_func = hw842_decompress;
+            _impl842 = get_hw842_implementation();
         }
 #endif
         auto num_threads = determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_DECOMPRESS_THREADS");
@@ -107,7 +109,7 @@ InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
             : lib842::stream::thread_policy::spread_threads_among_numa_nodes;
 
         _decompress_thread_pool.reset(new lib842::stream::DataDecompressionStream(
-            decompress842_func, num_threads, thread_policy,
+            *_impl842, num_threads, thread_policy,
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));
@@ -262,10 +264,13 @@ void InputDataStream::read_next_compressed_block() {
             size_t compressed_buffer_total_size = 0;
             for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                 if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                    compressed_buffer_total_size += _read_io_buffer_sizes[i];
+                    compressed_buffer_total_size += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                 }
             }
-            _read_io_compressed_buffer.reset(new uint8_t[compressed_buffer_total_size]);
+            // TODOXXX: We should not have all of this code around alignment lying there,
+            //          should be factored somehow into lib842
+            _read_io_compressed_buffer.reset(static_cast<uint8_t *>(
+                aligned_alloc(_impl842->required_alignment, compressed_buffer_total_size)));
 
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
@@ -275,7 +280,7 @@ void InputDataStream::read_next_compressed_block() {
                     recv_buffers[i] = boost::asio::buffer(
                         _read_io_compressed_buffer.get() + compressed_buffer_offset,
                         _read_io_buffer_sizes[i]);
-                    compressed_buffer_offset += _read_io_buffer_sizes[i];
+                    compressed_buffer_offset += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                 } else {
                     // Read the chunk directly in its final destination in the destination buffer
                     uint8_t *destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE;
@@ -313,7 +318,7 @@ void InputDataStream::read_next_compressed_block() {
                             _read_io_buffer_sizes[i],
                             static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
                         );
-                        compressed_buffer_offset += _read_io_buffer_sizes[i];
+                        compressed_buffer_offset += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                         should_uncompress_any = true;
                     }
                 }

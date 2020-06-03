@@ -94,10 +94,10 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _sending(false) {
 #ifdef IO_LINK_COMPRESSION
     if (dcl::is_io_link_compression_enabled()) {
-        auto compress842_func = optsw842_compress;
+        auto impl842 = get_optsw842_implementation();
 #if defined(IO_LINK_COMPRESSION) && defined(USE_HW_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_CRYPTODEV_LINUX_COMP)
         if (is_hw_io_link_compression_enabled()) {
-            compress842_func = hw842_compress;
+            impl842 = get_hw842_implementation();
         }
 #endif
         auto num_threads = determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS");
@@ -106,7 +106,7 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
             : lib842::stream::thread_policy::spread_threads_among_numa_nodes;
 
         _compress_thread_pool.reset(new lib842::stream::DataCompressionStream(
-            compress842_func, num_threads, thread_policy,
+            *impl842, num_threads, thread_policy,
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));
