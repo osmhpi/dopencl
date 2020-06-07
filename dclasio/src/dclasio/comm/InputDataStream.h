@@ -194,13 +194,8 @@ private:
     size_t _read_io_total_bytes_transferred;
     // Number of network blocks remaining to transfer
     size_t _read_io_num_blocks_remaining;
-    // Offset into the destination buffer where the data associated
-    // with the current read operation will go (after decompression)
-    size_t _read_io_destination_offset;
-    // Size of the current read operation
-    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _read_io_buffer_sizes;
-    // Target buffer of the current read operation
-    lib842::detail::free_unique_ptr<uint8_t> _read_io_compressed_buffer;
+    // Block which is currently being filled by the current read operation
+    lib842::stream::Block _read_io_block;
 #endif
 };
 

@@ -236,8 +236,8 @@ void InputDataStream::read_next_compressed_block() {
     if (_read_io_num_blocks_remaining > 0) {
         // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 2> buffers = {
-                boost::asio::buffer(&_read_io_destination_offset, sizeof(size_t)),
-                boost::asio::buffer(_read_io_buffer_sizes.data(), NUM_CHUNKS_PER_BLOCK * sizeof(size_t))
+                boost::asio::buffer(&_read_io_block.offset, sizeof(size_t)),
+                boost::asio::buffer(_read_io_block.sizes.data(), NUM_CHUNKS_PER_BLOCK * sizeof(size_t))
         };
         boost_asio_async_read_with_sentinels(_socket, buffers,
                 [this] (const boost::system::error_code& ec, size_t bytes_transferred){
@@ -251,49 +251,55 @@ void InputDataStream::read_next_compressed_block() {
 
             // If this is a split transfer, adjust the offset according to the part
             // of the transfer we are currently receiving
-            assert(_read_io_destination_offset >= _read_op->split_transfer_global_offset());
-            _read_io_destination_offset -= _read_op->split_transfer_global_offset();
+            assert(_read_io_block.offset >= _read_op->split_transfer_global_offset());
+            _read_io_block.offset -= _read_op->split_transfer_global_offset();
 
             // Validate received values
-            assert(_read_io_destination_offset <= _read_op->size() - BLOCK_SIZE);
-            for (auto read_io_buffer_size : _read_io_buffer_sizes) {
+            assert(_read_io_block.offset <= _read_op->size() - BLOCK_SIZE);
+            for (auto read_io_buffer_size : _read_io_block.sizes) {
                 assert(read_io_buffer_size > 0);
             }
 
             // Pre-allocate a temporary buffer to read compressed blocks
             size_t compressed_buffer_total_size = 0;
             for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                    compressed_buffer_total_size += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
+                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
+                    compressed_buffer_total_size += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                 }
             }
             // TODOXXX: We should not have all of this code around alignment lying there,
             //          should be factored somehow into lib842
-            _read_io_compressed_buffer.reset(static_cast<uint8_t *>(
-                aligned_alloc(_impl842->required_alignment, compressed_buffer_total_size)));
-
+            //          Also, we should probably not cram all chunks together as closely as
+            //          possible, but rather just reserve CHUNK_SIZE * actual_used_chunks
+            //          Since that's better for hardware compression (also memory fragmentation?)
+            uint8_t *chunk_buffer = _read_io_block.allocate_buffer(
+                _impl842->required_alignment, compressed_buffer_total_size);
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
             for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
+                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
                     // Read the compressed chunk into a secondary buffer to be decompressed later
-                    recv_buffers[i] = boost::asio::buffer(
-                        _read_io_compressed_buffer.get() + compressed_buffer_offset,
-                        _read_io_buffer_sizes[i]);
-                    compressed_buffer_offset += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
+                    auto destination = chunk_buffer + compressed_buffer_offset;
+                    _read_io_block.datas[i] = destination;
+                    recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
+                    compressed_buffer_offset += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                 } else {
                     // Read the chunk directly in its final destination in the destination buffer
-                    uint8_t *destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE;
+                    auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
 
-                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && _read_op->skip_compress_step()) {
+                    if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD && _read_op->skip_compress_step()) {
                         std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), destination);
-                        *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_buffer_sizes[i];
-                        destination += CHUNK_SIZE - _read_io_buffer_sizes[i]; // Write compressed data at the end
+                        *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_block.sizes[i];
+                        destination += CHUNK_SIZE - _read_io_block.sizes[i]; // Write compressed data at the end
                     } else {
-                        assert(_read_io_buffer_sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
+                        assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
                     }
 
-                    recv_buffers[i] = boost::asio::buffer(destination, _read_io_buffer_sizes[i]);
+                    recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
+
+                    // Null out the chunk in the block so the decompression process will ignore it
+                    _read_io_block.datas[i] = nullptr;
+                    _read_io_block.sizes[i] = 0;
                 }
             }
 
@@ -308,24 +314,11 @@ void InputDataStream::read_next_compressed_block() {
                 }
 
                 // Push into the queue for decompression
-                lib842::stream::Block dm;
-                dm.compress_buffer = std::move(_read_io_compressed_buffer);
-                dm.offset = _read_io_destination_offset;
                 bool should_uncompress_any = false;
-                for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                    if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                        dm.datas[i] = dm.compress_buffer.get() + compressed_buffer_offset;
-                        dm.sizes[i] = _read_io_buffer_sizes[i];
-                        compressed_buffer_offset += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
-                        should_uncompress_any = true;
-                    } else {
-                        // Leave chunk empty since the data has already been placed in the correct place
-                        dm.datas[i] = nullptr;
-                        dm.sizes[i] = 0;
-                    }
-                }
+                for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK && !should_uncompress_any; i++)
+                    should_uncompress_any |= _read_io_block.sizes[i] > 0;
 
-                if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(dm))) {
+                if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(_read_io_block))) {
                     _decompress_thread_pool->finalize(true, [this, ec](bool) {
                         handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
                                     _read_io_total_bytes_transferred);
