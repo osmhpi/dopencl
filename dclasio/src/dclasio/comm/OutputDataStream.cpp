@@ -211,10 +211,10 @@ void OutputDataStream::start_write(writeq_type *writeq) {
 
         _compress_thread_pool->start(
             write->ptr(), write->size(), write->skip_compress_step(),
-            [this, writeq, write](lib842::stream::DataCompressionStream::compress_block &&block) {
+            [this, writeq, write](lib842::stream::Block &&block) {
             {
                 std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
-                if (block.source_offset == SIZE_MAX)
+                if (block.offset == SIZE_MAX)
                     _write_io_compression_error = true;
                 if (!_write_io_compression_error)
                     _write_io_queue.push(std::move(block));
@@ -266,7 +266,7 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
 
         // Chunk I/O
         std::array<boost::asio::const_buffer, 2 + NUM_CHUNKS_PER_BLOCK> send_buffers;
-        send_buffers[0] = boost::asio::buffer(&block.source_offset, sizeof(size_t));
+        send_buffers[0] = boost::asio::buffer(&block.offset, sizeof(size_t));
         send_buffers[1] = boost::asio::buffer(&block.sizes, sizeof(size_t) * NUM_CHUNKS_PER_BLOCK);
         for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++)
             send_buffers[2 + i] = boost::asio::buffer(block.datas[i], block.sizes[i]);

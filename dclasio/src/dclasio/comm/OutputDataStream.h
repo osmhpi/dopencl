@@ -145,7 +145,7 @@ private:
     // (_write_io_queue, _write_io_channel_busy)
     std::mutex _write_io_queue_mutex;
     // Stores pending write operations after compression
-    std::queue<lib842::stream::DataCompressionStream::compress_block> _write_io_queue;
+    std::queue<lib842::stream::Block> _write_io_queue;
     bool _write_io_compression_error;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;

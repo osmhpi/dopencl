@@ -216,7 +216,7 @@ void InputDataStream::start_read() {
 
 #ifdef IO_LINK_COMPRESSION
     if (dcl::is_io_link_compression_enabled() && _read_op->size() >= BLOCK_SIZE) {
-        _decompress_thread_pool->start();
+        _decompress_thread_pool->start(_read_op->ptr());
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = _read_op->size() / BLOCK_SIZE;
 
@@ -308,18 +308,20 @@ void InputDataStream::read_next_compressed_block() {
                 }
 
                 // Push into the queue for decompression
-                lib842::stream::DataDecompressionStream::decompress_block dm;
+                lib842::stream::Block dm;
                 dm.compress_buffer = std::move(_read_io_compressed_buffer);
+                dm.offset = _read_io_destination_offset;
                 bool should_uncompress_any = false;
                 for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                     if (_read_io_buffer_sizes[i] <= COMPRESSIBLE_THRESHOLD && !_read_op->skip_compress_step()) {
-                        dm.chunks[i] = lib842::stream::DataDecompressionStream::decompress_chunk(
-                            dm.compress_buffer.get() + compressed_buffer_offset,
-                            _read_io_buffer_sizes[i],
-                            static_cast<uint8_t *>(_read_op->ptr()) + _read_io_destination_offset + i * CHUNK_SIZE
-                        );
+                        dm.datas[i] = dm.compress_buffer.get() + compressed_buffer_offset;
+                        dm.sizes[i] = _read_io_buffer_sizes[i];
                         compressed_buffer_offset += (_read_io_buffer_sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                         should_uncompress_any = true;
+                    } else {
+                        // Leave chunk empty since the data has already been placed in the correct place
+                        dm.datas[i] = nullptr;
+                        dm.sizes[i] = 0;
                     }
                 }
 
