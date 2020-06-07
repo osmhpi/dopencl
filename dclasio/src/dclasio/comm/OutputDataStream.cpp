@@ -283,9 +283,8 @@ void OutputDataStream::try_write_next_compressed_block_from_compression(writeq_t
              lock.unlock();
 
              if (ec) {
-                 _compress_thread_pool->finalize(true, [this, writeq](bool) {
-                     handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
-                                  _write_io_total_bytes_transferred);
+                 _compress_thread_pool->finalize(true, [this, writeq, ec](bool) {
+                     handle_write(writeq, ec, _write_io_total_bytes_transferred);
                  });
                  return;
              }
@@ -310,8 +309,16 @@ void OutputDataStream::try_write_next_compressed_block_from_compression(writeq_t
                 _write_io_num_blocks_remaining = SIZE_MAX;
             }
 
-            _compress_thread_pool->finalize(false, [this, writeq, ec](bool) {
-                handle_write(writeq, ec, _write_io_total_bytes_transferred);
+             if (ec) {
+                 _compress_thread_pool->finalize(true, [this, writeq](bool) {
+                     handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                  _write_io_total_bytes_transferred);
+                 });
+                 return;
+             }
+
+            _compress_thread_pool->finalize(false, [this, writeq](bool) {
+                handle_write(writeq, boost::system::error_code(), _write_io_total_bytes_transferred);
             });
         });
     }
@@ -350,8 +357,7 @@ void OutputDataStream::write_next_compressed_block_skip_compression_step(writeq_
              _write_io_num_blocks_remaining--;
 
              if (ec) {
-                 handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
-                              _write_io_total_bytes_transferred);
+                 handle_write(writeq, ec, _write_io_total_bytes_transferred);
                  return;
              }
 
