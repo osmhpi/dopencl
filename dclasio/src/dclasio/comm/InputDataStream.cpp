@@ -216,11 +216,15 @@ void InputDataStream::start_read() {
 
 #ifdef IO_LINK_COMPRESSION
     if (dcl::is_io_link_compression_enabled() && _read_op->size() >= BLOCK_SIZE) {
-        _decompress_thread_pool->start(_read_op->ptr());
         _read_io_total_bytes_transferred = 0;
         _read_io_num_blocks_remaining = _read_op->size() / BLOCK_SIZE;
 
-        read_next_compressed_block();
+        if (!_read_op->skip_compress_step()) {
+            _decompress_thread_pool->start(_read_op->ptr());
+            read_next_compressed_block_and_decompress();
+        } else {
+            read_next_compressed_block_skip_compression_step();
+        }
         return;
     }
 #endif
@@ -232,7 +236,7 @@ void InputDataStream::start_read() {
 }
 
 #ifdef IO_LINK_COMPRESSION
-void InputDataStream::read_next_compressed_block() {
+void InputDataStream::read_next_compressed_block_and_decompress() {
     if (_read_io_num_blocks_remaining > 0) {
         // Read header containing the offset and size of the chunks in the current block
         std::array<boost::asio::mutable_buffer, 2> buffers = {
@@ -260,56 +264,38 @@ void InputDataStream::read_next_compressed_block() {
                 assert(read_io_buffer_size > 0);
             }
 
+            // Pre-allocate a temporary buffer to read compressed blocks
+            size_t compressed_buffer_total_size = 0;
+            for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
+                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
+                    compressed_buffer_total_size += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
+                }
+            }
+            // TODOXXX: We should not have all of this code around alignment lying there,
+            //          should be factored somehow into lib842
+            //          Also, we should probably not cram all chunks together as closely as
+            //          possible, but rather just reserve CHUNK_SIZE * actual_used_chunks
+            //          Since that's better for hardware compression (also memory fragmentation?)
+            uint8_t *chunk_buffer = _read_io_block.allocate_buffer(
+                _impl842->required_alignment, compressed_buffer_total_size);
+
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
-
-            if (_read_op->skip_compress_step()) {
-                for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                    // Read the chunk directly in its final destination in the destination buffer
-                    auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
-
-                    if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
-                        std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), destination);
-                        *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_block.sizes[i];
-                        destination += CHUNK_SIZE - _read_io_block.sizes[i]; // Write compressed data at the end
-                    } else {
-                        assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
-                    }
-
+            for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
+                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
+                    // Read the compressed chunk into a secondary buffer to be decompressed later
+                    auto destination = chunk_buffer + compressed_buffer_offset;
+                    _read_io_block.datas[i] = destination;
                     recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
-                }
-            } else {
-                // Pre-allocate a temporary buffer to read compressed blocks
-                size_t compressed_buffer_total_size = 0;
-                for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                    if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
-                        compressed_buffer_total_size += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
-                    }
-                }
-                // TODOXXX: We should not have all of this code around alignment lying there,
-                //          should be factored somehow into lib842
-                //          Also, we should probably not cram all chunks together as closely as
-                //          possible, but rather just reserve CHUNK_SIZE * actual_used_chunks
-                //          Since that's better for hardware compression (also memory fragmentation?)
-                uint8_t *chunk_buffer = _read_io_block.allocate_buffer(
-                    _impl842->required_alignment, compressed_buffer_total_size);
+                    compressed_buffer_offset += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
+                } else {
+                    // Read the chunk directly in its final destination in the destination buffer
+                    assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
+                    auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
+                    recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
 
-                for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                    if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
-                        // Read the compressed chunk into a secondary buffer to be decompressed later
-                        auto destination = chunk_buffer + compressed_buffer_offset;
-                        _read_io_block.datas[i] = destination;
-                        recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
-                        compressed_buffer_offset += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
-                    } else {
-                        // Read the chunk directly in its final destination in the destination buffer
-                        assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
-                        auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
-                        recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
-
-                        // Null out the chunk in the block so the decompression process will ignore it
-                        _read_io_block.datas[i] = nullptr;
-                        _read_io_block.sizes[i] = 0;
-                    }
+                    // Null out the chunk in the block so the decompression process will ignore it
+                    _read_io_block.datas[i] = nullptr;
+                    _read_io_block.sizes[i] = 0;
                 }
             }
 
@@ -324,23 +310,21 @@ void InputDataStream::read_next_compressed_block() {
                 }
 
                 // Push into the queue for decompression
-                if (!_read_op->skip_compress_step()) {
-                    bool should_uncompress_any = false;
-                    for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK && !should_uncompress_any; i++)
-                        should_uncompress_any |= _read_io_block.sizes[i] > 0;
+                bool should_uncompress_any = false;
+                for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK && !should_uncompress_any; i++)
+                    should_uncompress_any |= _read_io_block.sizes[i] > 0;
 
-                    if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(_read_io_block))) {
-                        _decompress_thread_pool->finalize(true, [this, ec](bool) {
-                            handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
-                                        _read_io_total_bytes_transferred);
-                        });
-                        return;
-                    }
+                if (should_uncompress_any && !_decompress_thread_pool->push_block(std::move(_read_io_block))) {
+                    _decompress_thread_pool->finalize(true, [this, ec](bool) {
+                        handle_read(boost::system::errc::make_error_code(boost::system::errc::io_error),
+                                    _read_io_total_bytes_transferred);
+                    });
+                    return;
                 }
 
                 _read_io_num_blocks_remaining--;
 
-                read_next_compressed_block();
+                read_next_compressed_block_and_decompress();
             });
         });
     } else {
@@ -363,6 +347,74 @@ void InputDataStream::read_next_compressed_block() {
                                   : boost::system::errc::make_error_code(boost::system::errc::io_error);
                 handle_read(ec, _read_io_total_bytes_transferred);
             });
+        });
+    }
+}
+
+void InputDataStream::read_next_compressed_block_skip_compression_step() {
+    if (_read_io_num_blocks_remaining > 0) {
+        // Read header containing the offset and size of the chunks in the current block
+        std::array<boost::asio::mutable_buffer, 2> buffers = {
+                boost::asio::buffer(&_read_io_block.offset, sizeof(size_t)),
+                boost::asio::buffer(_read_io_block.sizes.data(), NUM_CHUNKS_PER_BLOCK * sizeof(size_t))
+        };
+        boost_asio_async_read_with_sentinels(_socket, buffers,
+                [this] (const boost::system::error_code& ec, size_t bytes_transferred){
+            _read_io_total_bytes_transferred += bytes_transferred;
+            if (ec) {
+                handle_read(ec, _read_io_total_bytes_transferred);
+                return;
+            }
+
+            // If this is a split transfer, adjust the offset according to the part
+            // of the transfer we are currently receiving
+            assert(_read_io_block.offset >= _read_op->split_transfer_global_offset());
+            _read_io_block.offset -= _read_op->split_transfer_global_offset();
+
+            // Validate received values
+            assert(_read_io_block.offset <= _read_op->size() - BLOCK_SIZE);
+            for (auto read_io_buffer_size : _read_io_block.sizes) {
+                assert(read_io_buffer_size > 0);
+            }
+
+            std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
+            for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
+                // Read the chunk directly in its final destination in the destination buffer
+                auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
+
+                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
+                    std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), destination);
+                    *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_block.sizes[i];
+                    destination += CHUNK_SIZE - _read_io_block.sizes[i]; // Write compressed data at the end
+                } else {
+                    assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
+                }
+
+                recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
+            }
+
+            boost_asio_async_read_with_sentinels(_socket, recv_buffers,
+                [this] (const boost::system::error_code& ec, size_t bytes_transferred) {
+                _read_io_total_bytes_transferred += bytes_transferred;
+                if (ec) {
+                    handle_read(ec, _read_io_total_bytes_transferred);
+                    return;
+                }
+
+                _read_io_num_blocks_remaining--;
+
+                read_next_compressed_block_skip_compression_step();
+            });
+        });
+    } else {
+        // Always read the last incomplete block of the input uncompressed
+        auto last_block_destination_ptr =  static_cast<uint8_t *>(_read_op->ptr()) + (_read_op->size() & ~(BLOCK_SIZE - 1));
+        auto last_block_size = _read_op->size() & (BLOCK_SIZE - 1);
+
+        boost_asio_async_read_with_sentinels(_socket, boost::asio::buffer(last_block_destination_ptr, last_block_size),
+                                [this](const boost::system::error_code &ec, size_t bytes_transferred) {
+            _read_io_total_bytes_transferred += bytes_transferred;
+            handle_read(ec, _read_io_total_bytes_transferred);
         });
     }
 }

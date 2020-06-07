@@ -124,7 +124,8 @@ private:
      */
     void start_read();
 #ifdef IO_LINK_COMPRESSION
-    void read_next_compressed_block();
+    void read_next_compressed_block_and_decompress();
+    void read_next_compressed_block_skip_compression_step();
 #endif
     void handle_read(
             const boost::system::error_code& ec,
