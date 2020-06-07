@@ -118,7 +118,8 @@ private:
      */
     void start_write(writeq_type *writeq);
 #ifdef IO_LINK_COMPRESSION
-    void try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write);
+    void try_write_next_compressed_block_from_compression(writeq_type *writeq, const std::shared_ptr<DataSending> &write);
+    void write_next_compressed_block_skip_compression_step(writeq_type *writeq, const std::shared_ptr<DataSending> &write);
 #endif
     void handle_write(
             writeq_type *writeq,
@@ -149,6 +150,9 @@ private:
     bool _write_io_compression_error;
     // Set when a write operation is in progress, so a new write operation knows it has to wait
     bool _write_io_channel_busy;
+
+    // Temporary block used during write operations with skip_compress_step == true
+    lib842::stream::Block _write_io_block_scs;
 #endif
 };
 

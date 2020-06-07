@@ -209,19 +209,22 @@ void OutputDataStream::start_write(writeq_type *writeq) {
         _write_io_total_bytes_transferred = 0;
         _write_io_num_blocks_remaining = write->size() / BLOCK_SIZE;
 
-        _compress_thread_pool->start(
-            write->ptr(), write->size(), write->skip_compress_step(),
-            [this, writeq, write](lib842::stream::Block &&block) {
-            {
-                std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
-                if (block.offset == SIZE_MAX)
-                    _write_io_compression_error = true;
-                if (!_write_io_compression_error)
-                    _write_io_queue.push(std::move(block));
-            }
+        if (!write->skip_compress_step()) {
+            _compress_thread_pool->start(write->ptr(), write->size(),
+                [this, writeq, write](lib842::stream::Block &&block) {
+                {
+                    std::lock_guard<std::mutex> lock(_write_io_queue_mutex);
+                    if (block.offset == SIZE_MAX)
+                        _write_io_compression_error = true;
+                    if (!_write_io_compression_error)
+                        _write_io_queue.push(std::move(block));
+                }
 
-            try_write_next_compressed_block(writeq, write);
-        });
+                try_write_next_compressed_block_from_compression(writeq, write);
+            });
+        } else {
+            write_next_compressed_block_skip_compression_step(writeq, write);
+        }
         return;
     }
 #endif
@@ -233,7 +236,7 @@ void OutputDataStream::start_write(writeq_type *writeq) {
 }
 
 #ifdef IO_LINK_COMPRESSION
-void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
+void OutputDataStream::try_write_next_compressed_block_from_compression(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
     std::unique_lock<std::mutex> lock(_write_io_queue_mutex);
     if (_write_io_channel_busy) {
         // We're already inside a boost::asio::async_write call, so we can't initiate another one until it finishes
@@ -287,7 +290,7 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
                  return;
              }
 
-             try_write_next_compressed_block(writeq, write);
+             try_write_next_compressed_block_from_compression(writeq, write);
          });
     } else {
         // Always write the last incomplete block of the input uncompressed
@@ -310,6 +313,62 @@ void OutputDataStream::try_write_next_compressed_block(writeq_type *writeq, cons
             _compress_thread_pool->finalize(false, [this, writeq, ec](bool) {
                 handle_write(writeq, ec, _write_io_total_bytes_transferred);
             });
+        });
+    }
+}
+
+void OutputDataStream::write_next_compressed_block_skip_compression_step(writeq_type *writeq, const std::shared_ptr<DataSending> &write) {
+    if (_write_io_num_blocks_remaining > 0) {
+        // Create block using already compressed data
+        size_t blockno = write->size() / BLOCK_SIZE - _write_io_num_blocks_remaining;
+        _write_io_block_scs.offset = blockno * BLOCK_SIZE;
+        for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
+            auto source = static_cast<const uint8_t *>(write->ptr()) + _write_io_block_scs.offset + i * CHUNK_SIZE;
+
+            auto is_compressed = std::equal(source,source + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), LIB842_COMPRESSED_CHUNK_MARKER);
+
+            auto chunk_buffer_size = is_compressed
+                 ? *reinterpret_cast<const uint64_t *>((source + sizeof(LIB842_COMPRESSED_CHUNK_MARKER)))
+                : CHUNK_SIZE;
+            auto chunk_buffer = is_compressed
+                    ? source + CHUNK_SIZE - chunk_buffer_size
+                    : source;
+
+            _write_io_block_scs.datas[i] = chunk_buffer;
+            _write_io_block_scs.sizes[i] = chunk_buffer_size;
+        }
+
+        // Chunk I/O
+        std::array<boost::asio::const_buffer, 2 + NUM_CHUNKS_PER_BLOCK> send_buffers;
+        send_buffers[0] = boost::asio::buffer(&_write_io_block_scs.offset, sizeof(size_t));
+        send_buffers[1] = boost::asio::buffer(&_write_io_block_scs.sizes, sizeof(size_t) * NUM_CHUNKS_PER_BLOCK);
+        for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++)
+            send_buffers[2 + i] = boost::asio::buffer(_write_io_block_scs.datas[i], _write_io_block_scs.sizes[i]);
+        boost_asio_async_write_with_sentinels(_socket, send_buffers,
+         [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+             _write_io_total_bytes_transferred += bytes_transferred;
+             _write_io_num_blocks_remaining--;
+
+             if (ec) {
+                 handle_write(writeq, boost::system::errc::make_error_code(boost::system::errc::io_error),
+                              _write_io_total_bytes_transferred);
+                 return;
+             }
+
+             write_next_compressed_block_skip_compression_step(writeq, write);
+         });
+    } else {
+        // Always write the last incomplete block of the input uncompressed
+        auto last_block_source_ptr =  static_cast<const uint8_t *>(write->ptr()) + (write->size() & ~(BLOCK_SIZE - 1));
+        auto last_block_size = write->size() & (BLOCK_SIZE - 1);
+
+        boost_asio_async_write_with_sentinels(_socket,
+                boost::asio::buffer(last_block_source_ptr, last_block_size),
+            [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {
+            _write_io_total_bytes_transferred += bytes_transferred;
+            _write_io_num_blocks_remaining = SIZE_MAX;
+
+            handle_write(writeq, ec, _write_io_total_bytes_transferred);
         });
     }
 }
