@@ -638,7 +638,16 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 wb,
                 CL_FALSE,     // non-blocking map
                 DOPENCL_MAP_WRITE_INVALIDATE_REGION,
-                0, split_size,
+                // On NVIDIA, it appears that enqueuing two map buffer commands on the same buffer,
+                // but with two different mapped sizes, leads to unexpected effects
+                // It seems that immediately when the second command is (merely) enqueued, it will
+                // immediately invalidate the mapping from the first command,
+                // making accesses through the not-yet unmapped first pointer crash
+                //
+                // I can't find anything on the OpenCL standard, and it works on Intel and pocl
+                // As a workaround, always map the entire size of the auxiliary buffer
+                // TODO: Does this have any performance impact? If so, any workaround / fix?
+                0, CL_UPLOAD_BLOCK_SIZE /* Instead of: split_size */,
                 eventWaitList, &mapEvents[i]);
 
             // schedule local data transfer
