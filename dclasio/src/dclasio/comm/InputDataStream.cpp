@@ -257,6 +257,8 @@ void InputDataStream::read_next_compressed_block_and_decompress() {
             // of the transfer we are currently receiving
             assert(_read_io_block.offset >= _read_op->split_transfer_global_offset());
             _read_io_block.offset -= _read_op->split_transfer_global_offset();
+            _read_io_block.chunk_padding = CHUNK_SIZE;
+            _read_io_block.source = nullptr;
 
             // Validate received values
             assert(_read_io_block.offset <= _read_op->size() - BLOCK_SIZE);
@@ -264,37 +266,26 @@ void InputDataStream::read_next_compressed_block_and_decompress() {
                 assert(read_io_buffer_size > 0);
             }
 
-            // Pre-allocate a temporary buffer to read compressed blocks
-            size_t compressed_buffer_total_size = 0;
-            for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
-                    compressed_buffer_total_size += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
-                }
-            }
-            // TODOXXX: We should not have all of this code around alignment lying there,
-            //          should be factored somehow into lib842
-            //          Also, we should probably not cram all chunks together as closely as
-            //          possible, but rather just reserve CHUNK_SIZE * actual_used_chunks
-            //          Since that's better for hardware compression (also memory fragmentation?)
             uint8_t *chunk_buffer = _read_io_block.allocate_buffer(
-                _impl842->required_alignment, compressed_buffer_total_size);
+                _impl842->required_alignment, CHUNK_SIZE);
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
-            for (size_t i = 0, compressed_buffer_offset = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
+            for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
                 if (_read_io_block.sizes[i] <= COMPRESSIBLE_THRESHOLD) {
                     // Read the compressed chunk into a secondary buffer to be decompressed later
-                    auto destination = chunk_buffer + compressed_buffer_offset;
-                    _read_io_block.datas[i] = destination;
+                    auto destination = chunk_buffer + i * CHUNK_SIZE;
                     recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
-                    compressed_buffer_offset += (_read_io_block.sizes[i] + _impl842->required_alignment - 1) & ~(_impl842->required_alignment - 1);
                 } else {
                     // Read the chunk directly in its final destination in the destination buffer
                     assert(_read_io_block.sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
                     auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block.offset + i * CHUNK_SIZE;
                     recv_buffers[i] = boost::asio::buffer(destination, _read_io_block.sizes[i]);
 
+                    // NB: Note that when this case happens, space in chunk_buffer is wasted
+                    // This makes the logic much simpler though, so don't think 'condensing'
+                    // the chunks just to save a few bytes of memory is a good idea...
+
                     // Null out the chunk in the block so the decompression process will ignore it
-                    _read_io_block.datas[i] = nullptr;
                     _read_io_block.sizes[i] = 0;
                 }
             }
