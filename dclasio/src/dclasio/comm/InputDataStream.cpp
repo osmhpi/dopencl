@@ -488,11 +488,11 @@ void InputDataStream::readToClBuffer(
         dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
         size > 0 && clDataTransferContext.cl842DeviceDecompressor() != nullptr;
 
-    if (can_use_cl_io_link_compression && offset != 0) {
-        // TODOXXX It should be possible to handle nonzero offset cases here by passing this
-        //         information to lib842, at least for 8-byte aligned cases
+    if (can_use_cl_io_link_compression && (offset % 8) != 0) {
+        // The OpenCL 842 decompressor requires the offset to be 8-byte aligned,
+        // since it type-puns the buffer to a uint64_t
         dcl::util::Logger << dcl::util::Warning
-                          << "Avoiding OpenCL hardware decompression due to non-zero buffer offset."
+                          << "Avoiding OpenCL hardware decompression due to non 8 byte buffer offset."
                           << std::endl;
         can_use_cl_io_link_compression = false;
     }
@@ -501,11 +501,11 @@ void InputDataStream::readToClBuffer(
         if (dcl::is_cl_io_link_compression_mode_inplace()) {
             readToClBufferWithClInplaceDecompression(
                 transferId, size, clDataTransferContext,
-                buffer, eventWaitList, startEvent, endEvent);
+                buffer, offset, eventWaitList, startEvent, endEvent);
         } else {
             readToClBufferWithClTemporaryDecompression(
                 transferId, size, clDataTransferContext,
-                buffer, eventWaitList, startEvent, endEvent);
+                buffer, offset, eventWaitList, startEvent, endEvent);
         }
         profile_transfer(profile_transfer_direction::receive, transferId, size,
                          *startEvent, *endEvent);
@@ -566,6 +566,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
+        size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent) {
@@ -616,7 +617,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 clDataTransferContext.cl842DeviceDecompressor()->decompress(
                     commandQueue, fullBlocksSize / CHUNK_SIZE,
                     wb, 0, cl::Buffer(nullptr),
-                    buffer, split_offset, cl::Buffer(nullptr),
+                    buffer, offset + split_offset, cl::Buffer(nullptr),
                     cl::Buffer(nullptr), cl::Buffer(nullptr),
                     &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
@@ -627,7 +628,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             if (partialBlockSize > 0) {
                 cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
                 commandQueue.enqueueCopyBuffer(wb, buffer,
-                                               fullBlocksSize, split_offset + fullBlocksSize, partialBlockSize,
+                                               fullBlocksSize, offset + split_offset + fullBlocksSize, partialBlockSize,
                                                &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
         }
@@ -672,6 +673,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
+        size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent) {
@@ -692,7 +694,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
             buffer,
             CL_FALSE,     // non-blocking map
             DOPENCL_MAP_WRITE_INVALIDATE_REGION,
-            split_offset, split_size,
+            offset + split_offset, split_size,
             eventWaitList, &mapEvents[i]);
     }
 
@@ -717,8 +719,8 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
             cl::vector<cl::Event> decompressWaitList = {unmapEvents[i]};
             clDataTransferContext.cl842DeviceDecompressor()->decompress(
                 commandQueue, fullBlocksSize / CHUNK_SIZE,
-                buffer, split_offset, cl::Buffer(nullptr),
-                buffer, split_offset, cl::Buffer(nullptr),
+                buffer, offset + split_offset, cl::Buffer(nullptr),
+                buffer, offset + split_offset, cl::Buffer(nullptr),
                 cl::Buffer(nullptr), cl::Buffer(nullptr),
                 &decompressWaitList, &decompressEvents[i]);
         } else {

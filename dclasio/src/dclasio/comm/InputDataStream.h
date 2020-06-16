@@ -149,6 +149,7 @@ private:
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
+        size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent);
@@ -158,6 +159,7 @@ private:
         size_t size,
         const dcl::CLInDataTransferContext &clDataTransferContext,
         const cl::Buffer &buffer,
+        size_t offset,
         const cl::vector<cl::Event> *eventWaitList,
         cl::Event *startEvent,
         cl::Event *endEvent);
