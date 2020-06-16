@@ -57,6 +57,7 @@
 #endif
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/optional.hpp>
 
 #ifdef __APPLE__
 #include <OpenCL/cl2.hpp>
@@ -196,7 +197,10 @@ private:
     // Number of network blocks remaining to transfer
     size_t _read_io_num_blocks_remaining;
     // Block which is currently being filled by the current read operation
-    lib842::stream::Block _read_io_block;
+    size_t _read_io_block_offset;
+    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _read_io_block_sizes;
+    boost::optional<lib842::stream::Block> _read_io_block_opt;
+
 #endif
 };
 

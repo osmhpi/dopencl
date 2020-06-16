@@ -328,9 +328,9 @@ void OutputDataStream::write_next_compressed_block_skip_compression_step(writeq_
     if (_write_io_num_blocks_remaining > 0) {
         // Create block using already compressed data
         size_t blockno = write->size() / BLOCK_SIZE - _write_io_num_blocks_remaining;
-        _write_io_block_scs.offset = blockno * BLOCK_SIZE;
+        _write_io_block_scs_offset = blockno * BLOCK_SIZE;
         for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-            auto source = static_cast<const uint8_t *>(write->ptr()) + _write_io_block_scs.offset + i * CHUNK_SIZE;
+            auto source = static_cast<const uint8_t *>(write->ptr()) + _write_io_block_scs_offset + i * CHUNK_SIZE;
 
             auto is_compressed = std::equal(source,source + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), LIB842_COMPRESSED_CHUNK_MARKER);
 
@@ -338,19 +338,19 @@ void OutputDataStream::write_next_compressed_block_skip_compression_step(writeq_
                  ? *reinterpret_cast<const uint64_t *>((source + sizeof(LIB842_COMPRESSED_CHUNK_MARKER)))
                 : CHUNK_SIZE;
 
-            _write_io_block_scs.sizes[i] = chunk_buffer_size;
+            _write_io_block_scs_sizes[i] = chunk_buffer_size;
         }
 
         // Chunk I/O
         std::array<boost::asio::const_buffer, 2 + NUM_CHUNKS_PER_BLOCK> send_buffers;
-        send_buffers[0] = boost::asio::buffer(&_write_io_block_scs.offset, sizeof(size_t));
-        send_buffers[1] = boost::asio::buffer(&_write_io_block_scs.sizes, sizeof(size_t) * NUM_CHUNKS_PER_BLOCK);
+        send_buffers[0] = boost::asio::buffer(&_write_io_block_scs_offset, sizeof(size_t));
+        send_buffers[1] = boost::asio::buffer(&_write_io_block_scs_sizes, sizeof(size_t) * NUM_CHUNKS_PER_BLOCK);
         for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-            auto source = static_cast<const uint8_t *>(write->ptr()) + _write_io_block_scs.offset + i * CHUNK_SIZE;
-            auto ptr = (_write_io_block_scs.sizes[i] == CHUNK_SIZE)
+            auto source = static_cast<const uint8_t *>(write->ptr()) + _write_io_block_scs_offset + i * CHUNK_SIZE;
+            auto ptr = (_write_io_block_scs_sizes[i] == CHUNK_SIZE)
                 ? source
-                : (source + CHUNK_SIZE - _write_io_block_scs.sizes[i]);
-            send_buffers[2 + i] = boost::asio::buffer(ptr, _write_io_block_scs.sizes[i]);
+                : (source + CHUNK_SIZE - _write_io_block_scs_sizes[i]);
+            send_buffers[2 + i] = boost::asio::buffer(ptr, _write_io_block_scs_sizes[i]);
         }
         boost_asio_async_write_with_sentinels(_socket, send_buffers,
          [this, writeq, write](const boost::system::error_code &ec, size_t bytes_transferred) {

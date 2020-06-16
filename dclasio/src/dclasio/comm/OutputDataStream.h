@@ -152,7 +152,8 @@ private:
     bool _write_io_channel_busy;
 
     // Temporary block used during write operations with skip_compress_step == true
-    lib842::stream::Block _write_io_block_scs;
+    size_t _write_io_block_scs_offset;
+    std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _write_io_block_scs_sizes;
 #endif
 };
 
