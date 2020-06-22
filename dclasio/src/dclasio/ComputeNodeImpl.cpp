@@ -193,7 +193,7 @@ ComputeNodeImpl::ComputeNodeImpl(
     ProcessImpl(messageDispatcher, dataDispatcher, endpoint)
 {
     dcl::util::Logger << dcl::util::Debug
-            << "Created compute node '" << url() << '\'' << std::endl;
+            << "Created compute node (not yet connected)" << std::endl;
 }
 
 ComputeNodeImpl::~ComputeNodeImpl() {
