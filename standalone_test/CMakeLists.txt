@@ -6,6 +6,7 @@ project(dOpenCLstandalonetest)
 # https://github.com/KhronosGroup/OpenCL-CLHPP/blob/0192662af0156acc6346e0d398eed6e2bb4274f3/include/CL/cl2.hpp#L2124
 # Otherwise, the build can succeed, but if the threads library has not been
 # linked somehow, it will fail at runtime:  https://stackoverflow.com/q/51584960
+set(THREADS_PREFER_PTHREAD_FLAG TRUE) # Required for Ubuntu 16.04 - CMake 3.5.1 - PPC64LE
 find_package(Threads REQUIRED)
 
 find_package(TIFF)
