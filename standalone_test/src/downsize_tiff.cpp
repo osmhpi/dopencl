@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cassert>
 #include <sstream>
 #include <chrono>
 #include <memory>
@@ -19,12 +20,16 @@
 
 typedef struct device_opencl
 {
-    std::uint32_t first_row;
-    std::uint32_t num_rows;
     cl::CommandQueue queue;
     cl::Buffer raster_buf;
     cl::Buffer reduced_raster_buf;
 } device_opencl;
+
+typedef struct tile_opencl
+{
+    std::uint32_t first_row;
+    std::uint32_t num_rows;
+} tile_opencl;
 
 #define REDUCTION_FACTOR 16
 
@@ -137,14 +142,15 @@ static void write_tiff(const char *tiff_file_name,
 
 int main(int argc, char *argv[])
 {
-    if (argc != 3) {
+    if (argc != 4 || std::atoi(argv[3]) <= 0) {
         const char *program_name = argc > 0 ? argv[0] : "???";
-        std::cout << "Usage: " << program_name << " input.tiff output.tiff\n";
+        std::cout << "Usage: " << program_name << " input.tiff output.tiff ntiles\n";
         return EXIT_FAILURE;
     }
 
     std::uint32_t width, height;
     std::vector<std::uint32_t> raster = read_tiff(argv[1], width, height);
+    std::uint32_t ntiles = (std::uint32_t)std::atoi(argv[3]);
     std::cout
         << "TIFF WIDTH: " << width
         << ", HEIGHT: " << height
@@ -181,35 +187,40 @@ int main(int argc, char *argv[])
         program.build(devices, options.str().c_str());
         cl::Kernel kernel(program, "reduce_image");
 
-        std::vector<device_opencl> devinfo(devices.size());
-        for (cl_uint d = 0; d < devices.size(); d++) {
-            device_opencl &dev = devinfo[d];
-            dev.first_row = (d * reduced_height / devices.size()) * REDUCTION_FACTOR;
-            dev.num_rows = (d < (devices.size() - 1)
-                ? ((d + 1) * reduced_height / devices.size()) * REDUCTION_FACTOR
-                : height) - dev.first_row;
-            std::uint32_t reduced_num_rows = (dev.num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
-
-            dev.queue = cl::CommandQueue(context, devices[d]);
-            dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY, dev.num_rows * width * sizeof(std::uint32_t));
-            dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY, reduced_num_rows * reduced_width * sizeof(std::uint32_t));
+        std::vector<tile_opencl> tileinfo;
+        std::uint32_t reduced_tile_height = (reduced_height + ntiles - 1) / ntiles;
+        std::uint32_t tile_height = reduced_tile_height * REDUCTION_FACTOR;
+        for (size_t t = 0; t < ntiles; t++) {
+            tile_opencl tile;
+            tile.first_row = tile_height * t;
+            std::uint32_t last_row = std::min(static_cast<std::uint32_t>(tile_height * (t + 1)), height);
+            if (last_row <= tile.first_row)
+                break;
+            tile.num_rows = last_row - tile.first_row;
+            tileinfo.push_back(tile);
         }
 
-        // ------------------------
-        // TRANSFER DATA TO DEVICES
-        // ------------------------
+        std::vector<device_opencl> devinfo(devices.size());
+        for (size_t d = 0; d < devices.size(); d++) {
+            device_opencl &dev = devinfo[d];
+            dev.queue = cl::CommandQueue(context, devices[d]);
+            dev.raster_buf = cl::Buffer(context, CL_MEM_READ_ONLY,
+                tile_height * width * sizeof(std::uint32_t));
+            dev.reduced_raster_buf = cl::Buffer(context, CL_MEM_WRITE_ONLY,
+                reduced_tile_height * reduced_width * sizeof(std::uint32_t));
+        }
+
+        // -------------------------
+        // WARM UP ALLOCATED BUFFERS
+        // -------------------------
         {
-            auto max_device_rows = std::max_element(devinfo.begin(), devinfo.end(),
-                [] (const device_opencl &lhs, const device_opencl &rhs) {
-                    return lhs.num_rows < rhs.num_rows;
-            })->num_rows;
-            std::vector<std::uint32_t> zeros(max_device_rows * width, 0);
-            for (cl_uint d = 0; d < devinfo.size(); d++) {
+            std::vector<std::uint32_t> zeros(tile_height * width, 0);
+            for (size_t d = 0; d < devinfo.size(); d++) {
                 devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
-                    devinfo[d].num_rows * width * sizeof(std::uint32_t),
+                    tile_height * width * sizeof(std::uint32_t),
                     zeros.data());
             }
-            for (cl_uint d = 0; d < devinfo.size(); d++) {
+            for (size_t d = 0; d < devinfo.size(); d++) {
                 devinfo[d].queue.finish();
             }
         }
@@ -217,37 +228,42 @@ int main(int argc, char *argv[])
 
         auto start_time = std::chrono::steady_clock::now();
 
-        for (cl_uint d = 0; d < devinfo.size(); d++) {
-            devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
-                devinfo[d].num_rows * width * sizeof(std::uint32_t),
-                raster.data() + devinfo[d].first_row * width);
-        }
+        for (size_t t = 0; t < tileinfo.size(); t += devinfo.size()) {
+            // ------------------------
+            // TRANSFER DATA TO DEVICES
+            // ------------------------
+            for (size_t d = 0; d < devinfo.size() && (t + d) < tileinfo.size(); d++) {
+                devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
+                    tileinfo[t+d].num_rows * width * sizeof(std::uint32_t),
+                    raster.data() + tileinfo[t+d].first_row * width);
+            }
 
-        // --------------
-        // SUMS ON DEVICE
-        // --------------
-        for (cl_uint d = 0; d < devinfo.size(); d++) {
-            kernel.setArg(0, devinfo[d].raster_buf);
-            kernel.setArg(1, devinfo[d].reduced_raster_buf);
-            kernel.setArg(2, static_cast<cl_uint>(width));
-            kernel.setArg(3, static_cast<cl_uint>(devinfo[d].num_rows));
+            // --------------
+            // SUMS ON DEVICE
+            // --------------
+            for (size_t d = 0; d < devinfo.size() && (t + d) < tileinfo.size(); d++) {
+                kernel.setArg(0, devinfo[d].raster_buf);
+                kernel.setArg(1, devinfo[d].reduced_raster_buf);
+                kernel.setArg(2, static_cast<cl_uint>(width));
+                kernel.setArg(3, static_cast<cl_uint>(tileinfo[t+d].num_rows));
 
-            cl::NDRange localRange(16, 16);
-            std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
-            cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
-                                    (reduced_num_rows + localRange[1] - 1) & ~(localRange[1] - 1));
-            devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
-        }
+                cl::NDRange localRange(16, 16);
+                std::uint32_t reduced_num_rows = (tileinfo[t+d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+                cl::NDRange globalRange((reduced_width + localRange[0] - 1) & ~(localRange[0] - 1),
+                                        (reduced_num_rows + localRange[1] - 1) & ~(localRange[1] - 1));
+                devinfo[d].queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalRange, localRange);
+            }
 
-        // ------------------------------
-        // GATHER AND REDUCE PARTIAL SUMS
-        // ------------------------------
-        for (cl_uint d = 0; d < devinfo.size(); d++) {
-            std::uint32_t reduced_first_row = devinfo[d].first_row / REDUCTION_FACTOR;
-            std::uint32_t reduced_num_rows = (devinfo[d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
-            devinfo[d].queue.enqueueReadBuffer(devinfo[d].reduced_raster_buf, CL_TRUE, 0,
-                reduced_num_rows * reduced_width * sizeof(std::uint32_t),
-                reduced_raster.data() + reduced_first_row * reduced_width);
+            // ------------------------------
+            // GATHER AND REDUCE PARTIAL SUMS
+            // ------------------------------
+            for (size_t d = 0; d < devinfo.size() && (t + d) < tileinfo.size(); d++) {
+                std::uint32_t reduced_first_row = tileinfo[t+d].first_row / REDUCTION_FACTOR;
+                std::uint32_t reduced_num_rows = (tileinfo[t+d].num_rows + REDUCTION_FACTOR - 1) / REDUCTION_FACTOR;
+                devinfo[d].queue.enqueueReadBuffer(devinfo[d].reduced_raster_buf, CL_TRUE, 0,
+                    reduced_num_rows * reduced_width * sizeof(std::uint32_t),
+                    reduced_raster.data() + reduced_first_row * reduced_width);
+            }
         }
 
         auto end_time = std::chrono::steady_clock::now();
