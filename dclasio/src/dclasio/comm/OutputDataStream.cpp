@@ -101,7 +101,7 @@ OutputDataStream::OutputDataStream(boost::asio::ip::tcp::socket& socket)
         }
 #endif
         auto num_threads = determine_io_link_compression_num_threads("DCL_IO_LINK_NUM_COMPRESS_THREADS");
-        auto thread_policy = !determine_io_link_compression_spread_threads("DCL_IO_LINK_NUM_COMPRESS_SPREAD")
+        auto thread_policy = !determine_io_link_compression_spread_threads("DCL_IO_LINK_SPREAD_THREADS")
             ? lib842::stream::thread_policy::use_defaults
             : lib842::stream::thread_policy::spread_threads_among_numa_nodes;
 

@@ -207,6 +207,8 @@ tuning using the following environment variables:
                                                for decompression.
                                                (Otherwise, a thread per hardware
                                                thread is used by default)
+ * DCL_IO_LINK_SPREAD_THREADS=(any): Spread compression and decompression threads
+                                     among available NUMA nodes
 
 -----------------
 Project structure
