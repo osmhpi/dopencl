@@ -214,10 +214,14 @@ int main(int argc, char *argv[])
         // WARM UP ALLOCATED BUFFERS
         // -------------------------
         {
-            std::vector<std::uint32_t> zeros(tile_height * width, 0);
+            auto max_tile_rows = std::max_element(tileinfo.begin(), tileinfo.end(),
+                [] (const tile_opencl &lhs, const tile_opencl &rhs) {
+                    return lhs.num_rows < rhs.num_rows;
+            })->num_rows;
+            std::vector<std::uint32_t> zeros(max_tile_rows * width, 0);
             for (size_t d = 0; d < devinfo.size(); d++) {
                 devinfo[d].queue.enqueueWriteBuffer(devinfo[d].raster_buf, CL_FALSE, 0,
-                    tile_height * width * sizeof(std::uint32_t),
+                    max_tile_rows * width * sizeof(std::uint32_t),
                     zeros.data());
             }
             for (size_t d = 0; d < devinfo.size(); d++) {
