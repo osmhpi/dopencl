@@ -53,11 +53,6 @@
 
 #include <dcl/util/Logger.h>
 
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
-#include <lib842/stream/common.h>
-#include <lib842/cl.h>
-#endif
-
 #ifdef __APPLE__
 #include <OpenCL/cl2.hpp>
 #include <OpenCL/cl_wwu_dcl.h>
@@ -71,19 +66,6 @@
 #include <memory>
 #include <ostream>
 #include <dclasio/message/RequestBufferTransfer.h>
-
-static size_t get_buffer_overallocate_amount() {
-#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-    if (dcl::is_io_link_compression_enabled() && dcl::is_cl_io_link_compression_enabled() &&
-        dcl::is_cl_io_link_compression_mode_inplace()) {
-        // When using in-place OpenCL-based compression, we need to over-allocate some space
-        // at the end of the buffer to allow the lookahead to read a bit past the bufer
-        return lib842::stream::CHUNK_SIZE / 8;
-    }
-#endif
-
-    return 0;
-}
 
 /* ****************************************************************************/
 
@@ -100,7 +82,7 @@ Memory::Memory(const std::shared_ptr<Context>& context) :
 Memory::~Memory() { }
 
 size_t Memory::size() const {
-    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>() - get_buffer_overallocate_amount();
+    return static_cast<cl::Memory>(*this).getInfo<CL_MEM_SIZE>();
 }
 
 bool Memory::isInput() const{
@@ -136,7 +118,7 @@ Buffer::Buffer(
      * pinned memory to ensure optimal performance for frequent data transfers.
      */
 
-    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size + get_buffer_overallocate_amount());
+    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
 
     cl_mem_flags hostPtrFlags = flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
     // If the buffer has been created with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR,
