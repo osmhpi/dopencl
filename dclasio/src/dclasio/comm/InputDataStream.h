@@ -70,9 +70,39 @@
 #include <mutex>
 #include <unordered_map>
 
+// TODOXXX: This is a huge hack for a weird phenomenon I found which
+// is that on Intel iGPUs (Intel(R) Xeon(R) CPU E3-1284L v4 @ 2.90GHz,
+// on Ubuntu 18.04), calling clSetUserEventStatus sometimes blocks
+// until the OpenCL commands waiting on that event complete,
+// which severely drops performance if you assume it doesn't block
+// (e.g. when calling it from an OpenCL  event callback / clSetEventCallback)
+#define IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+#include <queue>
+#include <thread>
+#include <condition_variable>
+#include <utility>
+#endif
+
 namespace dclasio {
 
 namespace comm {
+
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+class CLUserEventCompleter {
+public:
+    CLUserEventCompleter();
+    ~CLUserEventCompleter();
+    void setEventStatus(cl::UserEvent event, cl_int status);
+
+private:
+    std::thread _thread;
+    std::queue<std::pair<cl::UserEvent, cl_int>> _queue;
+    std::mutex _mutex;
+    std::condition_variable _cv;
+};
+#endif
 
 class InputDataStream {
 public:
@@ -203,6 +233,9 @@ private:
     std::array<size_t, lib842::stream::NUM_CHUNKS_PER_BLOCK> _read_io_block_sizes;
     boost::optional<lib842::stream::Block> _read_io_block_opt;
 
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+    std::unique_ptr<CLUserEventCompleter> _read_io_event_completer;
+#endif
 #endif
 };
 

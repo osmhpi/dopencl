@@ -93,6 +93,42 @@ using lib842::stream::BLOCK_SIZE;
 using lib842::stream::COMPRESSIBLE_THRESHOLD;
 #endif
 
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+CLUserEventCompleter::CLUserEventCompleter() {
+    _thread = std::thread([this] {
+        while (true) {
+            std::pair<cl::UserEvent, cl_int> eventAndStatus;
+            {
+                std::unique_lock<std::mutex> lock(_mutex);
+                _cv.wait(lock, [this] {
+                    return !_queue.empty();
+                });
+                eventAndStatus = _queue.front();
+                _queue.pop();
+            }
+            if (eventAndStatus.first() == nullptr)
+                break;
+            eventAndStatus.first.setStatus(eventAndStatus.second);
+        }
+    });
+}
+
+CLUserEventCompleter::~CLUserEventCompleter() {
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _queue.push(std::make_pair(cl::UserEvent(), 0));
+        _cv.notify_one();
+    }
+    _thread.join();
+}
+
+void CLUserEventCompleter::setEventStatus(cl::UserEvent event, cl_int status) {
+    std::unique_lock<std::mutex> lock(_mutex);
+    _queue.push(std::make_pair(event, status));
+    _cv.notify_one();
+}
+#endif
+
 InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
     : _socket(socket), _read_state(receiving_state::idle) {
 #ifdef IO_LINK_COMPRESSION
@@ -113,6 +149,9 @@ InputDataStream::InputDataStream(boost::asio::ip::tcp::socket& socket)
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Error; },
             []() -> std::ostream& { return dcl::util::Logger << dcl::util::Debug; }
         ));
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+        _read_io_event_completer.reset(new CLUserEventCompleter());
+#endif
     }
 #endif
 }
@@ -659,7 +698,13 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
             read(splitTransferIds[i], split_size, ptrs[i], true,
                 splitTransferIds[i + 1], split_offset, mapDataCompletable)
-                ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
+                ->setCallback([this, receiveEvent](cl_int status) mutable {
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+                    _read_io_event_completer->setEventStatus(receiveEvent, status);
+#else
+                    receiveEvent.setStatus(status);
+#endif
+            });
             receiveEvents.push_back(receiveEvent);
         }
     }
@@ -707,7 +752,13 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
         read(splitTransferIds[i], split_size, ptrs[i], true,
             splitTransferIds[i + 1], split_offset, mapDataCompletable)
-            ->setCallback([receiveEvent](cl_int status) mutable { receiveEvent.setStatus(status); });
+            ->setCallback([this, receiveEvent](cl_int status) mutable {
+#ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
+                    _read_io_event_completer->setEventStatus(receiveEvent, status);
+#else
+                    receiveEvent.setStatus(status);
+#endif
+            });
 
         /* Enqueue unmap buffer (implicit upload) */
         cl::vector<cl::Event> unmapWaitList = {receiveEvent};
