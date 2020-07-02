@@ -143,6 +143,7 @@ private:
             size_t size,
             void *ptr,
             bool skip_compress_step,
+            void *skip_compress_step_compdata_ptr,
             dcl::transfer_id split_transfer_next_id,
             size_t split_transfer_global_offset,
             const std::shared_ptr<dcl::Completable> &trigger_event);

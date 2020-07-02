@@ -108,10 +108,10 @@ private:
 public:
     DataTransferImpl(
             dcl::transfer_id transferId, size_t size, typename Operation::pointer_type ptr,
-            bool skip_compress_step,
+            bool skip_compress_step, typename Operation::pointer_type skip_compress_step_compdata_ptr,
             dcl::transfer_id split_transfer_next_id, size_t split_transfer_global_offset) :
             _transferId(transferId), _size(size), _ptr(ptr),
-            _skip_compress_step(skip_compress_step),
+            _skip_compress_step(skip_compress_step), _skip_compress_step_compdata_ptr(skip_compress_step_compdata_ptr),
             _split_transfer_next_id(split_transfer_next_id),
             _split_transfer_global_offset(split_transfer_global_offset),
             _submit(dcl::util::clock.getTime()), _start(0L), _end(0L),
@@ -191,6 +191,10 @@ public:
         return _skip_compress_step;
     }
 
+    typename Operation::pointer_type skip_compress_step_compdata_ptr() const {
+        return _skip_compress_step_compdata_ptr;
+    }
+
     dcl::transfer_id split_transfer_next_id() const {
         return _split_transfer_next_id;
     }
@@ -245,6 +249,7 @@ private:
 	const size_t _size;
 	typename Operation::pointer_type _ptr;
 	const bool _skip_compress_step;
+	typename Operation::pointer_type _skip_compress_step_compdata_ptr;
 	dcl::transfer_id _split_transfer_next_id;
 	size_t _split_transfer_global_offset;
 

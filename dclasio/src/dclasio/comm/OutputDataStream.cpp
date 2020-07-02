@@ -125,7 +125,7 @@ std::shared_ptr<DataSending> OutputDataStream::write(
         dcl::transfer_id transfer_id,
         size_t size, const void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step, dcl::transfer_id(), 0));
+    auto write(std::make_shared<DataSending>(transfer_id, size, ptr, skip_compress_step, nullptr, dcl::transfer_id(), 0));
     if (trigger_event != nullptr) {
         // If a event to wait was given, enqueue the write after the event callback
         trigger_event->setCallback([this, write](cl_int status) {

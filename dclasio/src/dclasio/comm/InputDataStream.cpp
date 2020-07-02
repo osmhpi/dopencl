@@ -160,15 +160,16 @@ std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    return read(transfer_id, size, ptr, skip_compress_step, dcl::transfer_id(), 0, trigger_event);
+    return read(transfer_id, size, ptr, skip_compress_step, ptr, dcl::transfer_id(), 0, trigger_event);
 }
 
 std::shared_ptr<DataReceipt> InputDataStream::read(
         dcl::transfer_id transfer_id,
         size_t size, void *ptr, bool skip_compress_step,
+        void *skip_compress_step_compdata_ptr,
         dcl::transfer_id split_transfer_next_id, size_t split_transfer_global_offset,
         const std::shared_ptr<dcl::Completable> &trigger_event) {
-    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step,
+    auto read(std::make_shared<DataReceipt>(transfer_id, size, ptr, skip_compress_step, skip_compress_step_compdata_ptr,
         split_transfer_next_id, split_transfer_global_offset));
     if (trigger_event != nullptr) {
         // If a event to wait was given, start the read after the event callback
@@ -421,15 +422,23 @@ void InputDataStream::read_next_compressed_block_skip_compression_step() {
 
             std::array<boost::asio::mutable_buffer, NUM_CHUNKS_PER_BLOCK> recv_buffers;
             for (size_t i = 0; i < NUM_CHUNKS_PER_BLOCK; i++) {
-                // Read the chunk directly in its final destination in the destination buffer
-                auto destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block_offset + i * CHUNK_SIZE;
-
+                uint8_t *destination;
                 if (_read_io_block_sizes[i] <= COMPRESSIBLE_THRESHOLD) {
+                    destination = static_cast<uint8_t *>(_read_op->skip_compress_step_compdata_ptr()) + _read_io_block_offset + i * CHUNK_SIZE;
                     std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), destination);
                     *reinterpret_cast<uint64_t *>((destination + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = _read_io_block_sizes[i];
                     destination += CHUNK_SIZE - _read_io_block_sizes[i]; // Write compressed data at the end
                 } else {
+                    // Read the chunk directly in its final destination in the destination buffer
+                    destination = static_cast<uint8_t *>(_read_op->ptr()) + _read_io_block_offset + i * CHUNK_SIZE;
                     assert(_read_io_block_sizes[i] == CHUNK_SIZE); // Chunk is read uncompressed
+
+                    // Write a mark signaling that this chunk was written directly to the destination
+                    // NB: If ptr == skip_compress_step_compdata_ptr, then this will
+                    // be immediately overwritten after so it will do nothing
+                    uint8_t *mark = static_cast<uint8_t *>(_read_op->skip_compress_step_compdata_ptr()) + _read_io_block_offset + i * CHUNK_SIZE;
+                    std::copy(LIB842_COMPRESSED_CHUNK_MARKER, LIB842_COMPRESSED_CHUNK_MARKER + sizeof(LIB842_COMPRESSED_CHUNK_MARKER), mark);
+                    *reinterpret_cast<uint64_t *>((mark + sizeof(LIB842_COMPRESSED_CHUNK_MARKER))) = 0;
                 }
 
                 recv_buffers[i] = boost::asio::buffer(destination, _read_io_block_sizes[i]);
@@ -630,7 +639,8 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
         unmapEvents(num_splits),
         decompressEvents(num_splits);
     std::vector<cl::UserEvent> receiveEvents;
-    std::vector<void *> ptrs(num_splits);
+    std::vector<void *> compressed_data_ptrs(num_splits),
+                        uncompressed_data_ptrs(num_splits);
 
     /* Setup */
     for (size_t i = 0; i < num_splits + NUM_BUFFERS; i++) {
@@ -642,9 +652,10 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
 
             /* Enqueue unmap buffer (implicit upload) */
             cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
-            commandQueue.enqueueUnmapMemObject(wb, ptrs[i - NUM_BUFFERS],
-                                               &unmapWaitList,
-                                               &unmapEvents[i - NUM_BUFFERS]);
+            commandQueue.enqueueUnmapMemObject(wb, compressed_data_ptrs[i - NUM_BUFFERS],
+                                               &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
+            commandQueue.enqueueUnmapMemObject(buffer, uncompressed_data_ptrs[i - NUM_BUFFERS],
+                                               &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
 
             // Uncompress (full) compressed blocks
             size_t fullBlocksSize = split_size & ~(lib842::stream::BLOCK_SIZE - 1);
@@ -660,16 +671,6 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                     cl::Buffer(nullptr), cl::Buffer(nullptr),
                     &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
             }
-
-            // Partial blocks are not compressed, so we also need to move them from
-            // the temporary buffer to the final buffer if necessary
-            size_t partialBlockSize = split_size & (lib842::stream::BLOCK_SIZE - 1);
-            if (partialBlockSize > 0) {
-                cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
-                commandQueue.enqueueCopyBuffer(wb, buffer,
-                                               fullBlocksSize, offset + split_offset + fullBlocksSize, partialBlockSize,
-                                               &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
-            }
         }
 
         if (i < num_splits) {
@@ -677,7 +678,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             size_t split_size = std::min(size - split_offset, CL_UPLOAD_BLOCK_SIZE);
 
             /* Enqueue map buffer */
-            ptrs[i] = commandQueue.enqueueMapBuffer(
+            compressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
                 wb,
                 CL_FALSE,     // non-blocking map
                 DOPENCL_MAP_WRITE_INVALIDATE_REGION,
@@ -693,10 +694,19 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 0, CL_UPLOAD_BLOCK_SIZE /* Instead of: split_size */,
                 eventWaitList, &mapEvents[i]);
 
+            // Also map the final destination buffer, so that we can write
+            // uncompressible chunks directly to the final buffer
+            uncompressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
+                buffer,
+                CL_FALSE,     // non-blocking map
+                DOPENCL_MAP_WRITE_INVALIDATE_REGION,
+                offset + split_offset, split_size,
+                eventWaitList, &mapEvents[i]);
+
             // schedule local data transfer
             cl::UserEvent receiveEvent(clDataTransferContext.context());
             auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-            read(splitTransferIds[i], split_size, ptrs[i], true,
+            read(splitTransferIds[i], split_size, uncompressed_data_ptrs[i], true, compressed_data_ptrs[i],
                 splitTransferIds[i + 1], split_offset, mapDataCompletable)
                 ->setCallback([this, receiveEvent](cl_int status) mutable {
 #ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
@@ -750,7 +760,7 @@ void InputDataStream::readToClBufferWithClInplaceDecompression(
         // schedule local data transfer
         cl::UserEvent receiveEvent(clDataTransferContext.context());
         auto mapDataCompletable(std::make_shared<dcl::CLEventCompletable>(mapEvents[i]));
-        read(splitTransferIds[i], split_size, ptrs[i], true,
+        read(splitTransferIds[i], split_size, ptrs[i], true, ptrs[i],
             splitTransferIds[i + 1], split_offset, mapDataCompletable)
             ->setCallback([this, receiveEvent](cl_int status) mutable {
 #ifdef IO_LINK_COMPRESSION_SET_EVENT_STATUS_OFFTHREAD
