@@ -53,6 +53,7 @@
 #endif
 
 #include <dcl/Completable.h>
+#include <dcl/util/Logger.h>
 #include <functional>
 
 #if defined(IO_LINK_COMPRESSION)
@@ -156,7 +157,19 @@ public:
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
           , _cl842DeviceDecompressor(cl842DeviceDecompressor)
 #endif
-    { }
+    {
+        auto vendor = commandQueue.getInfo<CL_QUEUE_DEVICE>().getInfo<CL_DEVICE_VENDOR>();
+        if (vendor.find("NVIDIA") != cl::string::npos) {
+            _hasVeryCheapMapping = false;
+        } else if (vendor.find("Intel") != cl::string::npos) {
+            _hasVeryCheapMapping = true;
+        } else {
+            dcl::util::Logger << dcl::util::Warning
+                << "Unknown device vendor '" << vendor << "\'. "
+                << "Decompression strategy may be suboptimal." << std::endl;
+            _hasVeryCheapMapping = false;
+        }
+    }
 
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
     const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const {
@@ -168,9 +181,14 @@ public:
         return _cl842WorkBuffers;
     }
 
+    bool hasVeryCheapMapping() const {
+        return _hasVeryCheapMapping;
+    }
+
 private:
     const lib842::CLDeviceDecompressor *_cl842DeviceDecompressor;
     mutable std::array<cl::Buffer, NUM_BUFFERS> _cl842WorkBuffers;
+    bool _hasVeryCheapMapping;
 #endif
 };
 

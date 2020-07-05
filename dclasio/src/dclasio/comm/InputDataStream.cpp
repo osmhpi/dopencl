@@ -654,8 +654,10 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             cl::vector<cl::Event> unmapWaitList = {receiveEvents[i - NUM_BUFFERS]};
             commandQueue.enqueueUnmapMemObject(wb, compressed_data_ptrs[i - NUM_BUFFERS],
                                                &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
-            commandQueue.enqueueUnmapMemObject(buffer, uncompressed_data_ptrs[i - NUM_BUFFERS],
-                                               &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
+            if (clDataTransferContext.hasVeryCheapMapping()) {
+                commandQueue.enqueueUnmapMemObject(buffer, uncompressed_data_ptrs[i - NUM_BUFFERS],
+                                                   &unmapWaitList, &unmapEvents[i - NUM_BUFFERS]);
+            }
 
             // Uncompress (full) compressed blocks
             size_t fullBlocksSize = split_size & ~(lib842::stream::BLOCK_SIZE - 1);
@@ -670,6 +672,18 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                     buffer, offset + split_offset, cl::Buffer(nullptr),
                     cl::Buffer(nullptr), cl::Buffer(nullptr),
                     &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
+            }
+
+            if (!clDataTransferContext.hasVeryCheapMapping()) {
+                // Partial blocks are not compressed, so we also need to move them from
+                // the temporary buffer to the final buffer if necessary
+                size_t partialBlockSize = split_size & (lib842::stream::BLOCK_SIZE - 1);
+                if (partialBlockSize > 0) {
+                    cl::vector<cl::Event> decompressWaitList = {decompressEvents[i - NUM_BUFFERS]};
+                    commandQueue.enqueueCopyBuffer(wb, buffer,
+                                                   fullBlocksSize, offset + split_offset + fullBlocksSize, partialBlockSize,
+                                                   &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
+                }
             }
         }
 
@@ -694,14 +708,21 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 0, CL_UPLOAD_BLOCK_SIZE /* Instead of: split_size */,
                 eventWaitList, &mapEvents[i]);
 
-            // Also map the final destination buffer, so that we can write
-            // uncompressible chunks directly to the final buffer
-            uncompressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
-                buffer,
-                CL_FALSE,     // non-blocking map
-                DOPENCL_MAP_WRITE_INVALIDATE_REGION,
-                offset + split_offset, split_size,
-                eventWaitList, &mapEvents[i]);
+            if (clDataTransferContext.hasVeryCheapMapping()) {
+                // Also map the final destination buffer, so that we can write
+                // uncompressible chunks directly to the final buffer
+                uncompressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
+                    buffer,
+                    CL_FALSE,     // non-blocking map
+                    DOPENCL_MAP_WRITE_INVALIDATE_REGION,
+                    offset + split_offset, split_size,
+                    eventWaitList, &mapEvents[i]);
+            } else {
+                // Also write uncompressible chunks to the auxiliary buffer
+                // The chunk will be copied from the auxiliary buffer
+                // to the final buffer by the decompression kernel
+                uncompressed_data_ptrs[i] = compressed_data_ptrs[i];
+            }
 
             // schedule local data transfer
             cl::UserEvent receiveEvent(clDataTransferContext.context());
