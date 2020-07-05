@@ -155,12 +155,15 @@ public:
     )
         : CLDataTransferContext(context, commandQueue)
 #if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
-          , _cl842DeviceDecompressor(cl842DeviceDecompressor)
+          , _cl842NextWorkBuffer(0), _cl842DeviceDecompressor(cl842DeviceDecompressor)
 #endif
     {
         auto vendor = commandQueue.getInfo<CL_QUEUE_DEVICE>().getInfo<CL_DEVICE_VENDOR>();
         if (vendor.find("NVIDIA") != cl::string::npos) {
             _hasVeryCheapMapping = false;
+            if (std::getenv("DCL_WORKAROUND_TOO_AGGRESSIVE_NVIDIA_MAPPING") != nullptr) {
+                _hasVeryCheapMapping = true;
+            }
         } else if (vendor.find("Intel") != cl::string::npos) {
             _hasVeryCheapMapping = true;
         } else {
@@ -177,6 +180,15 @@ public:
     }
 
     static constexpr size_t NUM_BUFFERS = 2;
+
+    size_t &cl842NextWorkBuffer() const {
+        return _cl842NextWorkBuffer;
+    }
+
+    std::array<cl::Event, NUM_BUFFERS> &cl842LastDecompressEvents() const {
+        return _cl842LastDecompressEvents;
+    }
+
     std::array<cl::Buffer, NUM_BUFFERS> &cl842WorkBuffers() const {
         return _cl842WorkBuffers;
     }
@@ -187,6 +199,8 @@ public:
 
 private:
     const lib842::CLDeviceDecompressor *_cl842DeviceDecompressor;
+    mutable size_t _cl842NextWorkBuffer;
+    mutable std::array<cl::Event, NUM_BUFFERS> _cl842LastDecompressEvents;
     mutable std::array<cl::Buffer, NUM_BUFFERS> _cl842WorkBuffers;
     bool _hasVeryCheapMapping;
 #endif

@@ -625,7 +625,9 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
     // is associated with a command queue, and so far out of order queues are
     // not supported, so only a single transfer is using the buffers at a time
     auto &workBuffers = clDataTransferContext.cl842WorkBuffers();
-    static const size_t NUM_BUFFERS = workBuffers.size();
+    auto &nextWorkBuffer = clDataTransferContext.cl842NextWorkBuffer();
+    auto &lastDecompressEvents = clDataTransferContext.cl842LastDecompressEvents();
+    static const size_t NUM_BUFFERS = dcl::CLInDataTransferContext::NUM_BUFFERS;
     for (auto &wb : workBuffers) {
         if (wb.get() != nullptr)
             break;
@@ -644,7 +646,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
 
     /* Setup */
     for (size_t i = 0; i < num_splits + NUM_BUFFERS; i++) {
-        const auto &wb = workBuffers[i % NUM_BUFFERS];
+        const auto &wb = workBuffers[nextWorkBuffer];
 
         if (i >= NUM_BUFFERS) {
             size_t split_offset = (i - NUM_BUFFERS) * CL_UPLOAD_BLOCK_SIZE;
@@ -685,6 +687,8 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                                                    &decompressWaitList, &decompressEvents[i - NUM_BUFFERS]);
                 }
             }
+
+            lastDecompressEvents[nextWorkBuffer] = decompressEvents[i - NUM_BUFFERS];
         }
 
         if (i < num_splits) {
@@ -692,6 +696,16 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             size_t split_size = std::min(size - split_offset, CL_UPLOAD_BLOCK_SIZE);
 
             /* Enqueue map buffer */
+            cl::vector<cl::Event> mapWaitList;
+            if (i < NUM_BUFFERS) {
+                if (eventWaitList != nullptr)
+                    mapWaitList = *eventWaitList;
+                if (lastDecompressEvents[nextWorkBuffer]() != nullptr) {
+                    mapWaitList.push_back(lastDecompressEvents[nextWorkBuffer]);
+                }
+            } else {
+                mapWaitList = {decompressEvents[i - NUM_BUFFERS]};
+            }
             compressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
                 wb,
                 CL_FALSE,     // non-blocking map
@@ -706,17 +720,18 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
                 // As a workaround, always map the entire size of the auxiliary buffer
                 // TODO: Does this have any performance impact? If so, any workaround / fix?
                 0, CL_UPLOAD_BLOCK_SIZE /* Instead of: split_size */,
-                eventWaitList, &mapEvents[i]);
+                &mapWaitList, &mapEvents[i]);
 
             if (clDataTransferContext.hasVeryCheapMapping()) {
                 // Also map the final destination buffer, so that we can write
                 // uncompressible chunks directly to the final buffer
+                cl::vector<cl::Event> mapWaitList2 = {mapEvents[i]};
                 uncompressed_data_ptrs[i] = commandQueue.enqueueMapBuffer(
                     buffer,
                     CL_FALSE,     // non-blocking map
                     DOPENCL_MAP_WRITE_INVALIDATE_REGION,
                     offset + split_offset, split_size,
-                    eventWaitList, &mapEvents[i]);
+                    &mapWaitList2, &mapEvents[i]);
             } else {
                 // Also write uncompressible chunks to the auxiliary buffer
                 // The chunk will be copied from the auxiliary buffer
@@ -738,6 +753,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             });
             receiveEvents.push_back(receiveEvent);
         }
+	nextWorkBuffer = (nextWorkBuffer + 1) % NUM_BUFFERS;
     }
 
     *startEvent = mapEvents.front();
