@@ -753,7 +753,7 @@ void InputDataStream::readToClBufferWithClTemporaryDecompression(
             });
             receiveEvents.push_back(receiveEvent);
         }
-	nextWorkBuffer = (nextWorkBuffer + 1) % NUM_BUFFERS;
+        nextWorkBuffer = (nextWorkBuffer + 1) % NUM_BUFFERS;
     }
 
     *startEvent = mapEvents.front();
