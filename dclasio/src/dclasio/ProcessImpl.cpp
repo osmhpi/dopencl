@@ -52,6 +52,7 @@
 
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
@@ -59,6 +60,8 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <boost/system/error_code.hpp>
+
+#include <boost/uuid/uuid_io.hpp>
 
 #include <algorithm>
 #include <cassert>
@@ -83,14 +86,14 @@ ProcessImpl::ProcessImpl(
         _messageDispatcher(messageDispatcher), _messageQueue(msgq),
         _dataDispatcher(dataDispatcher), _dataStream(nullptr),
         _connectionStatus(ConnectionStatus::MESSAGE_QUEUE_CONNECTED) {
-    assert(_pid != 0 && "Invalid process ID");
+    assert(!_pid.is_nil() && "Invalid process ID");
 }
 
 ProcessImpl::ProcessImpl(
         comm::MessageDispatcher& messageDispatcher,
         comm::DataDispatcher& dataDispatcher,
         const endpoint_type& endpoint) :
-        _pid(0) /* unknown process ID */,
+        _pid() /* unknown process ID */,
         _messageDispatcher(messageDispatcher),
         _messageQueue(*_messageDispatcher.create_message_queue(endpoint)),
         _dataDispatcher(dataDispatcher),
@@ -132,16 +135,8 @@ bool ProcessImpl::isConnected() {
 
 const std::string& ProcessImpl::url() const {
     if (_url.empty()) {
-        std::stringstream ss;
-
         // TODO Generate process URL from message queue's remote endpoint
-        /*
-        // create URL string once
-        if (!(ss << _messageQueue.getHostname() << ':' << _messageQueue.getPort()) ||
-                !(ss >> _url) ||
-                !((ss >> std::ws).eof())) // skip whitespace and check if EOF flag has been set
-            _url.clear();
-         */
+        _url = boost::uuids::to_string(_messageQueue.get_process_id());
     }
 
     return _url;
@@ -156,14 +151,44 @@ void ProcessImpl::sendMessage(const message::Message& message) const {
     _messageQueue.send_message(message);
 }
 
-std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(size_t size,
-        const void *ptr) {
-    return getDataStream().write(size, ptr);
+std::shared_ptr<dcl::DataTransfer> ProcessImpl::sendData(
+        dcl::transfer_id transfer_id,
+        size_t size, const void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+    return getDataStream().write(transfer_id, size, ptr, skip_compress_step, trigger_event);
 }
 
-std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(size_t size,
-        void *ptr) {
-    return getDataStream().read(size, ptr);
+void ProcessImpl::sendDataFromClBuffer(
+        dcl::transfer_id transferId,
+        size_t size,
+        const dcl::CLOutDataTransferContext &clDataTransferContext,
+        const cl::Buffer &buffer,
+        size_t offset,
+        const cl::vector<cl::Event> *eventWaitList,
+        cl::Event *startEvent,
+        cl::Event *endEvent) {
+    return getDataStream().writeFromClBuffer(transferId, size, clDataTransferContext, buffer,
+                                             offset, eventWaitList, startEvent, endEvent);
+}
+
+std::shared_ptr<dcl::DataTransfer> ProcessImpl::receiveData(
+        dcl::transfer_id transfer_id,
+        size_t size, void *ptr, bool skip_compress_step,
+        const std::shared_ptr<dcl::Completable> &trigger_event) {
+    return getDataStream().read(transfer_id, size, ptr, skip_compress_step, trigger_event);
+}
+
+void ProcessImpl::receiveDataToClBuffer(
+    dcl::transfer_id transferId,
+    size_t size,
+    const dcl::CLInDataTransferContext &clDataTransferContext,
+    const cl::Buffer &buffer,
+    size_t offset,
+    const cl::vector<cl::Event> *eventWaitList,
+    cl::Event *startEvent,
+    cl::Event *endEvent) {
+    return getDataStream().readToClBuffer(transferId, size, clDataTransferContext,
+                                          buffer, offset, eventWaitList, startEvent, endEvent);
 }
 
 comm::DataStream& ProcessImpl::getDataStream() {

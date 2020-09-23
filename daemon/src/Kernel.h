@@ -49,11 +49,10 @@
 #include <dcl/Kernel.h>
 #include <dcl/Memory.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cstddef>
@@ -107,6 +106,13 @@ public:
             const void *argPtr = nullptr);
 
     /*!
+     * \brief Returns the memory objects (possibly) accessed with this kernel
+     *
+     * \return a list of memory objects
+     */
+    std::vector<std::shared_ptr<Memory>> allMemoryObjects();
+
+    /*!
      * \brief Returns the memory objects (possibly) written to with this kernel
      *
      * \return a list of memory objects
@@ -122,7 +128,8 @@ private:
 
     cl::Kernel _kernel; //!< Native kernel
 
-    std::vector<std::shared_ptr<Memory>> _writeMemoryObjects; //!< Memory objects used by this kernel
+    std::vector<std::shared_ptr<Memory>> _allMemoryObjects; //!< Memory objects used by this kernel
+    std::vector<std::shared_ptr<Memory>> _writeMemoryObjects; //!< Memory objects possibly written to by this kernel
 };
 
 } /* namespace dcld */

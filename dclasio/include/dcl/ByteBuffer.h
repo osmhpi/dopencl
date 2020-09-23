@@ -63,6 +63,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <boost/uuid/uuid.hpp>
 
 namespace {
 
@@ -80,6 +81,7 @@ template<> struct serialization<cl_long>   { static const size_t size = sizeof(c
 template<> struct serialization<cl_ulong>  { static const size_t size = sizeof(cl_ulong);  }; // 64 bit
 template<> struct serialization<float>     { static const size_t size = sizeof(float);     }; // 32 bit
 template<> struct serialization<double>    { static const size_t size = sizeof(double);    }; // 64 bit
+template<> struct serialization<boost::uuids::uuid> { static const size_t size = sizeof(boost::uuids::uuid);  }; // 128 bit
 
 } // anonymous namespace
 
@@ -100,111 +102,54 @@ namespace dcl {
  * to extract serialized data correctly.
  * This class is not thread-safe for performance reasons.
  */
-class ByteBuffer {
+class OutputByteBuffer {
 public:
     typedef char value_type;
-    typedef uint32_t size_type;
-    typedef std::ptrdiff_t difference_type;
-    typedef value_type * pointer;
-    typedef const value_type * const_pointer;
-    typedef value_type * iterator;
-    typedef const value_type * const_iterator;
 
-    const static size_type DEFAULT_SIZE = 512; //!< default buffer size in bytes
-    const static size_type DEFAULT_MAX_SIZE = 65536; //!< default maximum buffer size in bytes
+    const static size_t DEFAULT_SIZE = 512; //!< default buffer size in bytes
 
 private:
-    /*!
-     * \brief Resizes the buffer to the specified internal size.
-     * \param[in]  size the new internal buffer size
-     * \throw std::out_of_range if \c size exceeds max_size
-     */
-    inline void reserve(
-            size_type size) {
-        if (size > _max_size) throw std::out_of_range("Internal buffer overflow");
-        if (size <= _size) return; // no operation
-        /* TODO Resize buffer
-         * First, try to recover memory of read bytes just by moving content to beginning
-         * If this does not provide enough space, increase buffer size before moving content bytes to beginning */
-        assert(!"resize not implemented");
-    }
-
     /*!
      * \brief Ensures that at least \c size bytes can be written to the buffer
      * \param[in]  free the number of bytes to write
      */
     inline void ensure_free(
-            size_type free) {
+            size_t free) {
         auto size = _len + free;
-        if (size > _size) { // ensure required buffer size
-            while (size < _size) {
+        if (size > _bytes.size()) { // ensure required buffer size
+            while (size < _bytes.size()) {
                 size *= 2; // double buffer size
             }
-            reserve(std::max(std::min(size, _max_size), free));
+            _bytes.resize(size);
         }
     }
 
-    /*!
-     * \brief Ensures that at least \c size bytes can be read from the buffer
-     * \param[in]  size the number of bytes to read
-     * \throw std::out_of_range if less than \c size bytes can be read from the buffer
-     */
-    inline void ensure_bytes(
-            size_type size) {
-        if ((_len - _pos) < size) throw std::out_of_range("Buffer underflow");
-    }
-
-    ByteBuffer(const ByteBuffer& other) = delete;
-
 public:
-    ByteBuffer();
+    OutputByteBuffer();
     /*!
      * \brief Creates a buffer with the specified number of reserved bytes
-     * The buffer size as returned by ByteBuffer::size is 0.
+     * The buffer size as returned by OutputByteBuffer::size is 0.
      * \param[in]  initial_size the internal size of the byte buffer
      */
-    ByteBuffer(
-            size_type initial_size);
-    /*!
-     * \brief Creates a buffer from raw bytes
-     * The buffer becomes owner of the bytes - it does *not* copy the bytes.
-     * \param[in]  size     the number of bytes
-     * \param[in]  bytes    the raw bytes
-     */
-    ByteBuffer(
-            size_type size,
-            value_type bytes[]);
-    ByteBuffer(
-            ByteBuffer&& other);
-    virtual ~ByteBuffer();
-
-    /*!
-     * \brief Restricts the buffer's maximum size to the specified value
-     * \param[in]  max_size the buffer's maximum size
-     */
-    void set_max_size(
-            size_type max_size);
+    OutputByteBuffer(
+            size_t initial_size);
 
     template<typename T>
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const T& value) {
         ensure_free(serialization<T>::size);
         // TODO Convert to network byte order
         // TODO Use std::copy
-        memcpy(_bytes.get() + _len, &value, serialization<T>::size);
+        memcpy(_bytes.data() + _len, &value, serialization<T>::size);
         _len += serialization<T>::size;
         return *this;
     }
 
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const bool flag);
-#if USE_CSTRING
-    ByteBuffer& operator<<(
-            const char *str);
-#endif
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const std::string& str);
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const Binary& data);
 
     /*!
@@ -213,7 +158,7 @@ public:
      * \return this byte buffer
      */
     template<typename T>
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const std::vector<T>& values) {
         operator<<(values.size()); // write number of elements
         for (const auto& value : values) {
@@ -228,7 +173,7 @@ public:
      * \return this byte buffer
      */
     template<typename Key, typename Value>
-    ByteBuffer& operator<<(
+    OutputByteBuffer& operator<<(
             const std::map<Key, Value>& pairs) {
         operator<<(pairs.size()); // write number of pairs
         for (const auto& pair : pairs) {
@@ -238,30 +183,59 @@ public:
         return *this;
     }
 
+    size_t size() const;
+    const value_type *data() const;
+
+private:
+    size_t _len; // actual valid buffer size
+    std::vector<value_type> _bytes; // buffer data
+};
+
+class InputByteBuffer {
+public:
+    typedef char value_type;
+
+    const static size_t DEFAULT_SIZE = 512; //!< default buffer size in bytes
+
+private:
+    /*!
+     * \brief Ensures that at least \c size bytes can be read from the buffer
+     * \param[in]  size the number of bytes to read
+     * \throw std::out_of_range if less than \c size bytes can be read from the buffer
+     */
+    inline void ensure_bytes(size_t size) {
+        if ((_len - _pos) < size) throw std::out_of_range("Buffer underflow");
+    }
+
+public:
+    InputByteBuffer();
+    /*!
+     * \brief Creates a buffer with the specified number of reserved bytes
+     * The buffer size as returned by InputByteBuffer::size is 0.
+     * \param[in]  initial_size the internal size of the byte buffer
+     */
+    InputByteBuffer(size_t initial_size);
+
     template<typename T>
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             T& value) {
         ensure_bytes(serialization<T>::size);
         // TODO Convert to host byte order
         // TODO Use std::copy
-        memcpy(&value, _bytes.get() + _pos, serialization<T>::size);
+        memcpy(&value, _bytes.data() + _pos, serialization<T>::size);
         _pos += serialization<T>::size;
         return *this;
     }
 
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             bool& flag);
-#if USE_CSTRING
-    ByteBuffer& operator>>(
-            char *str);
-#endif
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             std::string& str);
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             Binary& data);
 
     template<typename T>
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             std::vector<T>& values) {
         size_t size;
         operator>>(size); // read number of elements
@@ -274,7 +248,7 @@ public:
     }
 
     template<typename Key, typename Value>
-    ByteBuffer& operator>>(
+    InputByteBuffer& operator>>(
             std::map<Key, Value>& pairs) {
         size_t size;
         operator>>(size); // read number of pairs
@@ -298,25 +272,15 @@ public:
      * Usually, this method is used before overwriting the buffer directly using an iterator.
      * \param[in]  size the new buffer size
      */
-    void resize(
-            size_type size);
+    void resize(size_t size);
 
-    size_type size() const;
-
-    iterator begin();
-    const_iterator begin() const;
-    const_iterator cbegin() const;
-
-    iterator end();
-    const_iterator end() const;
-    const_iterator cend() const;
+    size_t size() const;
+    value_type *data();
 
 private:
-    size_type _pos; // read count
-    size_type _len; // write count, i.e., size of buffer content *including* the read bytes
-    size_type _max_size;
-    size_type _size; // buffer size
-    std::unique_ptr<value_type[]> _bytes; // buffer data
+    size_t _pos; // read count
+    size_t _len; // actual valid buffer size
+    std::vector<value_type> _bytes; // buffer data
 };
 
 } // namespace dcl

@@ -108,9 +108,13 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
-#include <CL/cl.hpp>
+#ifdef __APPLE__
+#include <OpenCL/cl2.hpp>
+#include <OpenCL/cl_wwu_dcl.h>
+#else
+#include <CL/cl2.hpp>
 #include <CL/cl_wwu_dcl.h>
+#endif
 
 #include <cassert>
 #include <cstddef>
@@ -121,7 +125,7 @@
 #include <utility>
 #include <vector>
 
-namespace {
+namespace extstd {
 
 /* A helper function to wrap new responses into a unique pointer */
 template<typename T, typename ... Args>
@@ -129,7 +133,7 @@ std::unique_ptr<T> make_unique(Args&& ... args) {
     return std::unique_ptr<T>(new T(std::forward<Args>(args) ...));
 }
 
-} /* unnamed namespace */
+} /* namespace extstd */
 
 /* ****************************************************************************/
 
@@ -236,14 +240,14 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     try {
         dcl::ComputeNode computeNode = _communicationManager.getComputeNode();
 
-        return make_unique<message::ComputeNodeInfosResponse>(request,
+        return extstd::make_unique<message::ComputeNodeInfosResponse>(request,
                 computeNode.getInfo<CL_PLATFORM_EXTENSIONS>(),
                 computeNode.getInfo<CL_PLATFORM_NAME>(),
                 computeNode.getInfo<CL_PLATFORM_PROFILE>(),
                 computeNode.getInfo<CL_PLATFORM_VENDOR>(),
                 computeNode.getInfo<CL_PLATFORM_VERSION>());
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 #endif
@@ -261,9 +265,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Got device IDs" << std::endl;
 
         /* TODO Return list of (device ID, device type) pairs */
-        return make_unique<message::DeviceIDsResponse>(request, deviceIDs);
+        return extstd::make_unique<message::DeviceIDsResponse>(request, deviceIDs);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -282,9 +286,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Got device info (device ID=" << request.deviceId
                 << ')' << std::endl;
 
-        return make_unique<message::InfoResponse>(request, param.size(), param.value());
+        return extstd::make_unique<message::InfoResponse>(request, param.size(), param.value());
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -314,9 +318,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Context created (ID=" << request.contextId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -335,9 +339,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Context released (ID=" << request.contextId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -348,30 +352,18 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     SmartCLObjectRegistry& registry = getObjectRegistry(host);
 
     try {
-        cl_mem_flags hostPtrFlags = request.flags() &
-                (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
-        size_t size = request.size();
-        std::unique_ptr<unsigned char[]> host_ptr;
-
-        if (hostPtrFlags) {
-            /* receive buffer data from host */
-            host_ptr.reset(new unsigned char[size]);
-            if (!host_ptr) throw cl::Error(CL_OUT_OF_RESOURCES);
-            host.receiveData(size, host_ptr.get())->wait();
-        }
-
         auto buffer = getSession(host).createBuffer(
                 registry.lookup<std::shared_ptr<dcl::Context>>(request.contextId()),
-                request.flags(), request.size(), host_ptr.get());
+                request.flags(), request.size(), request.bufferId());
         registry.bind(request.bufferId(), buffer);
 
         dcl::util::Logger << dcl::util::Info
                 << "Buffer created (ID=" << request.bufferId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -390,9 +382,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Memory object released (ID=" << request.memObjectId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -414,9 +406,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         dcl::util::Logger << dcl::util::Info
                 << "Command queue created (ID=" << request.commandQueueId() << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -435,9 +427,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Command queue released (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -452,9 +444,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     /* Receive program sources */
     try {
         source.reset(new char[length]);
-        host.receiveData(length, source.get())->wait(); // blocking receive
+        host.receiveData(request.transferId(), length, source.get())->wait(); // blocking receive
     } catch (const std::bad_alloc&) {
-        return make_unique<message::ErrorResponse>(request, CL_OUT_OF_RESOURCES);
+        return extstd::make_unique<message::ErrorResponse>(request, CL_OUT_OF_RESOURCES);
     }
 
     try {
@@ -467,9 +459,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Program created from source (ID=" << request.programId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -482,7 +474,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
     std::unique_ptr<std::unique_ptr<unsigned char[]>[]> strings;
     size_t *lengths;
     unsigned char **binaries;
-    VECTOR_CLASS<cl_int> binary_status;
+    cl::vector<cl_int> binary_status;
 
     /* Receive program binaries */
     try {
@@ -493,12 +485,13 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
             strings[i].reset(new unsigned char[length]);
             void *binary = static_cast<void *>(strings[i].get());
-            host.receiveData(length, binary)->wait(); // blocking receive
+            dcl::transfer_id transferId{}; // TODO: Obtain transfer ID when this is implemented
+            host.receiveData(transferId, length, binary)->wait(); // blocking receive
         }
 
         /* DO NOT DELETE strings, as binaries hold pointers to strings */
     } catch (const std::bad_alloc&) {
-        return make_unique<message::ErrorResponse>(request, CL_OUT_OF_RESOURCES);
+        return extstd::make_unique<message::ErrorResponse>(request, CL_OUT_OF_RESOURCES);
     }
 
     /* TODO Initialize lengths and binaries arguments for dcld::Session::createProgram */
@@ -515,9 +508,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Program created from binaries (ID=" << request.programId() << ')'
                 << std::endl;
 
-        return make_unique<message::ProgramBinaryStatusResponse>(request);
+        return extstd::make_unique<message::ProgramBinaryStatusResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 
     /* Now strings may be deleted safely */
@@ -539,9 +532,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Program released (ID=" << request.programId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -567,9 +560,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", build ID=" << request.programBuildId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err){
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -590,9 +583,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", name=" << request.kernelName()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err){
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -619,9 +612,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", #kernels=" << kernels.size()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -640,9 +633,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Kernel released (ID=" << request.kernelId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -670,9 +663,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Event created (ID=" << request.eventId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -691,9 +684,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Event released (ID=" << request.eventId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -718,10 +711,10 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Got event profiling info (ID=" << request.eventId() << ')'
                 << std::endl;
 
-        return make_unique<message::EventProfilingInfosReponse>(
+        return extstd::make_unique<message::EventProfilingInfosReponse>(
                 request, received, queued, submit, start, end);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -741,9 +734,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Got kernel info (ID=" << request.kernelId() << ')'
                 << std::endl;
 
-        return make_unique<message::InfoResponse>(request, param.size(), param.value());
+        return extstd::make_unique<message::InfoResponse>(request, param.size(), param.value());
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -765,10 +758,10 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", device ID=" << request.deviceId()
                 << ')' << std::endl;
 
-        return make_unique<message::InfoResponse>(
+        return extstd::make_unique<message::InfoResponse>(
                 request, param.size(), param.value());
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -805,9 +798,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -824,8 +817,8 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueWriteBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.offset(),
-                request.cb(),
+                request.blocking(), request.transferId(),
+                request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
                 (request.event() ? &writeBuffer : nullptr)
@@ -843,9 +836,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -862,8 +855,8 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueReadBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.offset(),
-                request.cb(),
+                request.blocking(), request.transferId(),
+                request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
                 (request.event() ? &readBuffer : nullptr)
@@ -881,9 +874,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -895,9 +888,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         /* TODO Implement and call dcl::CommandQueue::enqueueBroadcastBuffer */
         assert(!"dcl::CommandQueue::enqueueBroadcastBuffer not implemented");
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -909,9 +902,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         /* TODO Implement and call dcl::CommandQueue::enqueueReduceBuffer */
         assert(!"dcl::CommandQueue::enqueueReduceBuffer not implemented");
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -946,9 +939,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -980,9 +973,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1011,9 +1004,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Enqueued wait for events (command queue ID=" << request.commandQueueId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 #endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS)
@@ -1031,7 +1024,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueMapBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.blocking(), request.mapFlags(),
+                request.blocking(), request.transferId(), request.mapFlags(),
                 request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
@@ -1049,9 +1042,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1068,7 +1061,7 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
 
         registry.lookup<std::shared_ptr<dcl::CommandQueue>>(request.commandQueueId())->enqueueUnmapBuffer(
                 registry.lookup<std::shared_ptr<dcl::Buffer>>(request.bufferId()),
-                request.mapFlags(),
+                request.transferId(), request.mapFlags(),
                 request.offset(), request.cb(),
                 (eventWaitList.empty() ? nullptr : &eventWaitList),
                 request.commandId(),
@@ -1086,9 +1079,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1120,9 +1113,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << ", command ID=" << request.commandId()
                 << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1140,9 +1133,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Finished command queue (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1159,9 +1152,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
                 << "Flushed command queue (ID=" << request.commandQueueId() << ')'
                 << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1185,9 +1178,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         dcl::util::Logger << dcl::util::Info
                 << "Kernel argument set (ID=" << request.kernelId() << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 
@@ -1204,9 +1197,9 @@ std::unique_ptr<message::Response> CLRequestProcessor::execute(
         dcl::util::Logger << dcl::util::Info
                 << "Kernel argument set (ID=" << request.kernelId() << ')' << std::endl;
 
-        return make_unique<message::DefaultResponse>(request);
+        return extstd::make_unique<message::DefaultResponse>(request);
     } catch (const cl::Error& err) {
-        return make_unique<message::ErrorResponse>(request, err.err());
+        return extstd::make_unique<message::ErrorResponse>(request, err.err());
     }
 }
 

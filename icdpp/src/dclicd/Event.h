@@ -149,7 +149,7 @@ public:
      */
 
     void onSynchronize(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
 
 protected:
     cl_command_type commandType() const;

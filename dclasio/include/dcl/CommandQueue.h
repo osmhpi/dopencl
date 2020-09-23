@@ -97,6 +97,7 @@ public:
     virtual void enqueueReadBuffer(
             const std::shared_ptr<Buffer>&              buffer,
             bool                                        blockingRead,
+            dcl::transfer_id                            transferId,
             size_t                                      offset,
             size_t                                      size,
             const std::vector<std::shared_ptr<Event>> * eventWaitList,
@@ -106,6 +107,7 @@ public:
     virtual void enqueueWriteBuffer(
             const std::shared_ptr<Buffer>&              buffer,
             bool                                        blockingWrite,
+            dcl::transfer_id                            transferId,
             size_t                                      offset,
             size_t                                      size,
             const std::vector<std::shared_ptr<Event>> * eventWaitList,
@@ -115,6 +117,7 @@ public:
     virtual void enqueueMapBuffer(
             const std::shared_ptr<Buffer>&              buffer,
             bool                                        blockingMap,
+            dcl::transfer_id                            transferId,
             cl_map_flags                                mapFlags,
             size_t                                      offset,
             size_t                                      size,
@@ -124,6 +127,7 @@ public:
 
     virtual void enqueueUnmapBuffer(
             const std::shared_ptr<Buffer>&              buffer,
+            dcl::transfer_id                            transferId,
             cl_map_flags                                mapFlags,
             size_t                                      offset,
             size_t                                      size,

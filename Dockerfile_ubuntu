@@ -1,0 +1,39 @@
+FROM ubuntu:bionic AS builder
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+        # Build utilities
+        cmake make g++ \
+        # Required by dopencl/icdpp, dopencl/dclasio
+        libboost-dev \
+        # Required by dopencl/daemon
+        libboost-program-options-dev \
+        # Required by dopencl/dclasio
+        libboost-system-dev \
+        # NB: Both C and C++ headers + libOpenCL required
+        opencl-headers ocl-icd-opencl-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy source files in
+COPY . /tmp/dopencl
+
+# Build
+RUN mkdir /tmp/dopencl/build \
+ && cd /tmp/dopencl/build \
+ && cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/opt/dopencl .. \
+ && make -j$(nproc) \
+ && make install \
+ && install -D -m755 /tmp/dopencl/dopenclenv.sh /etc/profile.d/dopenclenv.sh
+
+FROM ubuntu:bionic
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+        libboost-program-options-dev libboost-system-dev ocl-icd-opencl-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Final install
+COPY --from=builder /opt/dopencl /opt/dopencl
+COPY --from=builder /etc/profile.d/dopenclenv.sh /etc/profile.d/dopenclenv.sh

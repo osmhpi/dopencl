@@ -99,11 +99,11 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         buf << programBuildId << deviceIds << buildStatus;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         buf >> programBuildId >> deviceIds >> buildStatus;
     }
 };

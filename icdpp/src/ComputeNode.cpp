@@ -63,7 +63,6 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-#include <iostream>
 
 _cl_compute_node_WWU::_cl_compute_node_WWU(
 		cl_platform_id platform,
@@ -96,38 +95,38 @@ void _cl_compute_node_WWU::destroy() {
 void _cl_compute_node_WWU::getDevices(
 		cl_device_type type,
 		std::vector<cl_device_id>& devices) const {
-    type = CL_DEVICE_TYPE_ALL;
-    switch (type) {
-    case CL_DEVICE_TYPE_DEFAULT:
-    case CL_DEVICE_TYPE_CPU:
-    case CL_DEVICE_TYPE_GPU:
-    case CL_DEVICE_TYPE_ACCELERATOR:
+    static const cl_device_type ALL_DEVICE_TYPE_BITFLAGS =
+        CL_DEVICE_TYPE_DEFAULT
+        | CL_DEVICE_TYPE_CPU
+        | CL_DEVICE_TYPE_GPU
+        | CL_DEVICE_TYPE_ACCELERATOR
 #if defined(CL_VERSION_1_2)
-    case CL_DEVICE_TYPE_CUSTOM:
+        | CL_DEVICE_TYPE_CUSTOM
 #endif // #if defined(CL_VERSION_1_2)
-        /* device type is valid; return all devices of specified type */
-        devices.clear(); // clear output list
+    ;
 
-        for (const auto& device : _devices) {
-            cl_device_type deviceType;
-
-            device->getInfo(CL_DEVICE_TYPE, sizeof(cl_device_type), &deviceType, nullptr);
-            if ((deviceType & type)) {
-                devices.push_back(device.get());
-            }
-        }
-
-        break;
-    case CL_DEVICE_TYPE_ALL:
-	devices.clear(); // clear output list
-        
-	/* just return all devices */
-        for (const auto& device : _devices) {
-	    devices.push_back(device.get());
-        }
-        break;
-    default:
+    if (type != CL_DEVICE_TYPE_ALL && (type & ~ALL_DEVICE_TYPE_BITFLAGS) != 0)
         throw dclicd::Error(CL_INVALID_DEVICE_TYPE);
+
+    /* device type is valid; return all devices of specified type */
+    devices.clear(); // clear output list
+
+    for (const auto& device : _devices) {
+        cl_device_type deviceType;
+        device->getInfo(CL_DEVICE_TYPE, sizeof(cl_device_type), &deviceType, nullptr);
+
+        // "CL_DEVICE_TYPE_ALL: All OpenCL devices available in the system
+        //                      except CL_DEVICE_TYPE_CUSTOM devices."
+        if (type == CL_DEVICE_TYPE_ALL && deviceType == CL_DEVICE_TYPE_CUSTOM)
+            continue;
+
+        // If type is not CL_DEVICE_TYPE_ALL then check intersection of type bitmask
+        // TODO: CL_DEVICE_TYPE_DEFAULT probably needs special treatment here,
+        // but I think the default device is not yet handled at all by dOpenCL...
+        if (type != CL_DEVICE_TYPE_ALL && (deviceType & type) == 0)
+            continue;
+
+        devices.push_back(device.get());
     }
 
 	if (devices.empty()) {

@@ -67,7 +67,7 @@ KernelArgument::KernelArgument(
         cl_mem mem) : type(dcl::kernel_arg_type::MEMORY), size(sizeof(cl_mem)) {
     assert(mem != nullptr);
     dcl::object_id memId = mem->remoteId();
-    value.assign(sizeof(mem), &memId);
+    value.assign(sizeof(memId), &memId);
 }
 KernelArgument::KernelArgument(size_t size_, const void *value_) :
         type(dcl::kernel_arg_type::BINARY), size(size_), value(size_, value_) { }

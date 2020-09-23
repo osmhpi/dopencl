@@ -1,36 +1,27 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.1)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_MODULE_PATH})
-include(solar-cmake/TargetArch)
 
 project(dOpenCL)
 
-target_architecture(CMAKE_TARGET_ARCHITECTURES)
-message(STATUS "Target architectures: ${CMAKE_TARGET_ARCHITECTURES}")
+# Enable C++11 support
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Keep GNU extensions enabled (default), in order to simplify the build on
+# PowerPC due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58241.
+# An alternative is to disable Altivec (-mno-altivec), check the history of
+# this file in version control for details
+#set(CMAKE_CXX_EXTENSIONS OFF)
 
-# The following code snippet for enabling C++11 support for GCC has been taken from:
-# http://stackoverflow.com/questions/12715005/add-c0x-support-in-cmake
-# For other compilers, C++11 support has to enabled manually
-# NOTE: Modification of CMAKE_CXX_FLAGS is not shown in ncurses UI
-if(CMAKE_COMPILER_IS_GNUCXX)
-	execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpversion OUTPUT_VARIABLE GNUCXX_VERSION)
-	if(GNUCXX_VERSION VERSION_EQUAL 4.6)
-		if(CMAKE_TARGET_ARCHITECTURES STREQUAL ppc64)
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x -mno-altivec")
-		else()
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
-		endif()
-	elseif(GNUCXX_VERSION VERSION_GREATER 4.6)
-		if(CMAKE_TARGET_ARCHITECTURES STREQUAL ppc64)
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -mno-altivec")
-		else()
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-		endif()
-	else()
-		message(SEND_ERROR "Compiler does not support C++11")
-	endif()
-endif(CMAKE_COMPILER_IS_GNUCXX)
+# Avoid 'ignoring attributes on template argument' spam because of types such as std::vector<cl_int>
+# See https://github.com/KhronosGroup/OpenCL-CLHPP/issues/37 for more information
+if (CMAKE_COMPILER_IS_GNUCXX AND ((CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 6.0) OR (CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 6.0)))
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-ignored-attributes")
+endif()
 
 option(BUILD_UNIT_TESTS "Build dOpenCL unit tests (experimental)" OFF)
+option(ENABLE_IO_LINK_COMPRESSION "Enable I/O Link Compression (using lib842) for transfers" ON)
+option(USE_HW_IO_LINK_COMPRESSION "Use in-kernel and potentially hardware-accelerated 842 implementation" ON)
+option(USE_CL_IO_LINK_COMPRESSION "Use OpenCL GPU-accelerated 842 implementation implementation" ON)
 
 #
 # dOpenCL version information
@@ -43,6 +34,16 @@ set(DCL_VERSION_MINOR 4)
 set(DCL_VERSION_PATCH 0)
 set(DCL_VERSION ${DCL_VERSION_MAJOR}.${DCL_VERSION_MINOR}.${DCL_VERSION_PATCH})
 
+if (ENABLE_IO_LINK_COMPRESSION)
+	add_subdirectory (lib842)
+	add_definitions(-DIO_LINK_COMPRESSION)
+	if (USE_HW_IO_LINK_COMPRESSION)
+		add_definitions(-DUSE_HW_IO_LINK_COMPRESSION)
+	endif(USE_HW_IO_LINK_COMPRESSION)
+	if (USE_CL_IO_LINK_COMPRESSION)
+		add_definitions(-DUSE_CL_IO_LINK_COMPRESSION)
+	endif(USE_CL_IO_LINK_COMPRESSION)
+endif(ENABLE_IO_LINK_COMPRESSION)
 add_subdirectory (dclasio)
 add_subdirectory (daemon)
 add_subdirectory (icdpp)
@@ -52,6 +53,7 @@ if(BUILD_UNIT_TESTS)
 	# 'make test' will not work correctly
 	enable_testing ()
 	add_subdirectory (test)
+	add_subdirectory (standalone_test)
 endif(BUILD_UNIT_TESTS)
 
 # TODO Export targets from installation rather than build tree

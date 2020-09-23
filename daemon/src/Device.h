@@ -50,11 +50,10 @@
 #include <dcl/Device.h>
 #include <dcl/Remote.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <stdexcept>

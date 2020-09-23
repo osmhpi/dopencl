@@ -143,7 +143,7 @@ private:
 
     cl_build_status _buildStatus; //!< Status of this program build (aggregated status of all devices)
     mutable std::mutex _buildStatusMutex;
-    mutable std::condition_variable_any _buildCompleted;
+    mutable std::condition_variable _buildCompleted;
 };
 
 } /* namespace detail */

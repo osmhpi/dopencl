@@ -56,11 +56,10 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <condition_variable>
@@ -128,14 +127,14 @@ void getOpenCLVersion(
     }
 }
 
-VECTOR_CLASS<cl::Platform> getAllPlatforms() {
-    VECTOR_CLASS<cl::Platform> platforms;
+cl::vector<cl::Platform> getAllPlatforms() {
+    cl::vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
     return platforms;
 }
 
 cl::Platform getPlatform(const std::string *platformName) {
-    VECTOR_CLASS<cl::Platform> platforms;
+    cl::vector<cl::Platform> platforms;
 	
     /* The number of platform may be zero without throwing an error.
      * If an ICD loader is used, CL_PLATFORM_NOT_FOUND_KHR will be thrown. */
@@ -212,7 +211,7 @@ dOpenCLd::~dOpenCLd() {
 }
 
 void dOpenCLd::run() {
-	std::lock_guard<std::mutex> lock(_interruptMutex);
+	std::unique_lock<std::mutex> lock(_interruptMutex);
 
     /* attach to connection manager */
     _communicationManager->setDaemon(this);
@@ -224,7 +223,7 @@ void dOpenCLd::run() {
 
 	/* Suspend the calling (main) thread to prevent the daemon from exiting */
 	_interrupt = false;
-	while (!_interrupt) _interrupted.wait(_interruptMutex);
+	while (!_interrupt) _interrupted.wait(lock);
 
 	_communicationManager->stop();
 
@@ -244,25 +243,25 @@ void dOpenCLd::terminate() {
 }
 
 void dOpenCLd::initializeDevices() {
-    VECTOR_CLASS<cl::Device> devices;
+    cl::vector<cl::Device> devices;
 	
     /*
      * Initialize device list
      */
-    VECTOR_CLASS<cl::Platform> platforms = getAllPlatforms();
+    cl::vector<cl::Platform> platforms = getAllPlatforms();
     auto platform = std::begin(platforms);
     while (platform != std::end(platforms)) {
     platform->getDevices(CL_DEVICE_TYPE_ALL, &devices);
 
-    dcl::util::Logger << dcl::util::Info
-            << "Using platform '" << platform->getInfo<CL_PLATFORM_NAME>() << "'\n"
-            << "\tfound " << devices.size() << " device(s):\n";
+    std::stringstream deviceNames;
     for (auto device : devices) {
-        dcl::util::Logger << dcl::util::Info
-            << "\t\t" << device.getInfo<CL_DEVICE_NAME>() << '\n';
+        deviceNames << "\t\t" << device.getInfo<CL_DEVICE_NAME>() << '\n';
         _devices.push_back(std::unique_ptr<Device>(new Device(device)));
     }
-    dcl::util::Logger.flush();
+    dcl::util::Logger << dcl::util::Info
+            << "Using platform '" << platform->getInfo<CL_PLATFORM_NAME>() << "'\n"
+            << "\tfound " << devices.size() << " device(s):\n"
+            << deviceNames.str() << std::flush;
     ++platform;
    }
 }

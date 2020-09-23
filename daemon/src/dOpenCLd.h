@@ -54,11 +54,10 @@
 #include <dcl/Host.h>
 #include <dcl/Session.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <condition_variable>
@@ -140,7 +139,7 @@ private:
 
 	bool _interrupt;
 	std::mutex _interruptMutex;
-	std::condition_variable_any _interrupted;
+	std::condition_variable _interrupted;
 
 	std::map<const dcl::Host *, std::unique_ptr<Session>> _sessions; //!< Sessions
 	mutable std::mutex _sessionsMutex;

@@ -128,6 +128,9 @@ BOOST_AUTO_TEST_CASE( GetDeviceInfo )
     BOOST_CHECK_EQUAL(exec_capabilities & CL_EXEC_NATIVE_KERNEL, 0);
     BOOST_CHECK_EQUAL(size_ret, sizeof(cl_device_exec_capabilities));
 #ifdef CL_VERSION_1_2
+    // NB: This fails on pocl 1.2 (Debian Buster), but it's not a bug of dOpenCL,
+    // but of pocl, which is fixed on more recent versions. The cause is probably:
+    // https://github.com/pocl/pocl/commit/294ef0c54c87c14c4630844191ed57496bd32dbd
     checkDeviceInfo<CL_DEVICE_REFERENCE_COUNT>(device, 1);
 #endif
 }

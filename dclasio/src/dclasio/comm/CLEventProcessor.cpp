@@ -53,12 +53,14 @@
 #include "../message/ContextErrorMessage.h"
 #include <dclasio/message/EventSynchronizationMessage.h>
 #include "../message/ProgramBuildMessage.h"
+#include <dclasio/message/RequestBufferTransfer.h>
 
 #include <dcl/Binary.h>
 #include <dcl/BlockingQueue.h>
 #include <dcl/CLObjectRegistry.h>
 #include <dcl/CommandListener.h>
 #include <dcl/ContextListener.h>
+#include <dcl/BufferListener.h>
 #include <dcl/DCLException.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
@@ -150,7 +152,7 @@ void CLComputeNodeEventProcessor::synchronizeEvent(
         dcl::Process& process) const {
     auto synchronizationlistener = _objectRegistry.lookup<dcl::SynchronizationListener>(notification.commandId());
     if (synchronizationlistener) {
-        synchronizationlistener->onSynchronize(process);
+        synchronizationlistener->onSynchronize(process, notification.transferId());
     } else {
         dcl::util::Logger << dcl::util::Error
                 << "Synchronization listener not found (command ID=" << notification.commandId()
@@ -172,6 +174,22 @@ void CLComputeNodeEventProcessor::programBuildComplete(
         dcl::util::Logger << dcl::util::Error
                 << "Program build listener not found (ID=" << notification.programBuildId
                 << ')' << std::endl;
+    }
+}
+
+void CLComputeNodeEventProcessor::requestBufferTransfer(
+        const message::RequestBufferTransfer& notification,
+        dcl::Process& process) {
+    auto bufferListener = _objectRegistry.lookup<dcl::BufferListener>(notification.bufferId());
+    if (bufferListener) {
+        // pass function call to worker thread
+        _taskList.push(
+                std::bind(&dcl::BufferListener::onRequestBufferTransfer,
+                          bufferListener, std::ref(process), notification.transferId()));
+    } else {
+        dcl::util::Logger << dcl::util::Error
+                          << "Buffer listener not found (ID=" << notification.bufferId()
+                          << ')' << std::endl;
     }
 }
 
@@ -198,7 +216,6 @@ bool CLComputeNodeEventProcessor::dispatch(
     case message::EventSynchronizationMessage::TYPE:
         dcl::util::Logger << dcl::util::Debug
                 << "Received event synchronization message from compute node" << std::endl;
-
         computeNode = _communicationManager.get_compute_node(pid);
         assert(computeNode && "No host for event");
         if (!computeNode)
@@ -214,6 +231,20 @@ bool CLComputeNodeEventProcessor::dispatch(
                 << "Received program build message" << std::endl;
         programBuildComplete(
                 static_cast<const message::ProgramBuildMessage&>(message));
+        break;
+
+    case message::RequestBufferTransfer::TYPE:
+        dcl::util::Logger << dcl::util::Debug
+                << "Received request buffer transfer from compute node" << std::endl;
+
+        computeNode = _communicationManager.get_compute_node(pid);
+        assert(computeNode && "No host for event");
+        if (!computeNode)
+            return false;
+
+        requestBufferTransfer(
+                static_cast<const message::RequestBufferTransfer&>(message),
+                *computeNode);
         break;
 
     default: // unknown message
@@ -255,7 +286,7 @@ void CLHostEventProcessor::synchronizeEvent(
         HostImpl& host) const {
     auto event = getObjectRegistry(host).lookup<std::shared_ptr<dcl::Event>>(notification.commandId());
     if (event) {
-        event->onSynchronize(host);
+        event->onSynchronize(host, notification.transferId());
     } else {
         dcl::util::Logger << dcl::util::Error
                 << "Event not found (command ID=" << notification.commandId()

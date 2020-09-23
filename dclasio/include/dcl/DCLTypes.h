@@ -46,12 +46,47 @@
 #ifndef DCLTYPES_H_
 #define DCLTYPES_H_
 
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
+
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/functional/hash.hpp>
+
 #include <cstdint>
+
+namespace std {
+
+template<>
+struct hash<boost::uuids::uuid> {
+    size_t operator () (const boost::uuids::uuid& uid) const {
+        return boost::hash<boost::uuids::uuid>()(uid);
+    }
+};
+
+}  /* namespace std */
 
 namespace dcl {
 
 typedef uint32_t object_id; //!< a application object identifier
-typedef uint32_t process_id; //!< a unique process identifier
+typedef boost::uuids::uuid process_id; //!< a unique process identifier
+typedef boost::uuids::uuid transfer_id; //!< identifier for a host-device data transfer
+
+static dcl::transfer_id create_transfer_id() {
+    return boost::uuids::random_generator()();
+}
+
+// Allows getting another transfer ID from an existing transfer ID
+// This is useful in case an operation requires multiple actual data transfers,
+// since only the first transfer ID for the operation needs to be transferred between nodes
+static void next_transfer_id(transfer_id &transfer_id) {
+    for (size_t i = 0; i < boost::uuids::uuid::static_size(); i++) {
+        transfer_id.data[boost::uuids::uuid::static_size()-i-1]++;
+        if (transfer_id.data[boost::uuids::uuid::static_size()-i-1] != 0)
+            break;
+    }
+}
 
 enum class kernel_arg_type {
 	BINARY, MEMORY, SAMPLER

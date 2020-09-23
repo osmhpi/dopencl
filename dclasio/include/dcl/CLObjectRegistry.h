@@ -47,6 +47,7 @@
 #include "DCLTypes.h"
 
 #include <map>
+#include <mutex>
 
 namespace dcl {
 
@@ -65,6 +66,7 @@ public:
 
 private:
     std::map<object_id, T *> _objects;
+    mutable std::mutex _objectsMutex;
 };
 
 } /* namespace detail */
@@ -74,6 +76,7 @@ private:
 class CommandListener;
 class CommandQueueListener;
 class ContextListener;
+class BufferListener;
 class ProgramBuildListener;
 class SynchronizationListener;
 
@@ -88,6 +91,7 @@ class CLObjectRegistry:
         private detail::Registry<CommandListener>,
         private detail::Registry<CommandQueueListener>,
         private detail::Registry<ContextListener>,
+        private detail::Registry<BufferListener>,
         private detail::Registry<ProgramBuildListener>,
         private detail::Registry<SynchronizationListener> {
 public:

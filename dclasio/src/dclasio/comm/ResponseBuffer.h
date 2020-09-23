@@ -96,11 +96,11 @@ public:
 	std::unique_ptr<message::Response> get(
 	        const message::Request& request,
 	        const std::chrono::duration<Rep, Period>& timeout) {
-	    std::lock_guard<std::mutex> lock(_mutex);
+	    std::unique_lock<std::mutex> lock(_mutex);
 	    std::unique_ptr<message::Response> response;
 
 	    while (!_interrupt && !(response = remove(request))) {
-	        if (_responseAdded.wait_for(_mutex, timeout) == std::cv_status::timeout) {
+	        if (_responseAdded.wait_for(lock, timeout) == std::cv_status::timeout) {
 	            /* timeout expired */
 	            break;
 	        }
@@ -122,9 +122,9 @@ private:
 	std::vector<std::unique_ptr<message::Response>> _responses;
 	std::vector<std::unique_ptr<message::Response>>::iterator _head, _tail;
 
-	std::mutex _mutex;                            /**< buffer mutex */
-	std::condition_variable_any _responseAdded;   /**< condition: added response to buffer */
-	std::condition_variable_any _responseRemoved; /**< condition: removed response from buffer */
+	std::mutex _mutex;                        /**< buffer mutex */
+	std::condition_variable _responseAdded;   /**< condition: added response to buffer */
+	std::condition_variable _responseRemoved; /**< condition: removed response from buffer */
 	bool _interrupt;
 };
 

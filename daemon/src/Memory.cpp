@@ -45,97 +45,27 @@
 
 #include "Context.h"
 
+#include <dcl/CLEventCompletable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLException.h>
+#include <dcl/DCLTypes.h>
 #include <dcl/Process.h>
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #include <OpenCL/cl_wwu_dcl.h>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #include <CL/cl_wwu_dcl.h>
 #endif
 
-#include <cassert>
 #include <cstddef>
 #include <functional>
 #include <memory>
 #include <ostream>
-
-namespace {
-
-struct ExecData {
-    dcl::Process *process;
-    size_t size;
-    void *ptr;
-    cl::UserEvent event;
-};
-
-void execAcquire(cl_event event, cl_int execution_status, void *user_data) {
-    std::unique_ptr<ExecData> syncData(static_cast<ExecData *>(user_data));
-
-    assert(execution_status == CL_COMPLETE || execution_status < 0);
-    assert(syncData != nullptr);
-
-    if (execution_status == CL_COMPLETE) {
-        dcl::util::Logger << dcl::util::Debug
-                << "(SYN) Acquiring memory object data from process '"
-                << syncData->process->url() << '\''
-                << std::endl;
-
-        try {
-            auto recv = syncData->process->receiveData(syncData->size, syncData->ptr);
-            recv->setCallback(
-                    std::bind(&cl::UserEvent::setStatus, syncData->event, std::placeholders::_1));
-        } catch (const dcl::IOException& e) {
-            dcl::util::Logger << dcl::util::Error
-                    << "Data receipt failed: " << e.what() << std::endl;
-            syncData->event.setStatus(CL_IO_ERROR_WWU);
-        }
-    } else {
-        dcl::util::Logger << dcl::util::Error
-                << "(SYN) Acquiring memory object data failed"
-                << std::endl;
-
-        syncData->event.setStatus(execution_status);
-    }
-}
-
-void execRelease(cl_event event, cl_int execution_status, void *user_data) {
-    std::unique_ptr<ExecData> syncData(static_cast<ExecData *>(user_data));
-
-    assert(execution_status == CL_COMPLETE || execution_status < 0);
-    assert(syncData != nullptr);
-
-    if (execution_status == CL_COMPLETE) {
-        dcl::util::Logger << dcl::util::Debug
-                << "(SYN) Releasing memory object data to process '"
-                << syncData->process->url() << '\''
-                << std::endl;
-
-        try {
-            auto send = syncData->process->sendData(syncData->size, syncData->ptr);
-            send->setCallback(
-                    std::bind(&cl::UserEvent::setStatus, syncData->event, std::placeholders::_1));
-        } catch (const dcl::IOException& e) {
-            dcl::util::Logger << dcl::util::Error
-                    << "Data sending failed: " << e.what() << std::endl;
-            syncData->event.setStatus(CL_IO_ERROR_WWU);
-        }
-    } else {
-        dcl::util::Logger << dcl::util::Error
-                << "(SYN) Releasing memory object data failed"
-                << std::endl;
-
-        syncData->event.setStatus(execution_status);
-    }
-}
-
-} /* unnamed namespace */
+#include <dclasio/message/RequestBufferTransfer.h>
 
 /* ****************************************************************************/
 
@@ -171,7 +101,7 @@ bool Memory::isOutput() const {
 
 Buffer::Buffer(
         const std::shared_ptr<Context>& context, cl_mem_flags flags,
-		size_t size, void *ptr) :
+		size_t size, dcl::object_id bufferId) :
 	dcld::Memory(context)
 {
     cl_mem_flags rwFlags = flags &
@@ -188,15 +118,14 @@ Buffer::Buffer(
      * pinned memory to ensure optimal performance for frequent data transfers.
      */
 
-    if (ptr) {
-        /* TODO Improve data transfer on buffer creation
-         * Use map/unmap to avoid explicit memory allocation *or*
-         * copy data only on host */
-        _buffer = cl::Buffer(*_context, rwFlags | CL_MEM_COPY_HOST_PTR | allocHostPtr, size, ptr);
-    } else {
-        /* create uninitialized buffer */
-        _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
-    }
+    _buffer = cl::Buffer(*_context, rwFlags | allocHostPtr, size);
+
+    cl_mem_flags hostPtrFlags = flags & (CL_MEM_COPY_HOST_PTR | CL_MEM_USE_HOST_PTR);
+    // If the buffer has been created with CL_MEM_USE_HOST_PTR or CL_MEM_COPY_HOST_PTR,
+    // the data stays in the host until it is used for the first time it is used,
+    // at which point it is synchronized in the compute node.
+    _needsCreateBufferInitialSync = (hostPtrFlags != 0);
+    _bufferId = bufferId;
 }
 
 Buffer::~Buffer() { }
@@ -211,84 +140,68 @@ Buffer::operator cl::Buffer() const {
 
 void Buffer::acquire(
         dcl::Process& process,
-        const cl::CommandQueue& commandQueue,
-        const cl::Event& releaseEvent,
+        const dcl::CLInDataTransferContext& clDataTransferContext,
+        dcl::transfer_id transferId,
+        cl::Event *releaseEvent,
         cl::Event *acquireEvent) {
     cl::Event mapEvent;
-    cl::UserEvent dataReceipt(*_context);
 
     dcl::util::Logger << dcl::util::Debug
             << "(SYN) Acquiring buffer from process '" << process.url() << '\''
             << std::endl;
 
     /* map buffer to host memory when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> mapWaitList(1, releaseEvent);
-    void *ptr = commandQueue.enqueueMapBuffer(
-            _buffer,
-            CL_FALSE,
-            CL_MAP_WRITE,
-            0, size(),
-            &mapWaitList, &mapEvent);
+    cl::vector<cl::Event> receiveWaitList;
+    if (releaseEvent != nullptr)
+        receiveWaitList.push_back(*releaseEvent);
 
-    auto syncData = new ExecData;
-    syncData->process = &process;
-    syncData->size    = size();
-    syncData->ptr     = ptr;
-    syncData->event   = dataReceipt;
+    /* enqueue data transfer to buffer */
+    process.receiveDataToClBuffer(
+            transferId, size(), clDataTransferContext, _buffer, 0,
+            (receiveWaitList.empty() ? nullptr : &receiveWaitList), &mapEvent, acquireEvent);
 
-    /* receive buffer data when mapping is complete */
-    mapEvent.setCallback(CL_COMPLETE, &execAcquire, syncData);
-
-    /* WARNING: do not use syncData after this point, as the callback of
-     *          mapEvent deletes it concurrently */
-
-    /* unmap buffer when acquire operation is complete */
-    VECTOR_CLASS<cl::Event> unmapWaitList(1, dataReceipt);
-    commandQueue.enqueueUnmapMemObject(
-            _buffer,
-            ptr,
-            &unmapWaitList, acquireEvent);
+    // Mark the buffer as needing no synchronization with the data
+    // given to clCreateBuffer, since we have just acquired either
+    // this data from the host,or a more recent version from a node
+    _needsCreateBufferInitialSync = false;
 }
 
 void Buffer::release(
         dcl::Process& process,
-        const cl::CommandQueue& commandQueue,
+        const dcl::CLOutDataTransferContext& clDataTransferContext,
+        dcl::transfer_id transferId,
         const cl::Event& releaseEvent) const {
-    cl::Event mapEvent;
-    cl::UserEvent dataSending(*_context);
+    cl::Event mapEvent, unmapEvent;
 
     dcl::util::Logger << dcl::util::Debug
             << "(SYN) Releasing buffer to process '" << process.url() << '\''
             << std::endl;
 
-    /* map buffer when releaseEvent is complete */
-    VECTOR_CLASS<cl::Event> mapWaitList(1, releaseEvent);
-    void *ptr = commandQueue.enqueueMapBuffer(
-            _buffer,
-            CL_FALSE,
-            CL_MAP_READ,
-            0, size(),
-            &mapWaitList, &mapEvent
-    );
+    /* enqueue data transfer from buffer when releaseEvent is complete */
+    cl::vector<cl::Event> mapWaitList(1, releaseEvent);
+    process.sendDataFromClBuffer(
+            transferId, size(), clDataTransferContext, _buffer, 0,
+            &mapWaitList, &mapEvent, &unmapEvent);
+}
 
-    auto syncData = new ExecData;
-    syncData->process = &process;
-    syncData->size    = size();
-    syncData->ptr     = ptr;
-    syncData->event   = dataSending;
+bool Buffer::checkCreateBufferInitialSync(dcl::Process&                       process,
+                                          const dcl::CLInDataTransferContext& clDataTransferContext,
+                                          cl::Event*                          acquireEvent) {
+    if (!_needsCreateBufferInitialSync) {
+        // Needs no synchronization or already synchronized
+        return false;
+    }
 
-    /* send buffer data when mapping is complete */
-    mapEvent.setCallback(CL_COMPLETE, &execRelease, syncData);
+    // Request the host to transfer the buffer
+    // TODOXXX: Is this the right place to do this? I think this transfer
+    // and _bufferId should not belong here, but I can't find a better place
+    dcl::transfer_id transferId = dcl::create_transfer_id();
+    dclasio::message::RequestBufferTransfer msg(_bufferId, transferId);
+    process.sendMessage(msg);
 
-    /* WARNING: do not use syncData after this point, as the callback of
-     *          mapEvent deletes it concurrently */
-
-    /* unmap buffer when acquire operation is complete */
-    VECTOR_CLASS<cl::Event> unmapWaitList(1, dataSending);
-    commandQueue.enqueueUnmapMemObject(
-            _buffer,
-            ptr,
-            &unmapWaitList, nullptr);
+    // Download the buffer from the host
+    acquire(process, clDataTransferContext, transferId, nullptr, acquireEvent);
+    return true;
 }
 
 } /* namespace dcld */

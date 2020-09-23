@@ -47,14 +47,19 @@
 #include <dcl/ComputeNode.h>
 #include <dcl/Context.h>
 #include <dcl/ContextListener.h>
+#include <dcl/DCLTypes.h>
 #include <dcl/Device.h>
 #include <dcl/Host.h>
+#include <dcl/DataTransfer.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
+#endif
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
 #endif
 
 #include <cstddef>
@@ -85,10 +90,20 @@ public:
     operator cl::Context() const;
 
     dcl::Host& host() const;
-    const cl::CommandQueue& ioCommandQueue() const;
     const std::vector<dcl::ComputeNode *>& computeNodes() const;
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const;
+#endif
+    const dcl::CLOutDataTransferContext& ioClOutDataTransferContext() const;
 
 private:
+    Context(
+            dcl::Host&                                      host,
+            const std::vector<dcl::ComputeNode *>&          computeNodes,
+            const cl::Platform&                             platform,
+            const cl::vector<cl::Device>&                   nativeDevices,
+            const std::shared_ptr<dcl::ContextListener>&    listener);
+
     /* Contexts must be non-copyable */
     Context(
             const Context& rhs) = delete;
@@ -97,8 +112,13 @@ private:
 
     dcl::Host& _host; //!< Host associated with this context
     std::vector<dcl::ComputeNode *> _computeNodes; //!< Compute nodes associated with this context
+    std::shared_ptr<dcl::ContextListener> _listener;
 
     cl::Context _context; //!< Native context
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    std::unique_ptr<lib842::CLDeviceDecompressor> _cl842DeviceDecompressor;
+#endif
     /*!
      * \brief Native command queue for asynchronous read/write
      *
@@ -107,8 +127,7 @@ private:
      * consistency protocol
      */
     cl::CommandQueue _ioCommandQueue;
-
-    std::shared_ptr<dcl::ContextListener> _listener;
+    dcl::CLOutDataTransferContext _ioClOutDataTransferContext;
 };
 
 } /* namespace dcld */

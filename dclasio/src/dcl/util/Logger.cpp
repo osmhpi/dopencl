@@ -62,18 +62,15 @@ namespace dcl {
 
 namespace util {
 
-LoggerImpl Logger;
-
 // LoggerImpl implementation
 
-LoggerImpl::LoggerImpl() :
-        std::ostream(&_buffer), _currentSeverity(Severity::Info), _defaultSeverity(
-                Severity::Info), _maxSeverity(Severity::Warning), _buffer(*this,
-                std::clog) {
+LoggerImpl& LoggerImpl::get() {
+    static LoggerImpl logger;
+    return logger;
 }
 
 void LoggerImpl::setOutput(std::ostream& output) {
-    _buffer.setOutput(output);
+    _output = output;
 }
 
 /* TODO Distinguish logging level and message severity
@@ -83,13 +80,22 @@ void LoggerImpl::setLoggingLevel(Severity severity) {
     _maxSeverity = severity;
 }
 
-void LoggerImpl::setDefaultSeverity(Severity severity) {
-    _defaultSeverity = severity;
-    _currentSeverity = severity;
+void LoggerImpl::log(Severity severity, const std::string& str) {
+    if (severity <= _maxSeverity) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto time = std::chrono::high_resolution_clock::now() - start;
+        _output.get() << severityToString(severity) << " ["
+                << std::chrono::duration_cast<std::chrono::seconds>(time).count()
+                << ':' << std::setw(6) << std::setfill('0')
+                << (std::chrono::duration_cast<std::chrono::microseconds>(time).count() % 1000000)
+                << "] " << str;
+        // flush output
+        _output.get().flush();
+    }
 }
 
-void LoggerImpl::setCurrentSeverity(Severity severity) {
-    _currentSeverity = severity;
+LoggerImpl::LoggerImpl() :
+    _output(std::clog), _maxSeverity(Severity::Warning) {
 }
 
 std::string LoggerImpl::severityToString(Severity severity) {
@@ -103,73 +109,72 @@ std::string LoggerImpl::severityToString(Severity severity) {
     }
 }
 
-LoggerImpl& operator<<(
-        LoggerImpl& logger,
-        LoggerImpl& (*manipulator)(LoggerImpl&)) {
-    return manipulator(logger);
+LoggerImpl& Logger = LoggerImpl::get();
+
+// LoggerStream implementation
+
+LoggerStream::LoggerStream(LoggerImpl& logger) :
+        std::ostream(&_buffer), _buffer(logger) {
+}
+
+void LoggerStream::setCurrentSeverity(Severity severity) {
+    _buffer.setCurrentSeverity(severity);
 }
 
 // LoggerBuffer implementation
 
-LoggerImpl::LoggerBuffer::LoggerBuffer(LoggerImpl& logger, std::ostream& stream) :
-        std::stringbuf(), _logger(logger), _output(&stream) {
+LoggerStream::LoggerBuffer::LoggerBuffer(LoggerImpl& logger) :
+        std::stringbuf(), _logger(logger), _currentSeverity(Severity::Info) {
 }
 
-void LoggerImpl::LoggerBuffer::setOutput(std::ostream& output) {
-    _output = &output;
+void LoggerStream::LoggerBuffer::setCurrentSeverity(Severity severity) {
+    _currentSeverity = severity;
 }
 
-int LoggerImpl::LoggerBuffer::sync() {
-    std::lock_guard<std::mutex> lock(_mutex);
-
-    if (_logger._currentSeverity <= _logger._maxSeverity) {
-        auto time = std::chrono::high_resolution_clock::now() - start;
-        (*_output) << _logger.severityToString(_logger._currentSeverity) << " ["
-                << std::chrono::duration_cast<std::chrono::seconds>(time).count()
-                << ':' << std::setw(6) << std::setfill('0')
-                << (std::chrono::duration_cast<std::chrono::microseconds>(time).count() % 1000000)
-                << "] " << str();
-    }
+int LoggerStream::LoggerBuffer::sync() {
+    _logger.log(_currentSeverity, str());
     // clear buffer content
     str("");
-    // flush output
-    _output->flush();
-    // reset logging level
-    _logger.setCurrentSeverity(_logger._defaultSeverity);
     return 0;
 }
 
-/* FIXME Logger manipulators are not thread-safe
- * While one thread sets _currentSeverity for a message to be logged
- * subsequently, a concurrent thread may change _currentSeverity before the
- * message will be logged.
- * Possible fix: use thread-local storage to set _currentSeverity for each
- * thread. */
-
-// LoggerImpl manipulators
-LoggerImpl& Error(LoggerImpl& logger) {
-    logger.setCurrentSeverity(Severity::Error);
-    return logger;
+LoggerStream& operator<<(
+        LoggerImpl& logger,
+        LoggerStream &(*manipulator)(LoggerStream &)) {
+    // Different threads should be able to simultaneously log. For this, each
+    // thread gets an independent stream and only syncs at the end. Note that:
+    // * Both stream (std::ostream) and buffer (std::stringbuf) are not thread-safe,
+    //   so using thread locals at the stream level is the right choice
+    // * Using a static thread_local works fine here, since the logger is a singleton
+    //   (i.e. there can't multiple loggers, each with its own thread local streams)
+    static thread_local LoggerStream stream(logger);
+    return manipulator(stream);
 }
 
-LoggerImpl& Warning(LoggerImpl& logger) {
-    logger.setCurrentSeverity(Severity::Warning);
-    return logger;
+// LoggerStream manipulators
+LoggerStream& Error(LoggerStream& stream) {
+    stream.setCurrentSeverity(Severity::Error);
+    return stream;
 }
 
-LoggerImpl& Info(LoggerImpl& logger) {
-    logger.setCurrentSeverity(Severity::Info);
-    return logger;
+LoggerStream& Warning(LoggerStream& stream) {
+    stream.setCurrentSeverity(Severity::Warning);
+    return stream;
 }
 
-LoggerImpl& Debug(LoggerImpl& logger) {
-    logger.setCurrentSeverity(Severity::Debug);
-    return logger;
+LoggerStream& Info(LoggerStream& stream) {
+    stream.setCurrentSeverity(Severity::Info);
+    return stream;
 }
 
-LoggerImpl& Verbose(LoggerImpl& logger) {
-    logger.setCurrentSeverity(Severity::Verbose);
-    return logger;
+LoggerStream& Debug(LoggerStream& stream) {
+    stream.setCurrentSeverity(Severity::Debug);
+    return stream;
+}
+
+LoggerStream& Verbose(LoggerStream& stream) {
+    stream.setCurrentSeverity(Severity::Verbose);
+    return stream;
 }
 
 } // namespace util

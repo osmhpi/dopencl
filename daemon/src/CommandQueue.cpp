@@ -50,9 +50,12 @@
 #include "Memory.h"
 
 #include "command/Command.h"
-#include "command/CopyDataCommand.h"
 #include "command/SetCompleteCommand.h"
 
+#include <dclasio/message/CommandMessage.h>
+
+#include <dcl/CLEventCompletable.h>
+#include <dcl/DataTransfer.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Event.h>
 #include <dcl/Kernel.h>
@@ -60,11 +63,14 @@
 
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
+
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cassert>
@@ -149,13 +155,25 @@ CommandQueue::CommandQueue(
         const std::shared_ptr<Context>& context,
         Device *device,
         cl_command_queue_properties properties) :
-        _context(context) {
-    if (!context) throw cl::Error(CL_INVALID_CONTEXT);
-    if (!device) throw cl::Error(CL_INVALID_DEVICE);
-    _commandQueue = cl::CommandQueue(*context, *device, properties);
+        _context(context),
+        _commandQueue(createNativeCommandQueue(context, device, properties)),
+        _clInDataTransferContext(*context, _commandQueue
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+                             , context->cl842DeviceDecompressor()
+#endif
+        ),
+        _clOutDataTransferContext(*context, _commandQueue) {
 }
 
 CommandQueue::~CommandQueue() { }
+
+cl::CommandQueue CommandQueue::createNativeCommandQueue(const std::shared_ptr<Context>& context,
+                                                        Device *device,
+                                                        cl_command_queue_properties properties) {
+    if (!context) throw cl::Error(CL_INVALID_CONTEXT);
+    if (!device) throw cl::Error(CL_INVALID_DEVICE);
+    return cl::CommandQueue(*context, *device, properties);
+}
 
 /*!
  * \brief Returns the native command queue.
@@ -192,41 +210,62 @@ CommandQueue::operator cl::CommandQueue() const {
  * other devices have to synchronize in order to obtain the data.
  */
 void CommandQueue::synchronize(
-        const std::vector<std::shared_ptr<dcl::Event>>& eventWaitList,
-        VECTOR_CLASS<cl::Event>& nativeEventWaitList) {
+        const std::vector<std::shared_ptr<Memory>>& syncBuffers,
+        const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
+        cl::vector<cl::Event>& nativeEventWaitList) {
     bool synchronizationPending = false;
 
     nativeEventWaitList.clear();
 
-    if (eventWaitList.empty()) return;
+    if (eventWaitList != nullptr) {
+        if (!eventWaitList->empty()) {
+            dcl::util::Logger << dcl::util::Debug
+                              << "Synchronizing event wait list with " << eventWaitList->size()
+                              << " event(s)" << std::endl;
+        }
 
-    dcl::util::Logger << dcl::util::Debug
-            << "Synchronizing event wait list with " << eventWaitList.size()
-            << " event(s)" << std::endl;
+        for (auto event : *eventWaitList) {
+            /* TODO Create Event::synchronize method
+             * Rather than checking if an event is of type RemoteEvent before
+             * calling synchronize, make synchronize a member of all event classes
+             * that returns a list native events for local events and performs
+             * synchronization for remote events */
+            auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
+            if (remoteEvent) { // event is a remote event
+                // We must at least wait for the completion of the event, even if we
+                // don't need to synchronize any memory buffers, since it's possible
+                // some other node is reading/synchronizing with one of our buffers
+                // so we need to make sure we don't modify it too early
+                nativeEventWaitList.push_back(*remoteEvent);
 
-    for (auto event : eventWaitList) {
-        /* TODO Create Event::synchronize method
-         * Rather than checking if an event is of type RemoteEvent before
-         * calling synchronize, make synchronize a member of all event classes
-         * that returns a list native events for local events and performs
-         * synchronization for remote events */
-        auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
-        if (remoteEvent) { // event is a remote event
-            VECTOR_CLASS<cl::Event> synchronizeEvents;
-            remoteEvent->synchronize(_commandQueue, synchronizeEvents);
-            /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
-             * Different events may be associated with the same memory object
-             * However, a memory object must only be synchronized once.
-             * Synchronizing with multiple events associated with the same memory
-             * object may be considered undefined behavior. */
-            nativeEventWaitList.insert(std::end(nativeEventWaitList),
-                    std::begin(synchronizeEvents), std::end(synchronizeEvents));
+                cl::vector<cl::Event> synchronizeEvents;
+                remoteEvent->synchronize(_clInDataTransferContext, synchronizeEvents);
+                /* FIXME Only synchronize memory objects once if associated with multiple events in wait list
+                 * Different events may be associated with the same memory object
+                 * However, a memory object must only be synchronized once.
+                 * Synchronizing with multiple events associated with the same memory
+                 * object may be considered undefined behavior. */
+                nativeEventWaitList.insert(std::end(nativeEventWaitList),
+                                           std::begin(synchronizeEvents), std::end(synchronizeEvents));
 
+                synchronizationPending = true;
+            } else { // event is a local event
+                auto eventImpl = std::dynamic_pointer_cast<Event>(event);
+                if (!eventImpl) throw cl::Error(CL_INVALID_EVENT_WAIT_LIST);
+                nativeEventWaitList.push_back(*eventImpl);
+            }
+        }
+    }
+
+    // If we need to synchronize the initial data of any of the buffers (in case data
+    // has been given in clCreateBuffer through host_ptr), we do it here.
+    // Note that if a buffer was already synchronized to a more recent version through an event,
+    // the initial synchronization flag is unset, so no transfer happens here
+    for (auto buffer : syncBuffers) {
+        cl::Event _syncEvent;
+        if (buffer->checkCreateBufferInitialSync(_context->host(), _clInDataTransferContext, &_syncEvent)) {
+            nativeEventWaitList.push_back(_syncEvent);
             synchronizationPending = true;
-        } else { // event is a local event
-            auto eventImpl = std::dynamic_pointer_cast<Event>(event);
-            if (!eventImpl) throw cl::Error(CL_INVALID_EVENT_WAIT_LIST);
-            nativeEventWaitList.push_back(*eventImpl);
         }
     }
 
@@ -237,120 +276,9 @@ void CommandQueue::synchronize(
     }
 }
 
-void CommandQueue::enqueueReadBuffer(
-        const std::shared_ptr<Buffer>& buffer,
-        bool blocking,
-        size_t offset,
-        size_t size,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
-        dcl::object_id commandId,
-        cl::Event& mapData, cl::Event& unmapData) {
-    cl::UserEvent copyData(*_context);
-
-    // enqueue map buffer (implicit download)
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *buffer,
-            CL_FALSE,    // non-blocking map
-            CL_MAP_READ, // map for reading
-            offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList),
-            &mapData);
-#ifdef PROFILE
-    mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
-#endif
-    // enqueue unmap buffer
-    VECTOR_CLASS<cl::Event> unmapEventWaitList(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *buffer,
-            ptr,
-            &unmapEventWaitList, &unmapData);
-#ifdef FORCE_FLUSH
-    _commandQueue.flush();
-#else
-    if (blocking) {
-        _commandQueue.flush();
-    }
-#endif
-
-    try {
-        // schedule data transfer
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::DeviceToHost>(
-                        _context->host(), commandId, size, ptr, copyData));
-        /* The read buffer command is finished on the host, such that no
-         * 'command complete' message must be sent by the compute node. */
-    } catch (const std::bad_alloc&) {
-        throw cl::Error(CL_OUT_OF_RESOURCES);
-    }
-}
-
-void CommandQueue::enqueueWriteBuffer(
-        const std::shared_ptr<Buffer>& buffer,
-        bool blocking,
-        size_t offset,
-        size_t size,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
-        dcl::object_id commandId,
-        cl::Event& mapData, cl::Event& unmapData) {
-    cl::UserEvent copyData(*_context);
-
-    // enqueue map buffer
-    /* !!! WARNING !!!
-     * NVIDIA only: the reference count of events in wait list is *not*
-     * increased by clEnqueueMapBuffer. This may be a bug, if the event is not
-     * retained by other means than its reference count.
-     * !!!!!!!!!!!!!!! */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *buffer,
-            CL_FALSE,     // non-blocking map
-            CL_MAP_WRITE, // map for writing
-            offset, size,
-            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList),
-            &mapData);
-    // enqueue unmap buffer (implicit upload)
-    VECTOR_CLASS<cl::Event> unmapEventWaitList(1, copyData);
-    /* !!! WARNING !!!
-     * NVIDIA only: the reference count of copyData is *not* increased by
-     * clEnqueueUnmapMemObject. This may be a bug, if the event is not retained
-     * by other means than its reference count.
-     * !!!!!!!!!!!!!!! */
-//    std::cout << "!!! before unmap copyData refCount=" << copyData.getInfo<CL_EVENT_REFERENCE_COUNT>() << std::endl;
-//    ::clRetainEvent(copyData()); // tentative fix for NVIDIA
-    _commandQueue.enqueueUnmapMemObject(
-            *buffer,
-            ptr,
-            &unmapEventWaitList, &unmapData);
-//    std::cout << "!!! after unmap copyData refCount=" << copyData.getInfo<CL_EVENT_REFERENCE_COUNT>() << std::endl;
-#ifdef PROFILE
-    unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
-#endif
-#ifdef FORCE_FLUSH
-    _commandQueue.flush();
-#else
-    if (blocking) {
-        _commandQueue.flush();
-    }
-#endif
-
-    try {
-        // schedule data transfer
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::HostToDevice>(
-                        _context->host(), commandId, size, ptr, copyData));
-        // schedule completion message for host
-        /* A 'command complete' message is sent to the host.
-         * Note that this message must also be sent, if no event is associated
-         * with this command, such that a blocking write succeeds. */
-        unmapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::SetCompleteCommand(_context->host(), commandId, cl::UserEvent(*_context)));
-    } catch (const std::bad_alloc&) {
-        throw cl::Error(CL_OUT_OF_RESOURCES);
-    }
-}
-
 void CommandQueue::enqueuePhonyMarker(
         bool blocking,
-        const VECTOR_CLASS<cl::Event>& nativeEventWaitList,
+        const cl::vector<cl::Event>& nativeEventWaitList,
         dcl::object_id commandId, cl::Event& marker) {
 #if defined(CL_VERSION_1_2)
     _commandQueue.enqueueMarkerWithWaitList(&nativeEventWaitList, &marker);
@@ -408,16 +336,15 @@ void CommandQueue::enqueueCopyBuffer(
         std::shared_ptr<dcl::Event> *event) {
     auto srcImpl = std::dynamic_pointer_cast<Buffer>(src);
     auto dstImpl = std::dynamic_pointer_cast<Buffer>(dst);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event copyBuffer;
 
     if (!srcImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
     if (!dstImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {srcImpl, dstImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue copy buffer
      * Only create event if requested by caller */
@@ -441,38 +368,26 @@ void CommandQueue::enqueueCopyBuffer(
 void CommandQueue::enqueueReadBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingRead,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
-    cl::UserEvent copyData(*_context);
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
-    /* Enqueue map buffer (implicit download) */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *bufferImpl,
-            CL_FALSE,    // non-blocking map
-            CL_MAP_READ, // map for reading
-            offset, size,
-            &nativeEventWaitList, &mapData);
-    /* Enqueue unmap buffer
-     * Only create a native event for unmapping, if an event should be
-     * associated with this read buffer command */
-    nativeEventWaitList.assign(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *bufferImpl,
-            ptr,
-            &nativeEventWaitList, event ? &unmapData : nullptr);
+    /* enqueue data transfer from buffer */
+    _context->host().sendDataFromClBuffer(
+            transferId, size, _clOutDataTransferContext, *bufferImpl, offset,
+            &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
 #else
@@ -482,12 +397,11 @@ void CommandQueue::enqueueReadBuffer(
 #endif
 
     try {
-        /* Schedule data sending
-         * A 'command submitted' message will be sent to the host in order to
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host in order to
          * start data receipt. */
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::DeviceToHost>(
-                        _context->host(), commandId, size, ptr, copyData));
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         /* The read buffer command is finished on the host such that no 'command
          * complete' message must be sent by the compute node. */
 
@@ -509,36 +423,26 @@ void CommandQueue::enqueueReadBuffer(
 void CommandQueue::enqueueWriteBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingWrite,
+        dcl::transfer_id transferId,
         size_t offset,
         size_t size,
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event mapData, unmapData;
-    cl::UserEvent copyData(*_context);
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
-    /* Enqueue map buffer */
-    void *ptr = _commandQueue.enqueueMapBuffer(
-            *bufferImpl,
-            CL_FALSE,     // non-blocking map
-            CL_MAP_WRITE, // map for writing
-            offset, size,
-            &nativeEventWaitList, &mapData);
-    /* Enqueue unmap buffer (implicit upload) */
-    nativeEventWaitList.assign(1, copyData);
-    _commandQueue.enqueueUnmapMemObject(
-            *bufferImpl,
-            ptr,
-            &nativeEventWaitList, &unmapData);
+    /* enqueue data transfer to buffer */
+    _context->host().receiveDataToClBuffer(
+            transferId, size, _clInDataTransferContext, *bufferImpl, offset,
+            &nativeEventWaitList, &mapData, &unmapData);
 #ifdef FORCE_FLUSH
     _commandQueue.flush();
 #else
@@ -568,11 +472,10 @@ void CommandQueue::enqueueWriteBuffer(
                     bufferImpl, writeBuffer);
         }
 #else
-        /* Schedule data receipt
-         * A 'command submitted' message will be sent to the host. */
-        mapData.setCallback(CL_COMPLETE, &executeCommand,
-                new command::CopyDataCommand<command::HostToDevice>(
-                        _context->host(), commandId, size, ptr, copyData));
+        // schedule data transfer on host
+        /* A 'command submitted' message will be sent to the host. */
+        dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+        _context->host().sendMessage(message);
         /* Schedule completion message for host
          * A 'command complete' message is sent to the host.
          * Note that this message must also be sent, if no event is associated
@@ -608,6 +511,7 @@ void CommandQueue::enqueueWriteBuffer(
 void CommandQueue::enqueueMapBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
         bool blockingMap,
+        dcl::transfer_id transferId,
         cl_map_flags map_flags,
         size_t offset,
         size_t size,
@@ -615,40 +519,57 @@ void CommandQueue::enqueueMapBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     if (map_flags & CL_MAP_READ) {
         /* The mapped memory region has to be synchronized, i.e., it has to be
          * downloaded to the mapped host pointer. */
         cl::Event mapData, unmapData;
 
-        enqueueReadBuffer(bufferImpl, blockingMap, offset, size,
-                nativeEventWaitList, commandId, mapData, unmapData);
+        /* enqueue data transfer from buffer */
+        _context->host().sendDataFromClBuffer(
+            transferId, size, _clOutDataTransferContext, *bufferImpl, offset,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
+#ifdef PROFILE
+        mapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("map buffer for reading"));
+#endif
+#ifdef FORCE_FLUSH
+        _commandQueue.flush();
+#else
+        if (blockingMap) {
+            _commandQueue.flush();
+        }
+#endif
 
-        if (event) { // an event should be associated with this command
-            /* The event must only broadcast its status on other compute nodes
-             * but not to the host, as a 'command complete' message will be sent
-             * to the host by the callback that has been set for the native
-             * event unmapData. */
-            /* WARNING: No callback must be registered for any native event of
-             * the CompoundNodeEvent object, that access the object. As the order
-             * of execution of callbacks is undefined, the application may delete
-             * the CompoundNodeEvent object, while the callbacks are processed.
-             * Thus, a callback that accesses the CompoundNodeEvent object may
-             * raise a SIGSEGV. */
-            try {
+        try {
+            // schedule data transfer on host
+            dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+            _context->host().sendMessage(message);
+            /* The read buffer command is finished on the host, such that no
+             * 'command complete' message must be sent by the compute node. */
+
+            if (event) { // an event should be associated with this command
+                /* The event must only broadcast its status on other compute nodes
+                 * but not to the host, as a 'command complete' message will be sent
+                 * to the host by the callback that has been set for the native
+                 * event unmapData. */
+                /* WARNING: No callback must be registered for any native event of
+                 * the CompoundNodeEvent object, that access the object. As the order
+                 * of execution of callbacks is undefined, the application may delete
+                 * the CompoundNodeEvent object, while the callbacks are processed.
+                 * Thus, a callback that accesses the CompoundNodeEvent object may
+                 * raise a SIGSEGV. */
                 *event = std::make_shared<ReadMemoryEvent>(commandId, _context,
-                        mapData, unmapData);
-            } catch (const std::bad_alloc&) {
-                throw cl::Error(CL_OUT_OF_RESOURCES);
+                                                           mapData, unmapData);
             }
+        } catch (const std::bad_alloc&) {
+            throw cl::Error(CL_OUT_OF_RESOURCES);
         }
     } else {
         /* The mapped memory region has *not* to be synchronized, as it will not
@@ -679,6 +600,7 @@ void CommandQueue::enqueueMapBuffer(
 
 void CommandQueue::enqueueUnmapBuffer(
         const std::shared_ptr<dcl::Buffer>& buffer,
+        dcl::transfer_id transferId,
         cl_map_flags map_flags,
         size_t offset,
         size_t size,
@@ -686,34 +608,51 @@ void CommandQueue::enqueueUnmapBuffer(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto bufferImpl = std::dynamic_pointer_cast<Buffer>(buffer);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
 
     if (!bufferImpl) throw cl::Error(CL_INVALID_MEM_OBJECT);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {bufferImpl};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     if (map_flags & CL_MAP_WRITE) {
         /* The mapped memory region has to be synchronized, i.e. its data
          * has to be uploaded to the buffer. */
         cl::Event mapData, unmapData;
 
-        enqueueWriteBuffer(bufferImpl, false, offset, size,
-                nativeEventWaitList, commandId, mapData, unmapData);
+        /* enqueue data transfer to buffer */
+        _context->host().receiveDataToClBuffer(
+            transferId, size, _clInDataTransferContext, *bufferImpl, offset,
+            (nativeEventWaitList.empty() ? nullptr : &nativeEventWaitList), &mapData, &unmapData);
+#ifdef PROFILE
+        unmapData.setCallback(CL_COMPLETE, &logEventProfilingInfo, new std::string("unmap buffer after writing"));
+#endif
+#ifdef FORCE_FLUSH
+        _commandQueue.flush();
+#endif
 
-        if (event) { // an event should be associated with this command
-            /* The event must only broadcast its status on other compute nodes
-             * but not to the host, as a 'command complete' message will be sent
-             * to the host by the callback that has been set for the native
-             * event unmapData. */
-            try {
+        try {
+            // schedule data transfer on host
+            dclasio::message::CommandExecutionStatusChangedMessage message(commandId, CL_SUBMITTED);
+            _context->host().sendMessage(message);
+            // schedule completion message for host
+            /* A 'command complete' message is sent to the host.
+             * Note that this message must also be sent, if no event is associated
+             * with this command, such that a blocking write succeeds. */
+            unmapData.setCallback(CL_COMPLETE, &executeCommand,
+                                  new command::SetCompleteCommand(_context->host(), commandId, cl::UserEvent(*_context)));
+
+            if (event) { // an event should be associated with this command
+                /* The event must only broadcast its status on other compute nodes
+                 * but not to the host, as a 'command complete' message will be sent
+                 * to the host by the callback that has been set for the native
+                 * event unmapData. */
                 *event = std::make_shared<WriteMemoryEvent>(commandId, _context,
-                        bufferImpl, mapData, unmapData);
-            } catch (const std::bad_alloc&) {
-                throw cl::Error(CL_OUT_OF_RESOURCES);
+                                                            bufferImpl, mapData, unmapData);
             }
+        } catch (const std::bad_alloc&) {
+            throw cl::Error(CL_OUT_OF_RESOURCES);
         }
     } else {
         /* The mapped memory region has *not* to be synchronized, as it has
@@ -751,15 +690,14 @@ void CommandQueue::enqueueNDRangeKernel(
         dcl::object_id commandId,
         std::shared_ptr<dcl::Event> *event) {
     auto kernelImpl = std::dynamic_pointer_cast<Kernel>(kernel);
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event ndRangeKernel;
 
     if (!kernelImpl) throw cl::Error(CL_INVALID_KERNEL);
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = kernelImpl->allMemoryObjects();
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
     /* Enqueue ND range kernel
      * Only create event if requested by caller */
@@ -788,13 +726,12 @@ void CommandQueue::enqueueNDRangeKernel(
 void CommandQueue::enqueueMarker(
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId, std::shared_ptr<dcl::Event> *event) {
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event marker;
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-        synchronize(*eventWaitList, nativeEventWaitList);
-    }
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
 #if defined(CL_VERSION_1_2)
     /* Use native enqueueMarkerWithWaitList */
@@ -849,7 +786,7 @@ void CommandQueue::enqueueMarker(
 #if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
 void CommandQueue::enqueueWaitForEvents(
         const std::vector<std::shared_ptr<dcl::Event>>& eventList) {
-    VECTOR_CLASS<cl::Event> nativeEventList;
+    cl::vector<cl::Event> nativeEventList;
 
 	assert(!eventList.empty()); // event list must no be empty
 
@@ -857,24 +794,9 @@ void CommandQueue::enqueueWaitForEvents(
             << "Synchronizing event list with " << eventList.size() << " event(s)"
             << std::endl;
 
-    /* Obtain native event list
-     * Unlike other enqueued commands, wait-for-events throws CL_INVALID_EVENT,
-     * rather than CL_INVALID_EVENT_WAIT_LIST, if the event list contains an
-     * invalid event. */
-    for (auto event : eventList) {
-        /* TODO Create Event::synchronize method (see CommandQueue::synchronize) */
-        auto remoteEvent = std::dynamic_pointer_cast<RemoteEvent>(event);
-        if (remoteEvent) { // event is a remote event
-            VECTOR_CLASS<cl::Event> synchronizeEvents;
-            remoteEvent->synchronize(_commandQueue, synchronizeEvents);
-            nativeEventList.insert(std::end(nativeEventList),
-                    std::begin(synchronizeEvents), std::end(synchronizeEvents));
-        } else { // event is a local event
-            auto eventImpl = std::dynamic_pointer_cast<Event>(event);
-            if (!eventImpl) throw cl::Error(CL_INVALID_EVENT);
-            nativeEventList.push_back(*eventImpl);
-        }
-    }
+    /* Obtain wait list of native events */
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, &eventList, nativeEventList);
 
     _commandQueue.enqueueWaitForEvents(nativeEventList);
 }
@@ -884,13 +806,12 @@ void CommandQueue::enqueueWaitForEvents(
 void CommandQueue::enqueueBarrier(
         const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
         dcl::object_id commandId, std::shared_ptr<dcl::Event> *event) {
-    VECTOR_CLASS<cl::Event> nativeEventWaitList;
+    cl::vector<cl::Event> nativeEventWaitList;
     cl::Event barrier;
 
     /* Obtain wait list of native events */
-    if (eventWaitList) {
-	    synchronize(*eventWaitList, nativeEventWaitList);
-	}
+    std::vector<std::shared_ptr<Memory>> syncBuffers = {};
+    synchronize(syncBuffers, eventWaitList, nativeEventWaitList);
 
 #if defined(CL_VERSION_1_2)
     /* Use native enqueueBarrierWithWaitList */
@@ -932,7 +853,7 @@ void CommandQueue::enqueueBarrier(
          * command is executed. This is implied for in-order command-queues but
          * requires additional synchronization using clEnqueueWaitForEvents for
          * out-of-order command-queues. */
-        _commandQueue.enqueueWaitForEvents(VECTOR_CLASS<cl::Event>(1, barrier));
+        _commandQueue.enqueueWaitForEvents(cl::vector<cl::Event>(1, barrier));
         /* TODO Lock command-queue when enqueuing clEnqueueBarrierWithWaitList
          * No other command must be enqueued concurrently, such that
          * clEnqeueueWaitForEvents is executed right after clEnqueueMarker. */

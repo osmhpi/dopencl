@@ -52,11 +52,10 @@
 #include <dcl/Kernel.h>
 #include <dcl/ProgramBuildListener.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cassert>
@@ -134,7 +133,7 @@ Program::Program(const std::shared_ptr<Context>& context,
     if (!context) throw cl::Error(CL_INVALID_CONTEXT);
 
     cl::Program::Sources sources;
-    sources.push_back(std::make_pair(source, length));
+    sources.push_back(cl::string(source, length));
 
     /* Create native program */
     _program = cl::Program(*_context, sources);
@@ -145,7 +144,7 @@ Program::Program(
         const std::vector<dcl::Device *>& devices,
         const std::vector<size_t>& lengths,
         const unsigned char **binaries,
-        VECTOR_CLASS<cl_int> *binary_status) :
+        cl::vector<cl_int> *binary_status) :
     _context(context)
 {
     if (!context) throw cl::Error(CL_INVALID_CONTEXT);
@@ -156,7 +155,7 @@ Program::Program(
 
     /* TODO Use helper function for device conversion */
     /* convert devices */
-    VECTOR_CLASS<cl::Device> nativeDevices;
+    cl::vector<cl::Device> nativeDevices;
     for (auto device : devices) {
         auto deviceImpl = dynamic_cast<Device *>(device);
         if (!deviceImpl) throw cl::Error(CL_INVALID_DEVICE);
@@ -179,7 +178,7 @@ void Program::build(
         const std::shared_ptr<dcl::ProgramBuildListener>& programBuildListener) {
     /* TODO Use helper function for device conversion */
     /* convert devices */
-    VECTOR_CLASS<cl::Device> nativeDevices;
+    cl::vector<cl::Device> nativeDevices;
     for (auto device : devices) {
         auto deviceImpl = dynamic_cast<Device *>(device);
         if (!deviceImpl) throw cl::Error(CL_INVALID_DEVICE);
@@ -197,7 +196,7 @@ void Program::build(
 
 void Program::createKernels(
         std::vector<std::shared_ptr<dcl::Kernel>>& kernels) {
-    VECTOR_CLASS<cl::Kernel> nativeKernels;
+    cl::vector<cl::Kernel> nativeKernels;
 
     /* Create kernels */
     _program.createKernels(&nativeKernels);

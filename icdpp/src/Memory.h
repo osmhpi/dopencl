@@ -116,23 +116,6 @@ public:
     virtual void unmap(
             void *mappedPtr) = 0;
 
-
-    /**
-     * @brief Callback for a completed acquire operation.
-     *
-     * NOTE: This method is a work-around for missing node-to-node communication.
-     * When an acquire operation is completed which has been performed on behalf
-     * of a compute node the acquired data is forwarded to the requesting
-     * compute node.
-     *
-     * @param[in]  destination      the requesting compute node where the memory
-     *                              object has to be send to as an update
-     * @param[in] executionStatus
-     */
-    void onAcquireComplete(
-            dcl::Process& destination,
-            cl_int        executionStatus);
-
     /**
      * @brief Callback for acquiring this memory object's data on behalf of a compute node
      *
@@ -148,7 +131,8 @@ public:
      */
     void onAcquire(
             dcl::Process& destination,
-            dcl::Process& source);
+            dcl::Process& source,
+            dcl::transfer_id transferId);
 
 protected:
     _cl_mem(cl_context      context,
@@ -204,7 +188,25 @@ protected:
      * @return a handle for the data transfer
      */
     std::shared_ptr<dcl::DataTransfer> acquire(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
+
+    /**
+     * @brief Registers the transfer to execute after a completed acquire operation.
+     *
+     * NOTE: This method is a work-around for missing node-to-node communication.
+     * When an acquire operation is completed which has been performed on behalf
+     * of a compute node the acquired data is forwarded to the requesting
+     * compute node.
+     *
+     * @param[in]  destination        the requesting compute node where the memory
+     *                                object has to be send to as an update
+     * @param[in]  acquireCompletable operation that needs to be completed to start the transfer
+     * @param[in]  transferId         identifier of the transfer to execute
+     */
+    void onAcquireComplete(
+        dcl::Process&                            destination,
+        const std::shared_ptr<dcl::Completable>& acquireCompletable,
+        dcl::transfer_id                         transferId);
 
     cl_context _context;
     cl_mem_flags _flags;

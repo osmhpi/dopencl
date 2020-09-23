@@ -1,0 +1,33 @@
+FROM dopencl_ubuntu
+
+# Install dependencies
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+    g++ opencl-headers ocl-icd-opencl-dev gdb \
+ && rm -rf /var/lib/apt/lists/*
+
+# Build sample program
+COPY standalone_test /tmp/dopencl/standalone_test
+WORKDIR /tmp/dopencl/standalone_test/src
+RUN g++ test_explicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_explicit_copy_cl \
+ && g++ test_implicit_copy_cl.cpp -lOpenCL -Wall -Wextra -DCL_HPP_TARGET_OPENCL_VERSION=120 -otest_implicit_copy_cl
+
+# The list of dOpenCL worker nodes must be given as an environment variable (comma separated hosts)
+ENV DCL_NODES dopencl_worker1,dopencl_worker2
+
+# Run sample program on the given dOpenCL worker nodes
+RUN printf '#!/bin/sh\n\
+. /etc/profile.d/dopenclenv.sh\n\
+echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_explicit_copy_cl\n\
+LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so ./test_implicit_copy_cl\n' > launchscript.sh \
+ && chmod +x launchscript.sh
+
+RUN printf '#!/bin/sh\n\
+. /etc/profile.d/dopenclenv.sh\n\
+echo "$DCL_NODES" | tr "," "\n" > dcl.nodes\n\
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so DCL_LOG_LEVEL=VERBOSE ./test_explicit_copy_cl\n\
+gdb -ex=run --args env LD_PRELOAD=/opt/dopencl/lib/libdOpenCL.so DCL_LOG_LEVEL=VERBOSE ./test_implicit_copy_cl\n' > launchscript_debug.sh \
+ && chmod +x launchscript_debug.sh
+
+CMD ["./launchscript.sh"]

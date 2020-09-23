@@ -135,7 +135,7 @@ SetKernelArgMemObject::SetKernelArgMemObject(
 SetKernelArgMemObject::SetKernelArgMemObject(
         dcl::object_id kernelId,
         cl_uint index,
-        dcl::object_id memObjectId) :
+        dcl::object_id memObjectId, bool fixme_32bit_overload_conflict_deambiguator) :
         SetKernelArg(kernelId, index), _size(sizeof(cl_mem)), _memObjectId(
                 memObjectId) {
 }

@@ -67,6 +67,7 @@ public:
 
 	    CREATE_BUFFER               = 21,
 	    RELEASE_MEM_OBJECT          = 22,
+	    REQUEST_BUFFER_TRANSFER     = 23,
 
 	    CREATE_COMMAND_QUEUE        = 31,
 	    RELEASE_COMMAND_QUEUE       = 32,
@@ -115,11 +116,11 @@ public:
 
     virtual class_type get_type() const = 0;
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         buf << id;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         buf >> id;
     }
 

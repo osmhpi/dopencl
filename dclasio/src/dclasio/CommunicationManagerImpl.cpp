@@ -62,7 +62,8 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
-#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
 
 #include <cassert>
 #include <functional>
@@ -102,29 +103,18 @@ void CommunicationManagerImpl::resolve_url(
 	}
 }
 
-dcl::process_id CommunicationManagerImpl::create_process_id(
-        const std::string& hostName,
-        port_type port) {
-    // FIXME Create unique process ID without host and port
-    dcl::process_id pid = 0;
-
-    for (std::string::size_type i = 0; i < hostName.size(); ++i) {
-        pid += (unsigned char) hostName[i];
-        pid <<= 4;
-    }
-    pid += port;
-
-    return pid;
+dcl::process_id CommunicationManagerImpl::create_process_id() {
+    return boost::uuids::random_generator()();
 }
 
 CommunicationManagerImpl::CommunicationManagerImpl() :
-        _pid(create_process_id("", DEFAULT_PORT)),
+        _pid(create_process_id()),
         _messageDispatcher(_pid), _dataDispatcher(_pid) {
 }
 
 CommunicationManagerImpl::CommunicationManagerImpl(
         const std::string& host, port_type port) :
-        _pid(create_process_id(host, port)), _messageDispatcher(_pid), _dataDispatcher(_pid) {
+        _pid(create_process_id()), _messageDispatcher(_pid), _dataDispatcher(_pid) {
     bind(host, port);
 }
 
@@ -212,6 +202,7 @@ void CommunicationManagerImpl::destroyComputeNode(
         {
             std::lock_guard<std::recursive_mutex> lock(_connectionsMutex);
             _computeNodes.erase(computeNode->get_id());
+            _connectionsChanged.notify_all();
         }
     } else {
         throw dcl::InvalidArgument(DCL_INVALID_NODE);
@@ -272,8 +263,19 @@ void CommunicationManagerImpl::message_queue_disconnected(
 
 bool CommunicationManagerImpl::approve_data_stream(
         dcl::process_id pid) {
-    // check if the source process is already registered
-    return (get_process(pid) != nullptr);
+    // After the message queue is successfully connected:
+    // (1) An acknowledgement of the message queue is sent to the remote node
+    // (2) The remote node is added to the list of nodes
+    // Additionally, the acknowledgement of the message queue triggers the connection
+    // of the data stream, which is approved by looking at the list of nodes
+    // Note that (while in practice possible, but rare), there's a chance that the
+    // data stream connection checks the list of nodes before the node could be added
+    // to the list. For this reason we must also wait here, to avoid a data race
+    std::unique_lock<std::recursive_mutex> lock(_connectionsMutex);
+    return _connectionsChanged.wait_for(lock, DEFAULT_CONNECTION_TIMEOUT, [this, &pid] {
+        // verify the source process is registered (i.e. the message queue is connected)
+        return get_process(pid) != nullptr;
+    });
 }
 
 void CommunicationManagerImpl::data_stream_connected(
@@ -296,7 +298,7 @@ void CommunicationManagerImpl::data_stream_connected(
     } else {
         dcl::util::Logger << dcl::util::Warning
                 << "Incoming data stream connection from unknown process"
-                << " (pid=" << process->get_id() << ')'
+                << " (pid=" << pid << ')'
                 << std::endl;
     }
 }

@@ -79,12 +79,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
         buf << _contextId << _eventId << _memObjectIds;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
         buf >> _contextId >> _eventId >> _memObjectIds;
     }

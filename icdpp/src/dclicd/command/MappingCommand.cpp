@@ -79,7 +79,8 @@ MapBufferCommand::MapBufferCommand(
         cl_map_flags flags,
         size_t cb,
         void *ptr) :
-    Command(CL_COMMAND_MAP_BUFFER, commandQueue), _buffer(buffer),
+    Command(CL_COMMAND_MAP_BUFFER, commandQueue),
+    _transfer_id(dcl::create_transfer_id()), _buffer(buffer),
     _flags(flags), _cb(cb), _ptr(ptr) {
     assert(_buffer != nullptr); // buffer must not be NULL
     _buffer->retain();
@@ -87,6 +88,10 @@ MapBufferCommand::MapBufferCommand(
 
 MapBufferCommand::~MapBufferCommand() {
     release(_buffer);
+}
+
+dcl::transfer_id MapBufferCommand::transferId() const {
+    return _transfer_id;
 }
 
 cl_int MapBufferCommand::submit() {
@@ -97,7 +102,7 @@ cl_int MapBufferCommand::submit() {
          */
         // start data transfer
         std::shared_ptr<dcl::DataTransfer> receipt(
-                _commandQueue->computeNode().receiveData(_cb, _ptr));
+                _commandQueue->computeNode().receiveData(_transfer_id, _cb, _ptr));
         // register callback to complete MapBufferCommand
         receipt->setCallback(std::bind(
                 &MapBufferCommand::onExecutionStatusChanged, this, std::placeholders::_1));
@@ -114,7 +119,8 @@ UnmapBufferCommand::UnmapBufferCommand(
         cl_map_flags        flags,
         size_t              cb,
         void *              ptr) :
-    Command(CL_COMMAND_UNMAP_MEM_OBJECT, commandQueue), _memobj(memobj),
+    Command(CL_COMMAND_UNMAP_MEM_OBJECT, commandQueue),
+    _transfer_id(dcl::create_transfer_id()), _memobj(memobj),
     _flags(flags), _cb(cb), _ptr(ptr) {
     assert(_memobj != nullptr); // buffer must not be NULL
     _memobj->retain();
@@ -122,6 +128,10 @@ UnmapBufferCommand::UnmapBufferCommand(
 
 UnmapBufferCommand::~UnmapBufferCommand() {
     release(_memobj);
+}
+
+dcl::transfer_id UnmapBufferCommand::transferId() const {
+    return _transfer_id;
 }
 
 cl_int UnmapBufferCommand::submit() {
@@ -132,7 +142,7 @@ cl_int UnmapBufferCommand::submit() {
          */
         // start data transfer
         std::shared_ptr<dcl::DataTransfer> sending(
-                _commandQueue->computeNode().sendData(_cb, _ptr));
+                _commandQueue->computeNode().sendData(_transfer_id, _cb, _ptr));
 
         // UnmapBufferCommand will be completed by compute node
     }

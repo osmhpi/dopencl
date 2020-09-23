@@ -73,26 +73,26 @@ public:
     }
 
     value_type& front() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        awaitElement();
+        std::unique_lock<std::mutex> lock(_mutex);
+        awaitElement(lock);
         return std::queue<T, Container>::front();
     }
 
     const value_type& front() const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        awaitElement();
+        std::unique_lock<std::mutex> lock(_mutex);
+        awaitElement(lock);
         return std::queue<T, Container>::front();
     }
 
     value_type& back() {
-        std::lock_guard<std::mutex> lock(_mutex);
-        awaitElement();
+        std::unique_lock<std::mutex> lock(_mutex);
+        awaitElement(lock);
         return std::queue<T, Container>::back();
     }
 
     const value_type& back() const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        awaitElement();
+        std::unique_lock<std::mutex> lock(_mutex);
+        awaitElement(lock);
         return std::queue<T, Container>::back();
     }
 
@@ -105,9 +105,9 @@ public:
     }
 
     void pop() {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::unique_lock<std::mutex> lock(_mutex);
 
-        awaitElement();
+        awaitElement(lock);
         std::queue<T, Container>::pop();
     }
 
@@ -119,9 +119,9 @@ public:
 
 private:
     mutable std::mutex _mutex;
-    std::condition_variable_any _modified;
+    std::condition_variable _modified;
 
-    bool _interrupt;
+    bool _interrupt = false;
 
     /*!
      * \brief Waits for the queue to become non-empty
@@ -129,14 +129,15 @@ private:
      * This methods blocks until an element has been added to the queue, or
      * interrupt is called.
      */
-    void awaitElement() {
-        _interrupt = false;
-
+    void awaitElement(std::unique_lock<std::mutex> &lock) {
         while (std::queue<T, Container>::empty() && !_interrupt) {
-            _modified.wait(_mutex);
+            _modified.wait(lock);
         }
 
-        if (_interrupt) throw ThreadInterrupted();
+        if (_interrupt) {
+            _interrupt = false;
+            throw ThreadInterrupted();
+        }
     }
 
 };

@@ -1,0 +1,39 @@
+---
+language: cpp
+matrix:
+  include:
+    # Ubuntu 18.04 + gcc
+    - os: linux
+      dist: bionic
+      compiler: gcc
+    # Ubuntu 18.04 + clang
+    - os: linux
+      dist: bionic
+      compiler: clang
+    # Ubuntu 16.04 + gcc
+    - os: linux
+      dist: xenial
+      compiler: gcc
+    # Ubuntu 16.04 + clang
+    - os: linux
+      dist: xenial
+      compiler: clang
+before_install:
+  - |
+    sudo apt-get -y install \
+      libboost-dev libboost-program-options-dev libboost-system-dev \
+      opencl-headers ocl-icd-opencl-dev
+    # Rely on POCL to provide a generic OpenCL implementation that can run the tests
+    # Unfortunately however,it is not available on Ubuntu 16.04, only on Ubuntu 18.04
+    if [[ "$(lsb_release -rs)" == "18.04" ]]; then
+      sudo apt-get -y install libboost-test-dev pocl-opencl-icd netcat-openbsd psmisc
+    fi
+script:
+  - |
+    mkdir build && cd build
+    cmake -DCMAKE_BUILD_TYPE=Release ..
+    make -j"$(nproc)"
+    cd ..
+    if [[ "$(lsb_release -rs)" == "18.04" ]]; then
+       ./run_tests.sh
+    fi

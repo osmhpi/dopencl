@@ -77,12 +77,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         Response::pack(buf);
         buf << _errcode;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         Response::unpack(buf);
         buf >> _errcode;
     }

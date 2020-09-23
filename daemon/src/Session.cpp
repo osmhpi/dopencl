@@ -62,11 +62,10 @@
 #include <dcl/Memory.h>
 #include <dcl/Program.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <memory>
@@ -129,9 +128,9 @@ std::shared_ptr<dcl::Buffer> Session::createBuffer(
         const std::shared_ptr<dcl::Context>& context,
         cl_mem_flags flags,
         size_t size,
-        void *ptr) {
+        dcl::object_id bufferId) {
     auto buffer = std::make_shared<Buffer>(
-            std::dynamic_pointer_cast<Context>(context), flags, size, ptr);
+            std::dynamic_pointer_cast<Context>(context), flags, size, bufferId);
     _memoryObjects.insert(buffer);
 
 	return buffer;

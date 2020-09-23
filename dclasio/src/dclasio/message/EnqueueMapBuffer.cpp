@@ -66,25 +66,27 @@ EnqueueMapBuffer::EnqueueMapBuffer(
         dcl::object_id commandId,
         dcl::object_id bufferId,
         bool blocking_read,
+        dcl::transfer_id transferId,
         cl_map_flags map_flags,
         size_t offset,
         size_t cb,
         const std::vector<dcl::object_id> *eventIdWaitList,
         bool event) :
         _commandQueueId(commandQueueId), _commandId(commandId), _bufferId(
-                bufferId), _blocking(blocking_read), _mapFlags(map_flags), _offset(
-                offset), _cb(cb), _event(event) {
+                bufferId), _blocking(blocking_read), _transferId(transferId),
+                _mapFlags(map_flags), _offset(offset), _cb(cb), _event(event) {
     if (eventIdWaitList) {
         _eventIdWaitList = *eventIdWaitList;
     }
 }
 
 EnqueueMapBuffer::EnqueueMapBuffer(const EnqueueMapBuffer& rhs) :
-        Request(rhs), _commandQueueId(rhs._commandQueueId), _commandId(
-                rhs._commandId), _bufferId(rhs._bufferId), _blocking(
-                rhs._blocking), _mapFlags(rhs._mapFlags), _offset(rhs._offset), _cb(
-                rhs._cb), _eventIdWaitList(rhs._eventIdWaitList), _event(
-                rhs._event) {
+        Request(rhs), _commandQueueId(rhs._commandQueueId),
+                _commandId(rhs._commandId), _bufferId(rhs._bufferId),
+                _blocking(rhs._blocking), _transferId(rhs._transferId),
+                _mapFlags(rhs._mapFlags), _offset(rhs._offset),
+                _cb(rhs._cb), _eventIdWaitList(rhs._eventIdWaitList),
+                _event(rhs._event) {
 }
 
 dcl::object_id EnqueueMapBuffer::commandQueueId() const {
@@ -101,6 +103,10 @@ dcl::object_id EnqueueMapBuffer::bufferId() const {
 
 bool EnqueueMapBuffer::blocking() const {
     return _blocking;
+}
+
+dcl::transfer_id EnqueueMapBuffer::transferId() const {
+    return _transferId;
 }
 
 cl_mem_flags EnqueueMapBuffer::mapFlags() const {

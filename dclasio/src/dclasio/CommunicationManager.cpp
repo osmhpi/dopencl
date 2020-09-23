@@ -89,13 +89,19 @@ dcl::util::Severity getSeverity() {
 
 namespace dcl {
 
-HostCommunicationManager * HostCommunicationManager::create() {
+static void setup_log(const char *file_name) {
     // set up dOpenCL logger
-    static std::ofstream dclLogFile("dcl_host.log");
-    dcl::util::Logger.setOutput(dclLogFile);
+    if (getenv("DCL_LOG_TO_CONSOLE") != nullptr) {
+        dcl::util::Logger.setOutput(std::clog);
+    } else {
+        static std::ofstream dclLogFile(file_name);
+        dcl::util::Logger.setOutput(dclLogFile);
+    }
     dcl::util::Logger.setLoggingLevel(getSeverity());
-    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
+}
 
+HostCommunicationManager * HostCommunicationManager::create() {
+    setup_log("dcl_host.log");
     return new dclasio::HostCommunicationManagerImpl();
 }
 
@@ -120,11 +126,7 @@ ComputeNodeCommunicationManager * ComputeNodeCommunicationManager::create(
         ss << "dcl_" << host << ".log";
         ss >> logFileName;
     }
-    // set up dOpenCL logger
-    static std::ofstream dclLogFile(logFileName.c_str());
-    dcl::util::Logger.setOutput(dclLogFile);
-    dcl::util::Logger.setLoggingLevel(getSeverity());
-    dcl::util::Logger.setDefaultSeverity(dcl::util::Severity::Info);
+    setup_log(logFileName.c_str());
 
     return new dclasio::ComputeNodeCommunicationManagerImpl(host, port);
 }

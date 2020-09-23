@@ -1,17 +1,20 @@
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 3.1)
 
 project(dOpenCLlib)
 
 option(BUILD_SHARED_LIBS "Build shared library" ON)
 
-# search for Boost System Library (required by Boost.Asio)
+# search for thread implementation (required for using C++'s std::thread)
+find_package(Threads REQUIRED)
+
+# search for Boost System Library (required by Boost.Asio) Library
 find_package(Boost 1.35.0 COMPONENTS system REQUIRED)
 
 # search for Doxygen
 find_package(Doxygen)
 
 # create lists of source files and headers
-file(GLOB CL_WWU_HEADERS ${PROJECT_SOURCE_DIR}/include/CL *.h)
+file(GLOB_RECURSE CL_WWU_HEADERS ${PROJECT_SOURCE_DIR}/include/CL *.h)
 file(GLOB_RECURSE DCL_SOURCES ${PROJECT_SOURCE_DIR}/src/dcl *.cpp)
 file(GLOB_RECURSE DCL_HEADERS ${PROJECT_SOURCE_DIR}/include/dcl *.h)
 file(GLOB_RECURSE DCLASIO_SOURCES ${PROJECT_SOURCE_DIR}/src/dclasio *.cpp)
@@ -29,12 +32,20 @@ link_directories(${Boost_LIBRARY_DIRS})
 
 add_library(dcl ${DCL_SOURCES} ${DCLASIO_SOURCES})
 target_link_libraries(dcl
-	${Boost_LIBRARIES})
+	${Boost_LIBRARIES} Threads::Threads)
 
-# enable OpenCL 1.1 compatibility
-set_property(TARGET dcl
-	PROPERTY COMPILE_DEFINITIONS
-			CL_USE_DEPRECATED_OPENCL_1_1_APIS)
+if (ENABLE_IO_LINK_COMPRESSION)
+	target_link_libraries(dcl 842)
+endif(ENABLE_IO_LINK_COMPRESSION)
+
+target_compile_definitions(dcl PRIVATE CL_TARGET_OPENCL_VERSION=120
+                                       CL_HPP_MINIMUM_OPENCL_VERSION=120
+                                       CL_HPP_TARGET_OPENCL_VERSION=120
+                                       CL_HPP_ENABLE_EXCEPTIONS)
+
+# enable OpenCL 1.1/1.2 compatibility
+target_compile_definitions(dcl PRIVATE CL_USE_DEPRECATED_OPENCL_1_1_APIS
+                                       CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 
 if(BUILD_SHARED_LIBS)
 # set library version and SONAME
@@ -47,7 +58,6 @@ else(BUILD_SHARED_LIBS)
 	set_target_properties(dcl PROPERTIES
 		COMPILE_FLAGS -fPIC)
 endif(BUILD_SHARED_LIBS)
-
 
 #
 # Documentation target
@@ -72,9 +82,8 @@ install(TARGETS dcl
 	RUNTIME DESTINATION lib
 	ARCHIVE DESTINATION lib
 	LIBRARY DESTINATION lib)
-	
-# TODO Install OpenCL API extension headers
-#install(FILES ${CL_WWU_HEADERS} DESTINATION include/CL)
-# TODO Install dOpenCL API headers
-#install(FILES ${DCL_HEADERS} DESTINATION include/dcl)
+
+INSTALL( DIRECTORY ${PROJECT_SOURCE_DIR}/include/CL DESTINATION include )
+INSTALL( DIRECTORY ${PROJECT_SOURCE_DIR}/include/dcl DESTINATION include )
+
 # TODO Install dOpenCL API documentation

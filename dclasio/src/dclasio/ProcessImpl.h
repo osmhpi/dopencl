@@ -48,6 +48,7 @@
 
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DataTransfer.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Process.h>
@@ -152,11 +153,26 @@ public:
             const message::Message& message) const;
 
     std::shared_ptr<dcl::DataTransfer> sendData(
+            dcl::transfer_id transfer_id,
             size_t      size,
-            const void *ptr);
+            const void *ptr,
+            bool skip_compress_step = false,
+            const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
+    void sendDataFromClBuffer(dcl::transfer_id transferId, size_t size,
+                              const dcl::CLOutDataTransferContext &clDataTransferContext,
+                              const cl::Buffer &buffer, size_t offset,
+                              const cl::vector<cl::Event> *eventWaitList, cl::Event *startEvent, cl::Event *endEvent);
+
     std::shared_ptr<dcl::DataTransfer> receiveData(
+            dcl::transfer_id transfer_id,
             size_t  size,
-            void *  ptr);
+            void *  ptr,
+            bool skip_compress_step = false,
+            const std::shared_ptr<dcl::Completable> &trigger_event = nullptr);
+    void receiveDataToClBuffer(dcl::transfer_id transferId, size_t size,
+                               const dcl::CLInDataTransferContext &clDataTransferContext,
+                               const cl::Buffer &buffer, size_t offset, const cl::vector<cl::Event> *eventWaitList,
+                               cl::Event *startEvent, cl::Event *endEvent);
 
     /*!
      * \brief (Un)sets the processes data stream

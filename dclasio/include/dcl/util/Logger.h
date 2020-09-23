@@ -46,6 +46,7 @@
 #define LOGGER_H_
 
 #include <mutex>
+#include <functional>
 #include <ostream>
 #include <sstream>
 
@@ -64,40 +65,54 @@ enum class Severity {
 /*!
  * \brief A simple logger
  */
-class LoggerImpl: public std::ostream {
+class LoggerImpl {
 public:
-    LoggerImpl();
+    static LoggerImpl& get();
 
     void setOutput(std::ostream& output);
 
     void setLoggingLevel(Severity severity);
 
-    void setDefaultSeverity(Severity severity);
-
-    /*!
-     * \brief Sets logging level until next flush
-     */
-    void setCurrentSeverity(Severity severity);
+    void log(Severity severity, const std::string& str);
 
 private:
-    std::string severityToString(Severity severity);
+    LoggerImpl();
+    static std::string severityToString(Severity severity);
+
+    std::reference_wrapper<std::ostream> _output;
+    Severity _maxSeverity;
+    std::mutex _mutex; //!< Mutex to synchronize logging
+};
+
+extern LoggerImpl& Logger;
+
+class LoggerStream: public std::ostream {
+    explicit LoggerStream(LoggerImpl& logger);
+
+    void setCurrentSeverity(Severity severity);
+
+    // Only let this class be constructed and configured through the manipulators
+    friend LoggerStream& operator<<(
+        LoggerImpl& logger,
+        LoggerStream &(*manipulator)(LoggerStream &));
+    friend LoggerStream& Error(LoggerStream& stream);
+    friend LoggerStream& Warning(LoggerStream& stream);
+    friend LoggerStream& Info(LoggerStream& stream);
+    friend LoggerStream& Debug(LoggerStream& stream);
+    friend LoggerStream& Verbose(LoggerStream& stream);
 
     class LoggerBuffer: public std::stringbuf {
     public:
-        LoggerBuffer(LoggerImpl& logger, std::ostream& stream);
+        explicit LoggerBuffer(LoggerImpl& logger);
 
-        void setOutput(std::ostream& output);
+        void setCurrentSeverity(Severity severity);
 
-        virtual int sync();
+        int sync() override;
     private:
-        LoggerImpl &_logger;
-        std::ostream *_output;
-        std::mutex _mutex; //!< Mutex to synchronize logging
+        LoggerImpl& _logger;
+        Severity _currentSeverity;
     };
 
-    Severity _currentSeverity;
-    Severity _defaultSeverity;
-    Severity _maxSeverity;
     LoggerBuffer _buffer;
 };
 
@@ -105,21 +120,19 @@ private:
  * custom manipulators
  */
 
-LoggerImpl& operator<<(
+LoggerStream& operator<<(
         LoggerImpl& logger,
-        LoggerImpl& (*manipulator)(LoggerImpl&));
+        LoggerStream &(*manipulator)(LoggerStream &));
 
-LoggerImpl& Error(LoggerImpl& logger);
+LoggerStream& Error(LoggerStream& stream);
 
-LoggerImpl& Warning(LoggerImpl& logger);
+LoggerStream& Warning(LoggerStream& stream);
 
-LoggerImpl& Info(LoggerImpl& logger);
+LoggerStream& Info(LoggerStream& stream);
 
-LoggerImpl& Debug(LoggerImpl& logger);
+LoggerStream& Debug(LoggerStream& stream);
 
-LoggerImpl& Verbose(LoggerImpl& logger);
-
-extern LoggerImpl Logger;
+LoggerStream& Verbose(LoggerStream& stream);
 
 } // namespace util
 

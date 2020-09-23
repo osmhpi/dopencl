@@ -73,6 +73,7 @@ namespace message {
 class ContextErrorMessage;
 class Message;
 class ProgramBuildMessage;
+class RequestBufferTransfer;
 
 } /* namespace message */
 
@@ -142,6 +143,10 @@ private:
 
     void programBuildComplete(
             const message::ProgramBuildMessage& notification) const;
+
+    void requestBufferTransfer(
+            const message::RequestBufferTransfer& notification,
+            dcl::Process& process);
 
     const CommunicationManagerImpl& _communicationManager;
     const dcl::CLObjectRegistry& _objectRegistry; //!< Registry for application objects

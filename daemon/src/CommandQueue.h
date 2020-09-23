@@ -44,17 +44,19 @@
 #ifndef COMMANDQUEUE_H_
 #define COMMANDQUEUE_H_
 
+#include "Memory.h"
+
 #include <dcl/CommandQueue.h>
 #include <dcl/DCLTypes.h>
 #include <dcl/Event.h>
 #include <dcl/Kernel.h>
 #include <dcl/Memory.h>
+#include <dcl/DataTransfer.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <cstddef>
@@ -105,6 +107,7 @@ public:
     void enqueueReadBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingRead,
+            dcl::transfer_id                                transferId,
             size_t                                          offset,
             size_t                                          size,
             const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -114,6 +117,7 @@ public:
     void enqueueWriteBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingWrite,
+            dcl::transfer_id                                transferId,
             size_t                                          offset,
             size_t                                          size,
             const std::vector<std::shared_ptr<dcl::Event>> *eventWaitList,
@@ -123,6 +127,7 @@ public:
     void enqueueMapBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
             bool                                            blockingMap,
+            dcl::transfer_id                                transferId,
             cl_map_flags                                    mapFlags,
             size_t                                          offset,
             size_t                                          size,
@@ -132,6 +137,7 @@ public:
 
     void enqueueUnmapBuffer(
             const std::shared_ptr<dcl::Buffer>&             buffer,
+            dcl::transfer_id                                transferId,
             cl_map_flags                                    map_flags,
             size_t                                          offset,
             size_t                                          size,
@@ -172,6 +178,10 @@ private:
     CommandQueue& operator=(
             const CommandQueue& rhs) = delete;
 
+    cl::CommandQueue createNativeCommandQueue(const std::shared_ptr<Context>& context,
+                                              Device *device,
+                                              cl_command_queue_properties properties);
+
     /*!
      * \brief Synchronizes this command queue with the events in the event wait list.
      *
@@ -184,38 +194,20 @@ private:
      * \param[out] nativeEventWaitList  a list of corresponding native events
      */
     void synchronize(
-            const std::vector<std::shared_ptr<dcl::Event>>& eventWaitList,
-            VECTOR_CLASS<cl::Event>&                        nativeEventWaitList);
-
-    void enqueueReadBuffer(
-            const std::shared_ptr<Buffer>&  buffer,
-            bool                            blocking,
-            size_t                          offset,
-            size_t                          size,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
-            dcl::object_id                  commandId,
-            cl::Event&                      mapData,
-            cl::Event&                      unmapData);
-
-    void enqueueWriteBuffer(
-            const std::shared_ptr<Buffer>&  buffer,
-            bool                            blocking,
-            size_t                          offset,
-            size_t                          size,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
-            dcl::object_id                  commandId,
-            cl::Event&                      mapData,
-            cl::Event&                      unmapData);
+            const std::vector<std::shared_ptr<Memory>>&     syncBuffers,
+            const std::vector<std::shared_ptr<dcl::Event>>* eventWaitList,
+            cl::vector<cl::Event>&                          nativeEventWaitList);
 
     void enqueuePhonyMarker(
             bool                            blocking,
-            const VECTOR_CLASS<cl::Event>&  nativeEventWaitList,
+            const cl::vector<cl::Event>&    nativeEventWaitList,
             dcl::object_id                  commandId,
             cl::Event&                      marker);
 
-    cl::CommandQueue _commandQueue; //!< Native command queue
-
     std::shared_ptr<Context> _context; //!< Associated context
+    cl::CommandQueue _commandQueue; //!< Native command queue
+    dcl::CLInDataTransferContext _clInDataTransferContext;
+    dcl::CLOutDataTransferContext _clOutDataTransferContext;
 };
 
 } /* namespace dcld */

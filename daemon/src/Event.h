@@ -50,12 +50,12 @@
 #include <dcl/Event.h>
 #include <dcl/Remote.h>
 #include <dcl/SynchronizationListener.h>
+#include <dcl/DataTransfer.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #endif
 
 #include <memory>
@@ -135,8 +135,8 @@ public:
      * \param[in]  nativeEventList  the native events associated with the acquiring operations
      */
     void synchronize(
-            const cl::CommandQueue&  commandQueue,
-            VECTOR_CLASS<cl::Event>& nativeEventList);
+            const dcl::CLInDataTransferContext& clDataTransferContext,
+            cl::vector<cl::Event>& nativeEventList);
 
     /*
      * Event API
@@ -157,7 +157,7 @@ public:
      */
 
     void onSynchronize(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
 
 private:
     cl::UserEvent _event; //!< Native user event
@@ -198,7 +198,7 @@ public:
      */
 
     void onSynchronize(
-            dcl::Process& process);
+            dcl::Process& process, dcl::transfer_id transferId);
 
 protected:
     cl_ulong _received; //!< Receipt time of associated command
@@ -249,6 +249,14 @@ public:
 
     void onExecutionStatusChanged(
             cl_int executionStatus);
+
+protected:
+    SimpleEvent(dcl::object_id id,
+            const std::shared_ptr<Context>& context,
+            const cl::Event& event,
+            bool doPostConstructorInitialize);
+
+    void postConstructorInitialize();
 
 private:
     cl::Event _event; //!< Native event

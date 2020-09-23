@@ -73,11 +73,11 @@ public:
 
     virtual cl_int get_errcode() const = 0;
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         buf << _requestId;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         buf >> _requestId;
     }
 

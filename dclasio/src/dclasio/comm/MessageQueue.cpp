@@ -55,6 +55,7 @@
 #include <boost/asio/write.hpp>
 
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 // TODO Replace htonl, ntohl by own, portable implementation
 #include <netinet/in.h>
@@ -87,7 +88,7 @@ message_queue::message_queue(
 message_queue::message_queue(
         const std::shared_ptr<boost::asio::ip::tcp::socket>& socket,
         boost::asio::ip::tcp::endpoint remote_endpoint) :
-        _socket(socket), _remote_endpoint(remote_endpoint), _pid(0) {
+        _socket(socket), _remote_endpoint(remote_endpoint), _pid() {
     assert(!socket->is_open()); // socket must not be connect
 }
 
@@ -113,9 +114,9 @@ dcl::process_id message_queue::connect(
 
     // send local process ID and type to remote process
     // TODO Encode message queue protocol
-    dcl::ByteBuffer buf;
+    dcl::OutputByteBuffer buf;
     buf << pid << uint8_t(process_type) << uint8_t(0);
-    boost::asio::write(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
+    boost::asio::write(*_socket, boost::asio::buffer(buf.data(), buf.size()));
     dcl::util::Logger << dcl::util::Verbose
             << "Sent process identification message for message queue (process type="
             << (process_type == ProcessImpl::Type::HOST ? "HOST" : "COMPUTE_NODE")
@@ -123,9 +124,10 @@ dcl::process_id message_queue::connect(
             << std::endl;
 
     // receive response
-    buf.resize(sizeof(dcl::process_id));
-    boost::asio::read(*_socket, boost::asio::buffer(buf.begin(), buf.size()));
-    buf >> _pid;
+    dcl::InputByteBuffer obuf;
+    obuf.resize(sizeof(dcl::process_id));
+    boost::asio::read(*_socket, boost::asio::buffer(obuf.data(), obuf.size()));
+    obuf >> _pid;
     dcl::util::Logger << dcl::util::Verbose
             << "Received identification message response (pid=" << _pid << ')'
             << std::endl;
@@ -150,14 +152,14 @@ void message_queue::send_message(
     // send message header and body in one go
     boost::asio::write(*_socket, std::vector<boost::asio::const_buffer>( {
             boost::asio::const_buffer(&_send_header, sizeof(header_type)),
-            boost::asio::const_buffer(_send_buffer.begin(), _send_buffer.size()) }));
+            boost::asio::const_buffer(_send_buffer.data(), _send_buffer.size()) }));
 
     dcl::util::Logger << dcl::util::Verbose
             << "Sent message (size=" << _send_buffer.size() << ", type=" << message.get_type() << ')'
             << std::endl;
 #else
     // send message length and type (4 + 4 Byte), followed by message body
-    dcl::ByteBuffer buf;
+    dcl::OutputByteBuffer buf;
     message.pack(buf); // pack message to determine length
     header_type header({ htonl(buf.size()), htonl(message.get_type()) });
 
@@ -165,7 +167,7 @@ void message_queue::send_message(
     // send message header and body in one go
     boost::asio::write(*_socket, std::vector<boost::asio::const_buffer>( {
             boost::asio::const_buffer(&header, sizeof(header_type)),
-            boost::asio::const_buffer(buf.begin(), buf.size()) }));
+            boost::asio::const_buffer(buf.data(), buf.size()) }));
 
     dcl::util::Logger << dcl::util::Verbose
             << "Sent message (size=" << buf.size() << ", type=" << message.get_type() << ')'
@@ -202,7 +204,7 @@ void message_queue::start_read_message(
     _message_buffer.resize(size);
     // read message
     boost::asio::async_read(*_socket,
-            boost::asio::buffer(_message_buffer.begin(), _message_buffer.size()),
+            boost::asio::buffer(_message_buffer.data(), _message_buffer.size()),
             [this](const boost::system::error_code& ec, size_t bytes_transferred){
                     handle_message(ec, bytes_transferred); });
 }

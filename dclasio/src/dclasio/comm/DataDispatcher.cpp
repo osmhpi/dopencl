@@ -63,6 +63,7 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <boost/system/error_code.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <functional>
 #include <list>
@@ -163,13 +164,13 @@ void DataDispatcher::handle_accept(
         return;
     }
 
-    auto buf(std::make_shared<dcl::ByteBuffer>());
+    auto buf(std::make_shared<dcl::InputByteBuffer>());
     buf->resize(sizeof(dcl::process_id) + 2);
 
     // await authentication request from incoming data stream
     boost::asio::async_read(
             *socket,
-            boost::asio::buffer(buf->begin(), buf->size()),
+            boost::asio::buffer(buf->data(), buf->size()),
             [this, socket, buf](const boost::system::error_code& ec, size_t bytes_transferred) {
                     handle_approval(socket, buf, ec, bytes_transferred); });
 
@@ -178,7 +179,7 @@ void DataDispatcher::handle_accept(
 
 void DataDispatcher::handle_approval(
         std::shared_ptr<boost::asio::ip::tcp::socket> socket,
-        std::shared_ptr<dcl::ByteBuffer> buf,
+        std::shared_ptr<dcl::InputByteBuffer> buf,
         const boost::system::error_code& ec,
         size_t bytes_transferred) {
     if (ec) {
@@ -216,8 +217,9 @@ void DataDispatcher::handle_approval(
         auto dataStream = add_data_stream(new DataStream(socket));
 
 #if USE_DATA_STREAM_RESPONSE
-        *buf << _pid; // signal approval: return own process ID
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        dcl::OutputByteBuffer obuf;
+        obuf << _pid; // signal approval: return own process ID
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
         dcl::util::Logger << dcl::util::Verbose
                 << "Accepted data stream from process (pid=" << pid << ')'
@@ -229,8 +231,9 @@ void DataDispatcher::handle_approval(
     } else {
 #if USE_DATA_STREAM_RESPONSE
         // signal reject: return process ID 0
-        *buf << dcl::process_id(0);
-        boost::asio::write(*socket, boost::asio::buffer(buf->begin(), buf->size()));
+        dcl::OutputByteBuffer obuf;
+        obuf << dcl::process_id();
+        boost::asio::write(*socket, boost::asio::buffer(obuf.data(), obuf.size()));
 #endif
         dcl::util::Logger << dcl::util::Error
                 << "Rejected data stream from process (pid=" << pid << ')'

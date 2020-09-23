@@ -47,34 +47,37 @@
 #define DATATRANSFER_H_
 
 #ifdef __APPLE__
-#include <OpenCL/cl.h>
+#include <OpenCL/cl2.hpp>
 #else
-#include <CL/cl.h>
+#include <CL/cl2.hpp>
 #endif
 
+#include <dcl/Completable.h>
+#include <dcl/util/Logger.h>
 #include <functional>
+
+#if defined(IO_LINK_COMPRESSION)
+#include <cstdlib>
+#endif
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION)
+#include <lib842/cl.h>
+#endif
 
 namespace dcl {
 
 /*!
  * \brief A handle for an asynchronous data transfer.
  */
-class DataTransfer {
+class DataTransfer : public Completable {
 public:
 	virtual ~DataTransfer() { }
 
-	/*!
-	 * \brief Registers a callback which is called upon completion (or failure)
-	 *        of this data transfer.
-	 *
-	 * \param[in]  notify   the callback to register
-	 */
     virtual void setCallback(
             const std::function<void (cl_int)>& notify) = 0;
 
-	virtual unsigned long submit() const = 0;
-	virtual unsigned long start() const = 0;
-	virtual unsigned long end() const = 0;
+	virtual cl_ulong submit() const = 0;
+	virtual cl_ulong start() const = 0;
+	virtual cl_ulong end() const = 0;
 
     virtual bool isComplete() const = 0;
 
@@ -90,6 +93,129 @@ public:
 	 * All registered callbacks are called accordingly.
 	 */
 	virtual void abort() = 0;
+};
+
+#ifdef IO_LINK_COMPRESSION
+static bool is_io_link_compression_enabled() {
+    static bool enabled = std::getenv("DCL_DISABLE_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
+}
+#endif
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+static bool is_cl_io_link_compression_enabled() {
+    static bool enabled = std::getenv("DCL_DISABLE_CL_IO_LINK_COMPRESSION") == nullptr;
+    return enabled;
+}
+
+static bool is_cl_io_link_compression_mode_inplace() {
+    static bool enabled = std::getenv("DCL_CL_IO_LINK_COMPRESSION_INPLACE") != nullptr;
+    return enabled;
+}
+#endif
+
+/**
+ * Base class containing the context for data transfers from/to OpenCL buffers.
+ */
+class CLDataTransferContext {
+protected:
+    CLDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue)
+        : _context(context),
+          _commandQueue(commandQueue)
+    { }
+
+public:
+    cl::Context context() const {
+        return _context;
+    }
+
+    cl::CommandQueue commandQueue() const {
+        return _commandQueue;
+    }
+
+private:
+    cl::Context _context;
+    cl::CommandQueue _commandQueue;
+};
+
+/**
+ * Context for incoming (i.e. receive to buffer) data transfers to OpenCL buffers.
+ */
+class CLInDataTransferContext : public CLDataTransferContext {
+
+public:
+    CLInDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+        , const lib842::CLDeviceDecompressor *cl842DeviceDecompressor
+#endif
+    )
+        : CLDataTransferContext(context, commandQueue)
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+          , _cl842NextWorkBuffer(0), _cl842DeviceDecompressor(cl842DeviceDecompressor)
+#endif
+    {
+        auto vendor = commandQueue.getInfo<CL_QUEUE_DEVICE>().getInfo<CL_DEVICE_VENDOR>();
+        if (vendor.find("NVIDIA") != cl::string::npos) {
+            _hasVeryCheapMapping = false;
+            if (std::getenv("DCL_WORKAROUND_TOO_AGGRESSIVE_NVIDIA_MAPPING") != nullptr) {
+                _hasVeryCheapMapping = true;
+            }
+        } else if (vendor.find("Intel") != cl::string::npos) {
+            _hasVeryCheapMapping = true;
+        } else {
+            dcl::util::Logger << dcl::util::Warning
+                << "Unknown device vendor '" << vendor << "\'. "
+                << "Decompression strategy may be suboptimal." << std::endl;
+            _hasVeryCheapMapping = false;
+        }
+    }
+
+#if defined(IO_LINK_COMPRESSION) && defined(USE_CL_IO_LINK_COMPRESSION) && defined(LIB842_HAVE_OPENCL)
+    const lib842::CLDeviceDecompressor *cl842DeviceDecompressor() const {
+        return _cl842DeviceDecompressor;
+    }
+
+    static constexpr size_t NUM_BUFFERS = 2;
+
+    size_t &cl842NextWorkBuffer() const {
+        return _cl842NextWorkBuffer;
+    }
+
+    std::array<cl::Event, NUM_BUFFERS> &cl842LastDecompressEvents() const {
+        return _cl842LastDecompressEvents;
+    }
+
+    std::array<cl::Buffer, NUM_BUFFERS> &cl842WorkBuffers() const {
+        return _cl842WorkBuffers;
+    }
+
+    bool hasVeryCheapMapping() const {
+        return _hasVeryCheapMapping;
+    }
+
+private:
+    const lib842::CLDeviceDecompressor *_cl842DeviceDecompressor;
+    mutable size_t _cl842NextWorkBuffer;
+    mutable std::array<cl::Event, NUM_BUFFERS> _cl842LastDecompressEvents;
+    mutable std::array<cl::Buffer, NUM_BUFFERS> _cl842WorkBuffers;
+    bool _hasVeryCheapMapping;
+#endif
+};
+
+/**
+ * Context for outbound (i.e. send from buffer) data transfers from OpenCL buffers.
+ */
+class CLOutDataTransferContext : public CLDataTransferContext {
+public:
+    CLOutDataTransferContext(
+        const cl::Context &context,
+        const cl::CommandQueue &commandQueue)
+        : CLDataTransferContext(context, commandQueue)
+    { }
 };
 
 } /* namespace dcl */

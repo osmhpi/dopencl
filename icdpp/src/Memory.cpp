@@ -154,8 +154,11 @@ _cl_mem::_cl_mem(
     	case CL_MEM_COPY_HOST_PTR:
     	    /* allocate memory for copying the host pointer */
     	    allocHostMemory();
-    	    /* TODO Copy data at host pointer to memory object's host memory */
-    		break;
+    	    /* copy data at host pointer to memory object's host memory */
+    	    std::copy(static_cast<const uint8_t *>(host_ptr),
+    	              static_cast<const uint8_t *>(host_ptr) + size,
+    	              static_cast<uint8_t *>(_data));
+    	    break;
     	case CL_MEM_USE_HOST_PTR:
     		/* CL_MEM_USE_HOST_PTR and CL_MEM_ALLOC_HOST_PTR are mutually
     		 * exclusive */
@@ -363,26 +366,15 @@ bool _cl_mem::isOutput() const {
     return (_flags & (CL_MEM_WRITE_ONLY | CL_MEM_READ_WRITE));
 }
 
-void _cl_mem::onAcquireComplete(dcl::Process& destination, cl_int executionStatus) {
-    assert(executionStatus == CL_COMPLETE || executionStatus < 0);
-
-    if (executionStatus == CL_COMPLETE) {
-        /* forward acquired memory object data to acquiring compute node */
-        try {
-            destination.sendData(_size, _data);
-        } catch (const dcl::IOException& e) {
-            dcl::util::Logger << dcl::util::Error
-                    << "(SYN) Acquire failed: " << e.what()
-                    << std::endl;
-        }
-    } else {
-        dcl::util::Logger << dcl::util::Error
-                << "(SYN) Acquire failed: Data receipt failed"
-                << std::endl;
-    }
+void _cl_mem::onAcquireComplete(dcl::Process& destination,
+        const std::shared_ptr<dcl::Completable>& acquireCompletable,
+        dcl::transfer_id transferId) {
+    // See matching receiveData call for why skip_compress_step=true here
+    destination.sendData(transferId, _size, _data, true, acquireCompletable);
 }
 
-void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
+void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source,
+                        dcl::transfer_id transferId) {
     dcl::util::Logger << dcl::util::Debug
             << "(SYN) Acquiring memory object from compute node '" << source.url()
             << "' on behalf of compute node '" << destination.url()
@@ -396,12 +388,10 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
      * different copies that are exchanged during synchronization between
      * compute nodes */
     try {
-        auto recv = acquire(source);
+        auto recv = acquire(source, transferId);
 
         /* forward memory object data to requesting compute node */
-        recv->setCallback(
-                std::bind(&_cl_mem::onAcquireComplete, this,
-                        std::ref(destination), std::placeholders::_1));
+        _cl_mem::onAcquireComplete(destination, recv, transferId);
     } catch (const dcl::IOException& e) {
         dcl::util::Logger << dcl::util::Error
                 << "(SYN) Acquire failed: " << e.what()
@@ -409,8 +399,12 @@ void _cl_mem::onAcquire(dcl::Process& destination, dcl::Process& source) {
     }
 }
 
-std::shared_ptr<dcl::DataTransfer> _cl_mem::acquire(dcl::Process& process) {
+std::shared_ptr<dcl::DataTransfer> _cl_mem::acquire(dcl::Process& process,
+                                                    dcl::transfer_id transferId) {
     std::lock_guard<std::mutex> lock(_dataMutex);
     allocHostMemory();
-    return process.receiveData(_size, _data);
+    // Note that here we pass skip_compress_step=true, which allows us to
+    // avoid a double decompression step immediately followed by a compression
+    // step when we are just acting as a proxy for a node-to-node transfer
+    return process.receiveData(transferId, _size, _data, true);
 }

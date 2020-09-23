@@ -46,10 +46,18 @@
 #ifndef DCL_PROCESS_H_
 #define DCL_PROCESS_H_
 
+#ifdef __APPLE__
+#include <OpenCL/cl2.hpp>
+#else
+#include <CL/cl2.hpp>
+#endif
+
 /* TODO Remove message headers from process interface */
 #include <dclasio/message/Message.h>
 
+#include <dcl/Completable.h>
 #include <dcl/DCLTypes.h>
+#include <dcl/DataTransfer.h>
 
 #include <cstddef>
 #include <memory>
@@ -90,8 +98,21 @@ public:
 	 * \return
 	 */
 	virtual std::shared_ptr<DataTransfer> sendData(
+			dcl::transfer_id transfer_id,
 			size_t      size,
-			const void *ptr) = 0;
+			const void *ptr,
+			bool skip_compress_step = false,
+			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
+
+	virtual void sendDataFromClBuffer(
+			dcl::transfer_id transferId,
+			size_t size,
+			const dcl::CLOutDataTransferContext &clDataTransferContext,
+			const cl::Buffer &buffer,
+			size_t offset,
+			const cl::vector<cl::Event> *eventWaitList,
+			cl::Event *startEvent,
+			cl::Event *endEvent) = 0;
 
 	/*!
 	 * \brief Receive data from host.
@@ -102,8 +123,21 @@ public:
 	 * \return
 	 */
 	virtual std::shared_ptr<DataTransfer> receiveData(
+			dcl::transfer_id transfer_id,
 			size_t  size,
-			void *  ptr) = 0;
+			void *  ptr,
+			bool skip_compress_step = false,
+			const std::shared_ptr<Completable> &trigger_event = nullptr) = 0;
+
+	virtual void receiveDataToClBuffer(
+			dcl::transfer_id transferId,
+			size_t size,
+			const dcl::CLInDataTransferContext &clDataTransferContext,
+			const cl::Buffer &buffer,
+			size_t offset,
+			const cl::vector<cl::Event> *eventWaitList,
+			cl::Event *startEvent,
+			cl::Event *endEvent) = 0;
 };
 
 } /* namespace dcl */

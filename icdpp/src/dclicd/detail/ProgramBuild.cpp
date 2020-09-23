@@ -126,9 +126,9 @@ bool ProgramBuild::hasFailed() const {
 }
 
 void ProgramBuild::wait() {
-    std::lock_guard<std::mutex> lock(_buildStatusMutex);
+    std::unique_lock<std::mutex> lock(_buildStatusMutex);
     while (!testComplete()) {
-        _buildCompleted.wait(_buildStatusMutex);
+        _buildCompleted.wait(lock);
     }
 }
 

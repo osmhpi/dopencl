@@ -112,6 +112,20 @@
 #include <utility>
 #include <vector>
 
+#ifdef IO_LINK_COMPRESSION
+// If the 'size' parameter of a clEnqueue(Read|Write)Buffer has the highest bit set,
+// the I/O link compression step is skipped.
+// (For clEnqueueReadBuffer, this means that the data that is written to the host
+//  buffer is the compressed version of the data.
+//  For clEnqueueWriteBuffer, this means that the data that is provided by the host
+//  buffer should be a compressed version of the data,
+//  normally one obtained by a previous clEnqueueReadBuffer call)
+// NOTE: This does not currently work for other OpenCL APIs such as
+//       clCreateBuffer with host_ptr, clEnqueueMapBuffer, etc.
+static constexpr const size_t BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT =
+        (static_cast<size_t>(1) << (sizeof(size_t)*8-1));
+#endif
+
 
 _cl_command_queue::_cl_command_queue(cl_context context, cl_device_id device,
 		cl_command_queue_properties properties) :
@@ -417,7 +431,7 @@ void _cl_command_queue::enqueueRead(
 		void *ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> readBuffer;
+	std::shared_ptr<dclicd::command::ReadMemoryCommand> readBuffer;
 	std::vector<dcl::object_id> eventIds;
 
     if (!buffer) throw dclicd::Error(CL_INVALID_MEM_OBJECT);
@@ -428,8 +442,16 @@ void _cl_command_queue::enqueueRead(
 	createEventIdWaitList(event_wait_list, eventIds);
 
 	// Enqueue read buffer command locally
+	auto skip_compress_step = false;
+#ifdef IO_LINK_COMPRESSION
+	if (dcl::is_io_link_compression_enabled() &&
+	    (cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
+		skip_compress_step = true;
+		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;
+	}
+#endif
 	readBuffer = std::make_shared<dclicd::command::ReadMemoryCommand>(
-            CL_COMMAND_READ_BUFFER, this, cb, ptr);
+            CL_COMMAND_READ_BUFFER, this, cb, ptr, skip_compress_step);
 	enqueueCommand(readBuffer);
 
 	// Create event
@@ -440,8 +462,8 @@ void _cl_command_queue::enqueueRead(
 	// Enqueue read buffer command on command queue's compute node
 	try {
 		dclasio::message::EnqueueReadBuffer request(_id, readBuffer->remoteId(),
-				buffer->remoteId(), blocking_read, offset, cb, &eventIds,
-				(event != nullptr));
+				buffer->remoteId(), blocking_read, readBuffer->transferId(),
+				offset, cb, &eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(request);
 		dcl::util::Logger << dcl::util::Info
 				<< "Enqueued data download from buffer (command queue ID="
@@ -472,7 +494,7 @@ void _cl_command_queue::enqueueWrite(
 		const void *ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> writeBuffer;
+	std::shared_ptr<dclicd::command::WriteMemoryCommand> writeBuffer;
 	std::vector<dcl::object_id> eventIds;
 
     if (!buffer) throw dclicd::Error(CL_INVALID_MEM_OBJECT);
@@ -483,8 +505,16 @@ void _cl_command_queue::enqueueWrite(
 	createEventIdWaitList(event_wait_list, eventIds);
 
 	// Enqueue write buffer command locally
+	auto skip_compress_step = false;
+#ifdef IO_LINK_COMPRESSION
+	if (dcl::is_io_link_compression_enabled() &&
+	    (cb & BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT) != 0) {
+		skip_compress_step = true;
+		cb ^= BUFFER_SIZE_SKIP_COMPRESS_STEP_BIT;
+	}
+#endif
 	writeBuffer = std::make_shared<dclicd::command::WriteMemoryCommand>(
-            CL_COMMAND_WRITE_BUFFER, this, cb, ptr);
+            CL_COMMAND_WRITE_BUFFER, this, cb, ptr, skip_compress_step);
 	enqueueCommand(writeBuffer);
 
 	// Create event
@@ -494,8 +524,8 @@ void _cl_command_queue::enqueueWrite(
 
 	// Enqueue write buffer command on command queue's compute node
 	try {
-		dclasio::message::EnqueueWriteBuffer enqueueWriteBuffer(_id,
-				writeBuffer->remoteId(), buffer->remoteId(), blocking_write,
+		dclasio::message::EnqueueWriteBuffer enqueueWriteBuffer(_id, writeBuffer->remoteId(),
+				buffer->remoteId(), blocking_write, writeBuffer->transferId(),
 				offset, cb, &eventIds, (event != nullptr));
 		_device->remote().getComputeNode().executeCommand(enqueueWriteBuffer);
 		dcl::util::Logger << dcl::util::Info
@@ -577,7 +607,7 @@ void * _cl_command_queue::enqueueMap(
 		size_t cb,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> mapBuffer;
+	std::shared_ptr<dclicd::command::MapBufferCommand> mapBuffer;
 	std::vector<dcl::object_id> eventIds;
 	void *ptr;
 
@@ -606,7 +636,7 @@ void * _cl_command_queue::enqueueMap(
 
 	try {
         dclasio::message::EnqueueMapBuffer request(_id, mapBuffer->remoteId(),
-                buffer->remoteId(), blocking_map, map_flags,
+                buffer->remoteId(), blocking_map, mapBuffer->transferId(), map_flags,
                 offset, cb,
                 &eventIds, (event != nullptr));
         _device->remote().getComputeNode().executeCommand(request);
@@ -637,7 +667,7 @@ void _cl_command_queue::enqueueUnmap(
 		void *mapped_ptr,
 		const std::vector<cl_event>& event_wait_list,
 		cl_event *event) {
-	std::shared_ptr<dclicd::command::Command> unmapMemory;
+	std::shared_ptr<dclicd::command::UnmapBufferCommand> unmapMemory;
 	std::vector<dcl::object_id> eventIds;
     cl_mem_object_type type;
 
@@ -685,7 +715,7 @@ void _cl_command_queue::enqueueUnmap(
         case CL_MEM_OBJECT_BUFFER:
         {
             dclasio::message::EnqueueUnmapBuffer request(_id, unmapMemory->remoteId(),
-                    memobj->remoteId(), mapping->flags(),
+                    memobj->remoteId(), unmapMemory->transferId(), mapping->flags(),
                     mapping->offset(), mapping->cb(),
                     &eventIds, (event != nullptr));
             _device->remote().getComputeNode().executeCommand(request);

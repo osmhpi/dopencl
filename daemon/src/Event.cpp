@@ -54,16 +54,16 @@
 #include <dcl/DCLTypes.h>
 #include <dcl/Host.h>
 #include <dcl/Remote.h>
+#include <dcl/DataTransfer.h>
 
 #include <dcl/util/Clock.h>
 #include <dcl/util/Logger.h>
 
-#define __CL_ENABLE_EXCEPTIONS
 #ifdef __APPLE__
-#include <OpenCL/cl.hpp>
+#include <OpenCL/cl2.hpp>
 #include <OpenCL/cl_wwu_dcl.h>
 #else
-#include <CL/cl.hpp>
+#include <CL/cl2.hpp>
 #include <CL/cl_wwu_dcl.h>
 #endif
 
@@ -149,8 +149,8 @@ RemoteEvent::operator cl::Event() const {
 }
 
 void RemoteEvent::synchronize(
-        const cl::CommandQueue& commandQueue,
-        VECTOR_CLASS<cl::Event>& nativeEventList) {
+        const dcl::CLInDataTransferContext& clDataTransferContext,
+        cl::vector<cl::Event>& nativeEventList) {
     std::lock_guard<std::mutex> lock(_syncMutex);
 
     dcl::util::Logger << dcl::util::Debug
@@ -164,17 +164,20 @@ void RemoteEvent::synchronize(
          */
         /* TODO Use SychronizationListener interface to send message */
         /* TODO Send message to event owner (host or compute node) */
-        dclasio::message::EventSynchronizationMessage msg(_id);
+        dcl::transfer_id transferId = dcl::create_transfer_id();
+        dclasio::message::EventSynchronizationMessage msg(_id, transferId);
         _context->host().sendMessage(msg);
         dcl::util::Logger << dcl::util::Debug
                 << "Sent event synchronization message to host (ID=" << _id << ')'
                 << std::endl;
 
+        auto bufferTransferId = transferId;
         for (auto memoryObject : _memoryObjects) {
             cl::Event acquire; /* Event representing the acquire operation of the current memory object.
                                 * Serves as synchronization point for following commands and other devices */
-            memoryObject->acquire(_context->host(), commandQueue, _event, &acquire);
+            memoryObject->acquire(_context->host(), clDataTransferContext, bufferTransferId, &_event, &acquire);
             _syncEvents.push_back(acquire);
+            dcl::next_transfer_id(bufferTransferId);
         }
     }
 
@@ -194,7 +197,7 @@ void RemoteEvent::onExecutionStatusChanged(cl_int executionStatus) {
     _event.setStatus(executionStatus);
 }
 
-void RemoteEvent::onSynchronize(dcl::Process& process) {
+void RemoteEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
     dcl::util::Logger << dcl::util::Error
             << "Synchronization attempt on replacement event (ID=" << _id << ')'
             << std::endl;
@@ -231,8 +234,8 @@ LocalEvent::LocalEvent(dcl::object_id id,
 LocalEvent::~LocalEvent() {
 }
 
-void LocalEvent::onSynchronize(dcl::Process& process) {
-    cl::CommandQueue commandQueue = _context->ioCommandQueue();
+void LocalEvent::onSynchronize(dcl::Process& process, dcl::transfer_id transferId) {
+    auto clDataTransferContext = _context->ioClOutDataTransferContext();
 
     dcl::util::Logger << dcl::util::Debug
             << "Event synchronization (ID=" << _id
@@ -243,13 +246,15 @@ void LocalEvent::onSynchronize(dcl::Process& process) {
      * The acquire operations are performed using the context's I/O command
      * queue. This queue is reserved for synchronization and thus does not
      * interfere (e.g., deadlock) with application commands. */
+    auto bufferTransferId = transferId;
     for (auto memoryObject : _memoryObjects) {
-        memoryObject->release(process, commandQueue, *this);
+        memoryObject->release(process, clDataTransferContext, bufferTransferId, *this);
+        dcl::next_transfer_id(bufferTransferId);
     }
 
     /* The I/O command queue must be flushed to ensure instant execution of the
      * acquire operation */
-    commandQueue.flush();
+    clDataTransferContext.commandQueue().flush();
 }
 
 /* ****************************************************************************/
@@ -260,8 +265,7 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context, memoryObjects), _event(event)
 {
-    /* Schedule event status update notification */
-    _event.setCallback(CL_COMPLETE, &onEventComplete, this);
+    postConstructorInitialize();
 }
 
 SimpleEvent::SimpleEvent(dcl::object_id id,
@@ -270,8 +274,7 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context, memoryObject), _event(event)
 {
-    /* Schedule event status update notification */
-    _event.setCallback(CL_COMPLETE, &onEventComplete, this);
+    postConstructorInitialize();
 }
 
 SimpleEvent::SimpleEvent(dcl::object_id id,
@@ -279,6 +282,28 @@ SimpleEvent::SimpleEvent(dcl::object_id id,
         const cl::Event& event) :
     LocalEvent(id, context), _event(event)
 {
+    postConstructorInitialize();
+}
+
+SimpleEvent::SimpleEvent(dcl::object_id id,
+                         const std::shared_ptr<Context>& context,
+                         const cl::Event& event,
+                         bool doPostConstructorInitialize) :
+        LocalEvent(id, context), _event(event)
+{
+    // This constructor is needed to correctly handle the case where a class derived from SimpleEvent overrides
+    // onExecutionStatusChanged(). Without this constructor, if this happens, when registering the event callback
+    // from the constructor, if the event is already completed, the callback will trigger immediately, and call
+    // onExecutionStatusChanged from within the constructor. However, this will call the base implementation of
+    // onExecutionStatusChanged instead of the derived one, because the derived class still hasn't been constructed
+    // For more information: https://stackoverflow.com/a/962148
+    //                       https://isocpp.org/wiki/faq/strange-inheritance#calling-virtuals-from-ctor-idiom
+    // This overload gives the derived class a chance to call postConstructorInitialize itself after its constructor
+    if (doPostConstructorInitialize)
+        postConstructorInitialize();
+}
+
+void SimpleEvent::postConstructorInitialize() {
     /* Schedule event status update notification */
     _event.setCallback(CL_COMPLETE, &onEventComplete, this);
 }
@@ -324,7 +349,9 @@ void SimpleEvent::onExecutionStatusChanged(cl_int executionStatus) {
 SimpleNodeEvent::SimpleNodeEvent(dcl::object_id id,
         const std::shared_ptr<Context>& context,
         const cl::Event& event) :
-    SimpleEvent(id, context, event) { }
+    SimpleEvent(id, context, event, false) {
+    postConstructorInitialize(); // See comment inside called base class constructor as for why this is necessary
+}
 
 void SimpleNodeEvent::onExecutionStatusChanged(cl_int executionStatus) {
     if (!_context->computeNodes().empty()) {

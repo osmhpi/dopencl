@@ -86,13 +86,13 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
         buf << _commandQueueId << _commandId << _kernelId << _offset << _global
                 << _local << _eventIdWaitList << _event;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
         buf >> _commandQueueId >> _commandId >> _kernelId >> _offset >> _global
                 >> _local >> _eventIdWaitList >> _event;

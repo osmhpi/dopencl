@@ -193,7 +193,7 @@ ComputeNodeImpl::ComputeNodeImpl(
     ProcessImpl(messageDispatcher, dataDispatcher, endpoint)
 {
     dcl::util::Logger << dcl::util::Debug
-            << "Created compute node '" << url() << '\'' << std::endl;
+            << "Created compute node (not yet connected)" << std::endl;
 }
 
 ComputeNodeImpl::~ComputeNodeImpl() {
@@ -284,8 +284,8 @@ std::unique_ptr<message::Response> ComputeNodeImpl::awaitResponse(
     std::unique_ptr<message::Response> response;
 
 	try {
-#ifndef NDEBUG
-        // Wait for responses indefinitely during debug
+#if 1
+        // Wait for responses indefinitely
 		response = _responseBuffer.get(request);
 #else
         /* FIXME Allow for blocking operation (e.g. finish) to wait indefinitely

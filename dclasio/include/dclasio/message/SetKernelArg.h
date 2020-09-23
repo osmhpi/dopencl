@@ -85,12 +85,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         Request::pack(buf);
         buf << _kernelId << _index;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         Request::unpack(buf);
         buf >> _kernelId >> _index;
     }
@@ -127,12 +127,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         SetKernelArg::pack(buf);
         buf << _arg;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         SetKernelArg::unpack(buf);
         buf >> _arg;
     }
@@ -153,7 +153,7 @@ public:
     SetKernelArgMemObject(
             dcl::object_id kernelId,
             cl_uint index,
-            dcl::object_id memObjectId);
+            dcl::object_id memObjectId, bool fixme_32bit_overload_conflict_deambiguator);
     SetKernelArgMemObject(const SetKernelArgMemObject& rhs);
     virtual ~SetKernelArgMemObject();
 
@@ -167,12 +167,12 @@ public:
         return TYPE;
     }
 
-    void pack(dcl::ByteBuffer& buf) const {
+    void pack(dcl::OutputByteBuffer& buf) const {
         SetKernelArg::pack(buf);
         buf << _size << _memObjectId;
     }
 
-    void unpack(dcl::ByteBuffer& buf) {
+    void unpack(dcl::InputByteBuffer& buf) {
         SetKernelArg::unpack(buf);
         buf >> _size >> _memObjectId;
     }

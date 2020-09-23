@@ -207,7 +207,7 @@ void _cl_platform_id::destroyComputeNode(cl_compute_node_WWU computeNode) {
 		assert(numErased == 1);
 	}
 
-	//_communicationManager->destroyComputeNode(remote);
+	_communicationManager->destroyComputeNode(remote);
 
 	delete computeNode;
 }

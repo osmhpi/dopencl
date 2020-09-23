@@ -173,7 +173,7 @@ void _cl_kernel::setArgument(cl_uint index, size_t size, const void *value) {
 			if (mem) {
 				/* value points to memory object */
 				request.reset(new dclasio::message::SetKernelArgMemObject(
-				        _id, index, mem->remoteId()));
+				        _id, index, mem->remoteId(), true));
 
 				if (mem->isOutput()) {
 				    /* If a writable (CL_MEM_WRITE_ONLY, CL_MEM_READ_WRITE)

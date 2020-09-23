@@ -43,6 +43,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <dcl/util/Logger.h>
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #include <OpenCL/cl_wwu_dcl.h>

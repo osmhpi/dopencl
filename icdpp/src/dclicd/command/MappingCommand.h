@@ -46,6 +46,8 @@
 
 #include "Command.h"
 
+#include <dcl/DCLTypes.h>
+
 #ifdef __APPLE__
 #include <OpenCL/cl.h>
 #else
@@ -71,10 +73,12 @@ public:
             size_t              cb,
             void *              ptr);
     virtual ~MapBufferCommand();
+    dcl::transfer_id transferId() const;
 
 private:
     cl_int submit();
 
+    dcl::transfer_id _transfer_id;
     Buffer *_buffer;
     cl_map_flags _flags;
     size_t _cb;
@@ -92,6 +96,7 @@ public:
             size_t              cb,
             void *              ptr);
     virtual ~UnmapBufferCommand();
+    dcl::transfer_id transferId() const;
 
 private:
     cl_int submit();
@@ -99,6 +104,7 @@ private:
     cl_int complete(
             cl_int errcode);
 
+    dcl::transfer_id _transfer_id;
     Buffer *_memobj;
     cl_map_flags _flags;
     size_t _cb;

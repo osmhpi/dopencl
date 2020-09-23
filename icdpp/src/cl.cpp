@@ -104,7 +104,7 @@ cl_int clEnqueueBarrierWithWaitList(
         const cl_event * event_wait_list,
         cl_event *       event);
 
-void * clGetExtensionFunctionAddressForPlatform(
+void *clGetExtensionFunctionAddressForPlatform(
         cl_platform_id platform,
         const char *   func_name);
 #endif // #if !defined(CL_VERSION_1_2)
@@ -253,15 +253,52 @@ cl_int clCreateSubDevices(
 }
 
 cl_int clRetainDevice(cl_device_id device) {
-    assert(!"clRetainDevice not implemented");
+    if (!device) return CL_INVALID_DEVICE;
+
+    // TODO: Implement logic for updating the reference count for
+    // subdevices (clCreateSubDevices) once they are implemented
+
+    // For root level devices, a call to clRetainDevice or clReleaseDevice
+    // is valid but acts as a no-op (doesn't change the reference count)
     return CL_SUCCESS;
 }
 
 cl_int clReleaseDevice(cl_device_id device) {
-    assert(!"clReleaseDevice not implemented");
+    if (!device) return CL_INVALID_DEVICE;
+
+    // TODO: See comment on clRetainDevice
+
     return CL_SUCCESS;
 }
 #endif // #if defined(CL_VERSION_1_2)
+
+#if defined(CL_VERSION_2_1)
+
+cl_int clSetDefaultDeviceCommandQueue(
+        cl_context context,
+        cl_device_id device,
+        cl_command_queue command_queue) {
+    assert(!"clSetDefaultDeviceCommandQueue not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clGetDeviceAndHostTimer(
+        cl_device_id device,
+        cl_ulong *device_timestamp,
+        cl_ulong *host_timestamp) {
+    assert(!"clGetDeviceAndHostTimer not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clGetHostTimer(
+        cl_device_id device,
+        cl_ulong *host_timestamp) {
+    assert(!"clGetHostTimer not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_1)
+
 
 /* Context APIs */
 cl_context clCreateContext(const cl_context_properties *properties,
@@ -347,6 +384,8 @@ cl_int clGetContextInfo(cl_context context, cl_context_info param_name,
 }
 
 /* Command Queue APIs */
+#if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS) || (defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
+
 cl_command_queue clCreateCommandQueue(cl_context context, cl_device_id device,
 		cl_command_queue_properties properties, cl_int *errcode_ret) {
 	cl_command_queue command_queue = nullptr;
@@ -367,6 +406,21 @@ cl_command_queue clCreateCommandQueue(cl_context context, cl_device_id device,
 	return command_queue;
 }
 
+#endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS)
+
+#if defined(CL_VERSION_2_0)
+
+cl_command_queue clCreateCommandQueueWithProperties(
+        cl_context context,
+        cl_device_id device,
+        const cl_queue_properties *properties,
+        cl_int *errcode_ret) {
+    assert(!"clCreateCommandQueueWithProperties not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_VERSION_2_0)
+
 cl_int clRetainCommandQueue(cl_command_queue command_queue) {
 	return clRetain(command_queue);
 }
@@ -381,7 +435,7 @@ cl_int clGetCommandQueueInfo(cl_command_queue command_queue,
     return clGetInfo(command_queue, param_name, param_value_size, param_value, param_value_size_ret);
 }
 
-#if defined(CL_USE_DEPRECATED_OPENCL_1_0_APIS) || (defined(CL_VERSION_1_0) && !defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
+#if defined(CL_USE_DEPRECATED_OPENCL_1_0_APIS) || (defined(CL_VERSION_1_0) && !defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
 cl_int clSetCommandQueueProperty(
 		cl_command_queue command_queue,
 		cl_command_queue_properties properties,
@@ -424,6 +478,68 @@ cl_mem clCreateSubBuffer(
     assert(!"clCreateSubBuffer not implemented");
     return nullptr;
 }
+
+#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
+
+cl_mem clCreateImage2D(
+        cl_context context,
+        cl_mem_flags flags,
+        const cl_image_format *image_format,
+        size_t image_width,
+        size_t image_height,
+        size_t image_row_pitch,
+        void *host_ptr,
+        cl_int *errcode_ret) {
+    assert(!"clCreateImage2D not implemented");
+    return nullptr;
+}
+
+cl_mem clCreateImage3D(
+        cl_context context,
+        cl_mem_flags flags,
+        const cl_image_format *image_format,
+        size_t image_width,
+        size_t image_height,
+        size_t image_depth,
+        size_t image_row_pitch,
+        size_t image_slice_pitch,
+        void *host_ptr,
+        cl_int *errcode_ret) {
+    assert(!"clCreateImage3D not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS)
+
+#if defined(CL_VERSION_1_2)
+
+cl_mem clCreateImage(
+        cl_context context,
+        cl_mem_flags flags,
+        const cl_image_format *image_format,
+        const cl_image_desc *image_desc,
+        void *host_ptr,
+        cl_int *errcode_ret) {
+    assert(!"clCreateImage not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_VERSION_1_2)
+
+#if defined(CL_VERSION_2_0)
+
+cl_mem clCreatePipe(
+        cl_context context,
+        cl_mem_flags flags,
+        cl_uint pipe_packet_size,
+        cl_uint pipe_max_packets,
+        const cl_pipe_properties *properties,
+        cl_int *errcode_ret) {
+    assert(!"clCreatePipe not implemented");
+    return nullptr;
+}
+
+#endif
 
 cl_int clRetainMemObject(cl_mem memobj) {
 	return clRetain(memobj);
@@ -474,8 +590,32 @@ cl_int clGetMemObjectInfo(cl_mem mem,
     return clGetInfo(mem, param_name, param_value_size, param_value, param_value_size_ret);
 }
 
+cl_int clGetImageInfo(
+        cl_mem image,
+        cl_image_info param_name,
+        size_t param_value_size,
+        void *param_value,
+        size_t *param_value_size_ret) {
+    assert(!"clGetImageInfo not implemented");
+    return CL_SUCCESS;
+}
+
+#if defined(CL_VERSION_2_0)
+
+cl_int clGetPipeInfo(cl_mem pipe,
+              cl_pipe_info param_name,
+              size_t param_value_size,
+              void *param_value,
+              size_t *param_value_size_ret) {
+    assert(!"clGetPipeInfo not implemented");
+    return CL_SUCCESS;
+}
+
+
+#endif
+
 cl_int clSetMemObjectDestructorCallback(cl_mem memobj,
-		void (CL_CALLBACK *pfn_notify)(cl_mem, void *),
+		void (CL_CALLBACK *pfn_notify)(cl_mem memobj, void *user_data),
 		void *user_data) {
 	if (memobj) {
 		try {
@@ -491,6 +631,73 @@ cl_int clSetMemObjectDestructorCallback(cl_mem memobj,
 }
 
 /* Sampler APIs */
+#if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS) || (defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
+
+cl_sampler clCreateSampler(
+        cl_context context,
+        cl_bool normalized_coords,
+        cl_addressing_mode addressing_mode,
+        cl_filter_mode filter_mode,
+        cl_int *errcode_ret) {
+    assert(!"clCreateSampler not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS)
+
+#if defined(CL_VERSION_2_0)
+
+cl_sampler clCreateSamplerWithProperties(
+        cl_context context,
+        const cl_sampler_properties *normalized_coords,
+        cl_int *errcode_ret) {
+    assert(!"clCreateSamplerWithProperties not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_VERSION_2_0)
+
+cl_int clRetainSampler(
+        cl_sampler sampler) {
+    assert(!"clRetainSampler not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clReleaseSampler(
+        cl_sampler sampler) {
+    assert(!"clReleaseSampler not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clGetSamplerInfo(
+        cl_sampler sampler,
+        cl_sampler_info param_name,
+        size_t param_value_size,
+        void *param_value,
+        size_t *param_value_size_ret) {
+    assert(!"clGetSamplerInfo not implemented");
+    return CL_SUCCESS;
+}
+
+/* SVM Allocation APIs */
+#if defined(CL_VERSION_2_0)
+
+void *clSVMAlloc(
+        cl_context context,
+        cl_svm_mem_flags flags,
+        size_t size,
+        cl_uint alignment) {
+    assert(!"clSVMAlloc not implemented");
+    return nullptr;
+}
+
+void clSVMFree(
+        cl_context context,
+        void *svm_pointer) {
+    assert(!"clSVMFree not implemented");
+}
+
+#endif // #if defined(CL_VERSION_2_0)
 
 /* Program Object APIs */
 cl_program clCreateProgramWithSource(cl_context context, cl_uint count,
@@ -630,6 +837,19 @@ cl_program clCreateProgramWithBuiltInKernels(
 }
 #endif // #if defined(CL_VERSION_1_2)
 
+#if defined(CL_VERSION_2_1)
+
+cl_program clCreateProgramWithIL(
+        cl_context context,
+        const void *il,
+        size_t length,
+        cl_int *errcode_ret) {
+    assert(!"clCreateProgramWithIL not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_VERSION_2_1)
+
 cl_int clRetainProgram(cl_program program) {
 	return clRetain(program);
 }
@@ -676,13 +896,13 @@ cl_int clBuildProgram(cl_program program, cl_uint num_devices,
 cl_int clCompileProgram(
         cl_program program,
         cl_uint num_devices,
-        const cl_device_id * device_list,
-        const char * options,
+        const cl_device_id *device_list,
+        const char *options,
         cl_uint num_input_headers,
-        const cl_program * input_headers,
-        const char ** header_include_names,
-        void(CL_CALLBACK * pfn_notify)(cl_program, void *),
-        void * user_data) {
+        const cl_program *input_headers,
+        const char **header_include_names,
+        void(CL_CALLBACK *pfn_notify)(cl_program program, void *user_data),
+        void *user_data) {
     std::unique_ptr<std::vector<cl_device_id>> _devices;
     std::unique_ptr<_cl_program::Headers> _inputHeaders;
     cl_int errcode = CL_SUCCESS;
@@ -733,19 +953,41 @@ cl_int clCompileProgram(
 cl_program clLinkProgram(
         cl_context context,
         cl_uint num_devices,
-        const cl_device_id * device_list,
-        const char * options,
+        const cl_device_id *device_list,
+        const char *options,
         cl_uint num_input_programs,
-        const cl_program * input_programs,
-        void(CL_CALLBACK * pfn_notify)(cl_program, void *),
-        void * user_data,
-        cl_int * errcode_ret) {
+        const cl_program *input_programs,
+        void(CL_CALLBACK *pfn_notify)(cl_program program, void *user_data),
+        void *user_data,
+        cl_int *errcode_ret) {
     assert(!"clLinkProgram not implemented");
     return nullptr;
 }
 #endif // #if defined(CL_VERSION_1_2)
 
-#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
+#if defined(CL_VERSION_2_2)
+
+cl_int clSetProgramReleaseCallback(
+        cl_program program,
+        void (CL_CALLBACK *pfn_notify)(cl_program program, void *user_data),
+        void *user_data) {
+    assert(!"clSetProgramReleaseCallback not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clSetProgramSpecializationConstant(
+        cl_program program,
+        cl_uint  spec_id,
+        size_t  spec_size,
+        const void *spec_value) {
+    assert(!"clSetProgramSpecializationConstant not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_2)
+
+
+#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
 cl_int clUnloadCompiler(void) {
 	/* clUnloadCompiler is deprecated since OpenCL 1.2 and is implemented as a
 	 * no-operation in dOpenCL */
@@ -850,6 +1092,17 @@ cl_int clCreateKernelsInProgram(cl_program program, cl_uint num_kernels,
 	return CL_SUCCESS;
 }
 
+#if defined(CL_VERSION_2_1)
+
+cl_kernel clCloneKernel(
+        cl_kernel source_kernel,
+        cl_int* errcode_ret) {
+    assert(!"clCloneKernel not implemented");
+    return nullptr;
+}
+
+#endif // #if defined(CL_VERSION_2_1)
+
 cl_int clRetainKernel(cl_kernel kernel) {
 	return clRetain(kernel);
 }
@@ -875,6 +1128,27 @@ cl_int clSetKernelArg(cl_kernel kernel, cl_uint arg_index, size_t arg_size,
 	return CL_SUCCESS;
 }
 
+#if defined(CL_VERSION_2_0)
+
+cl_int clSetKernelArgSVMPointer(
+        cl_kernel kernel,
+        cl_uint arg_index,
+        const void *arg_value) {
+    assert(!"clSetKernelArgSVMPointer not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clSetKernelExecInfo(
+        cl_kernel kernel,
+        cl_kernel_exec_info param_name,
+        size_t param_value_size,
+        const void *param_value) {
+    assert(!"clSetKernelExecInfo not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_0)
+
 cl_int clGetKernelInfo(cl_kernel kernel, cl_kernel_info param_name,
 		size_t param_value_size, void *param_value,
 		size_t *param_value_size_ret) {
@@ -887,8 +1161,8 @@ cl_int clGetKernelArgInfo(
         cl_uint arg_indx,
         cl_kernel_arg_info param_name,
         size_t param_value_size,
-        void * param_value,
-        size_t * param_value_size_ret) {
+        void *param_value,
+        size_t *param_value_size_ret) {
     if (kernel) {
         try {
             kernel->getArgInfo(arg_indx, param_name, param_value_size,
@@ -909,8 +1183,8 @@ cl_int clGetKernelWorkGroupInfo(
         cl_device_id device,
         cl_kernel_work_group_info param_name,
         size_t param_value_size,
-        void * param_value,
-        size_t * param_value_size_ret) {
+        void *param_value,
+        size_t *param_value_size_ret) {
     if (kernel) {
         try {
             kernel->getWorkGroupInfo(device, param_name, param_value_size,
@@ -924,6 +1198,23 @@ cl_int clGetKernelWorkGroupInfo(
 
     return CL_SUCCESS;
 }
+
+#if defined(CL_VERSION_2_1)
+
+cl_int clGetKernelSubGroupInfo(
+        cl_kernel kernel,
+        cl_device_id device,
+        cl_kernel_sub_group_info param_name,
+        size_t input_value_size,
+        const void* input_value,
+        size_t param_value_size,
+        void* param_value,
+        size_t* param_value_size_ret) {
+    assert(!"clGetKernelSubGroupInfo not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_1)
 
 /* Event Object APIs */
 cl_int clWaitForEvents(cl_uint num_events, const cl_event *event_list) {
@@ -997,7 +1288,7 @@ cl_int clSetEventCallback(
 				cl_event event,
 				cl_int event_command_exec_status,
 				void *user_data),
-		void * user_data) {
+		void *user_data) {
 	if (event) {
 		try {
 			event->setCallback(
@@ -1105,9 +1396,9 @@ cl_int clEnqueueReadBufferRect(
 }
 
 cl_int clEnqueueWriteBuffer(cl_command_queue command_queue, cl_mem mem,
-		cl_bool blocking_write, size_t offset, size_t cb, const void * ptr,
-		cl_uint num_events_in_wait_list, const cl_event * event_wait_list,
-		cl_event * event) {
+		cl_bool blocking_write, size_t offset, size_t cb, const void *ptr,
+		cl_uint num_events_in_wait_list, const cl_event *event_wait_list,
+		cl_event *event) {
 	if (!command_queue) return CL_INVALID_COMMAND_QUEUE;
 	if ((num_events_in_wait_list > 0 && !event_wait_list)
 			|| (num_events_in_wait_list == 0 && event_wait_list)) {
@@ -1210,7 +1501,98 @@ cl_int clEnqueueCopyBufferRect(
     return CL_SUCCESS;
 }
 
-void * clEnqueueMapBuffer(cl_command_queue command_queue, cl_mem mem,
+cl_int clEnqueueReadImage(
+        cl_command_queue command_queue,
+        cl_mem image,
+        cl_bool blocking_read,
+        const size_t *origin,
+        const size_t *region,
+        size_t row_pitch,
+        size_t slice_pitch,
+        void *ptr,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueReadImage not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueWriteImage(
+        cl_command_queue command_queue,
+        cl_mem image,
+        cl_bool blocking_write,
+        const size_t *origin,
+        const size_t *region,
+        size_t input_row_pitch,
+        size_t input_slice_pitch,
+        const void *ptr,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueWriteImage not implemented");
+    return CL_SUCCESS;
+}
+
+#if defined(CL_VERSION_1_2)
+
+cl_int clEnqueueFillImage(
+        cl_command_queue command_queue,
+        cl_mem image,
+        const void *fill_color,
+        const size_t *origin,
+        const size_t *region,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueFillImage not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_1_2)
+
+cl_int clEnqueueCopyImage(
+        cl_command_queue command_queue,
+        cl_mem src_image,
+        cl_mem dst_image,
+        const size_t *src_origin,
+        const size_t *dst_origin,
+        const size_t *region,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueCopyImage not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueCopyImageToBuffer(
+        cl_command_queue command_queue,
+        cl_mem src_image,
+        cl_mem dst_buffer,
+        const size_t *src_origin,
+        const size_t *region,
+        size_t dst_offset,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueCopyImageToBuffer not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueCopyBufferToImage(
+        cl_command_queue command_queue,
+        cl_mem src_buffer,
+        cl_mem dst_image,
+        size_t src_offset,
+        const size_t *dst_origin,
+        const size_t *region,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueCopyBufferToImage not implemented");
+    return CL_SUCCESS;
+}
+
+void *clEnqueueMapBuffer(cl_command_queue command_queue, cl_mem mem,
 		cl_bool blocking_map, cl_map_flags map_flags, size_t offset, size_t cb,
 		cl_uint num_events_in_wait_list, const cl_event *event_wait_list,
 		cl_event *event, cl_int *errcode_ret) {
@@ -1242,6 +1624,23 @@ void * clEnqueueMapBuffer(cl_command_queue command_queue, cl_mem mem,
 	}
 
 	return ptr;
+}
+
+void *clEnqueueMapImage(
+        cl_command_queue command_queue,
+        cl_mem image,
+        cl_bool blocking_map,
+        cl_map_flags map_flags,
+        const size_t *origin,
+        const size_t *region,
+        size_t *image_row_pitch,
+        size_t *image_slice_pitch,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event,
+        cl_int *errcode_ret) {
+    assert(!"clEnqueueMapImage not implemented");
+    return nullptr;
 }
 
 cl_int clEnqueueUnmapMemObject(cl_command_queue command_queue, cl_mem memobj,
@@ -1299,10 +1698,10 @@ cl_int clEnqueueMigrateMemObjects(
 #endif // #if defined(CL_VERSION_1_2)
 
 cl_int clEnqueueNDRangeKernel(cl_command_queue command_queue, cl_kernel kernel,
-		cl_uint work_dim, const size_t * global_work_offset,
-		const size_t * global_work_size, const size_t * local_work_size,
-		cl_uint num_events_in_wait_list, const cl_event * event_wait_list,
-		cl_event * event) {
+		cl_uint work_dim, const size_t *global_work_offset,
+		const size_t *global_work_size, const size_t *local_work_size,
+		cl_uint num_events_in_wait_list, const cl_event *event_wait_list,
+		cl_event *event) {
 	/*
 	 * Validate parameters
 	 */
@@ -1343,6 +1742,8 @@ cl_int clEnqueueNDRangeKernel(cl_command_queue command_queue, cl_kernel kernel,
 	return CL_SUCCESS;
 }
 
+#if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS) || (defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
+
 cl_int clEnqueueTask(
         cl_command_queue command_queue,
         cl_kernel kernel,
@@ -1371,6 +1772,8 @@ cl_int clEnqueueTask(
 
     return CL_SUCCESS;
 }
+
+#endif // #if defined(CL_USE_DEPRECATED_OPENCL_1_2_APIS)
 
 cl_int clEnqueueNativeKernel(
         cl_command_queue command_queue,
@@ -1411,7 +1814,7 @@ cl_int clEnqueueNativeKernel(
     return CL_INVALID_OPERATION;
 }
 
-#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
+#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
 cl_int clEnqueueMarker(cl_command_queue command_queue, cl_event *event) {
 	/* Implement clEnqueueMarker using OpenCL 1.2 API */
 
@@ -1487,9 +1890,95 @@ cl_int clEnqueueBarrierWithWaitList(cl_command_queue command_queue,
 	return CL_SUCCESS;
 }
 
+#if defined(CL_VERSION_2_0)
+
+cl_int clEnqueueSVMFree(
+        cl_command_queue command_queue,
+        cl_uint num_svm_pointers,
+        void *svm_pointers[],
+        void (CL_CALLBACK *fn_free_func)(cl_command_queue queue,
+                                         cl_uint num_svm_pointers,
+                                         void *svm_pointers[],
+                                         void *user_data),
+        void *user_data,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMFree not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueSVMMemcpy(
+        cl_command_queue command_queue,
+        cl_bool blocking_copy,
+        void *dst_ptr,
+        const void *src_ptr,
+        size_t size,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMMemcpy not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueSVMMemFill(
+        cl_command_queue command_queue,
+        void *svm_ptr,
+        const void *pattern,
+        size_t pattern_size,
+        size_t size,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMMemFill not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueSVMMap(
+        cl_command_queue command_queue,
+        cl_bool blocking_map,
+        cl_map_flags flags,
+        void *svm_ptr,
+        size_t size,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMMap not implemented");
+    return CL_SUCCESS;
+}
+
+cl_int clEnqueueSVMUnmap(
+        cl_command_queue command_queue,
+        void *svm_ptr,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMUnmap not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_0)
+
+#if defined(CL_VERSION_2_1)
+
+cl_int clEnqueueSVMMigrateMem(
+        cl_command_queue command_queue,
+        cl_uint num_svm_pointers,
+        const void **svm_pointers,
+        const size_t *sizes,
+        cl_mem_migration_flags flags,
+        cl_uint num_events_in_wait_list,
+        const cl_event *event_wait_list,
+        cl_event *event) {
+    assert(!"clEnqueueSVMMigrateMem not implemented");
+    return CL_SUCCESS;
+}
+
+#endif // #if defined(CL_VERSION_2_1)
+
 /******************************************************************************/
 
-#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2))
+#if defined(CL_USE_DEPRECATED_OPENCL_1_1_APIS) || (defined(CL_VERSION_1_1) && !defined(CL_VERSION_1_2) && !defined(CL_VERSION_2_0) && !defined(CL_VERSION_2_1) && !defined(CL_VERSION_2_2))
 /**
  * @brief Returns the address of the extension function named by \c func_name.
  *
@@ -1500,7 +1989,7 @@ cl_int clEnqueueBarrierWithWaitList(cl_command_queue command_queue,
  * @param[in]  func_name    Name of an extension function
  * @return the address of the extension function named by func_name.
  */
-void * clGetExtensionFunctionAddress(const char *func_name) {
+void *clGetExtensionFunctionAddress(const char *func_name) {
     /* Implement clGetExtensionFunctionAddress using OpenCL 1.2 API */
 
     /* Get extension function address for default platform dOpenCL */
@@ -1523,7 +2012,7 @@ void * clGetExtensionFunctionAddress(const char *func_name) {
  * @param[in]  func_name    Name of an extension function
  * @return the address of the extension function named by \c func_name.
  */
-void * clGetExtensionFunctionAddressForPlatform(cl_platform_id platform,
+void *clGetExtensionFunctionAddressForPlatform(cl_platform_id platform,
 		const char *func_name) {
     if (!strcmp(func_name, "clCreateComputeNodeWWU")) {
         return reinterpret_cast<void *> (&clCreateComputeNodeWWU);
